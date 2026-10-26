@@ -1,24 +1,23 @@
-// UI wiring: controls, pan/zoom, hover info, split/merge on click, overview map.
+// UI wiring: controls, endless pan/zoom, generation of sections on demand, hover
+// info, split/merge on click and the overview map.
 (function (M) {
   'use strict';
 
   const $ = (id) => document.getElementById(id);
   const canvas = $('map');
   const renderer = new M.Renderer(canvas);
+  const C = M.CELL_SIZE, S = M.SECTION;
 
-  const C = M.CELL_SIZE;
-  const state = { seed: 1848, cols: 64, strength: 2.5, warp: 0.35, autoSplit: 28, overview: 15000 };
-  let terrain, grid;
-  // Centre of the grid window in world metres.
-  let centre = null;
+  const state = { seed: 1848, strength: 2.5, warp: 0.35, buffer: 6, sources: 2, riverLength: 128, autoSplit: 28, overview: 15000 };
+  let terrain, world;
+  const edits = new Map(); // the player's split/merge edits; the only state worth saving
 
   const km = (m) => (m / 1000).toLocaleString('nb-NO', { maximumFractionDigits: 1 });
-  const rowsFor = (cols) => Math.round((cols * 44) / 64);
   const splitSide = () => (state.autoSplit >= 8 ? state.autoSplit : 0);
 
-  // Picks a start point with both water and varied land inside the window.
+  // Picks a start point with both water and varied land nearby. Returns metres.
   function findStart(t) {
-    const span = state.cols * C;
+    const span = 1000;
     let best = [0, 0], bestScore = -Infinity;
     for (let gy = -12; gy <= 12; gy++) {
       for (let gx = -12; gx <= 12; gx++) {
@@ -40,52 +39,106 @@
     return best;
   }
 
-  function rebuild() {
-    const t0 = performance.now();
-    if (!terrain || terrain.seed !== state.seed) {
-      terrain = new M.Terrain(state.seed);
-      centre = findStart(terrain);
-    }
-    const rows = rowsFor(state.cols);
-    const i0 = Math.round(centre[0] / C - state.cols / 2);
-    const j0 = Math.round(centre[1] / C - rows / 2);
-    grid = new M.Grid(terrain, { cols: state.cols, rows, i0, j0, strength: state.strength, warp: state.warp });
-    grid.autoSplit(splitSide());
+  // New world with the current settings. Keeps cached elevations when the seed is unchanged.
+  function makeWorld() {
+    const keep = world && terrain.seed === state.seed ? world.elev : undefined;
+    if (!terrain || terrain.seed !== state.seed) terrain = new M.Terrain(state.seed);
+    world = new M.World(terrain, {
+      strength: state.strength,
+      warp: state.warp,
+      buffer: state.buffer,
+      sources: state.sources,
+      riverLength: state.riverLength,
+      autoSplit: splitSide(),
+      edits,
+      elevCache: keep,
+    });
     renderer.hover = null;
-    const leaves = [...grid.leaves()].length;
+    lastBuild = [];
+  }
+
+  // --- generation loop --------------------------------------------------------
+  // Missing sections are generated nearest-first, a few per frame, so the view
+  // stays responsive when the player jumps somewhere new.
+  let lastBuild = [];
+  let pumping = false;
+  function pump() {
+    if (pumping) return;
+    pumping = true;
+    requestAnimationFrame(function step() {
+      const t0 = performance.now();
+      let missing = 0;
+      for (const [sx, sy] of renderer.visibleSections()) {
+        if (world.loaded(sx, sy)) continue;
+        if (performance.now() - t0 > 40) {
+          missing++;
+          continue;
+        }
+        const s = world.section(sx, sy);
+        lastBuild.push(s.buildTime);
+        if (lastBuild.length > 30) lastBuild.shift();
+      }
+      renderer.draw(world);
+      updateStatus(missing);
+      if (missing) requestAnimationFrame(step);
+      else pumping = false;
+    });
+  }
+
+  let drawPending = false;
+  function draw() {
+    pump();
+    if (drawPending || pumping) return;
+    drawPending = true;
+    requestAnimationFrame(() => {
+      drawPending = false;
+      renderer.draw(world);
+    });
+  }
+
+  function updateStatus(missing) {
+    const vis = renderer.visibleSections().map(([sx, sy]) => world.loaded(sx, sy)).filter(Boolean);
+    const nonConvex = vis.reduce((n, s) => n + s.nonConvex, 0);
+    const avg = lastBuild.length ? Math.round(lastBuild.reduce((a, b) => a + b, 0) / lastBuild.length) : 0;
+    const [cx, cy] = renderer.centre;
     $('status').textContent =
-      `${grid.cols} × ${grid.rows} grunnruter (${leaves} med underruter), ` +
-      `${km(grid.cols * C)} × ${km(grid.rows * C)} km ved x ${km(centre[0])} km, y ${km(centre[1])} km. ` +
-      `Bygget på ${Math.round(performance.now() - t0)} ms.`;
+      `Midt i bildet: x ${km(cx * C)} km, y ${km(cy * C)} km. ` +
+      `${vis.length} seksjoner synlige${missing ? `, ${missing} genereres` : ''}, ${world.sections.size} i minnet. ` +
+      `Snitt ${avg} ms per seksjon. Ikke-konvekse ruter i bildet: ${nonConvex}.`;
     drawOverview();
-    draw();
   }
 
   // --- overview -------------------------------------------------------------
   const overview = $('overview');
-  let overviewInfo = null;
-  function drawOverview() {
-    const rect = [grid.i0 * C, grid.j0 * C, (grid.i0 + grid.cols) * C, (grid.j0 + grid.rows) * C];
-    overviewInfo = M.drawOverview(overview, terrain, centre[0], centre[1], state.overview, 'terrain', rect);
+  let overviewInfo = null, overviewKey = '';
+  function drawOverview(force) {
+    const [cx, cy] = renderer.centre;
+    // Re-render the terrain only when the view has moved noticeably.
+    const k = `${state.seed}|${state.overview}|${Math.round((cx * C) / (state.overview / 40))}|${Math.round((cy * C) / (state.overview / 40))}`;
+    const [x0, y0] = renderer.toWorld(0, 0), [x1, y1] = renderer.toWorld(renderer.cssW, renderer.cssH);
+    if (k !== overviewKey || force) {
+      overviewKey = k;
+      overviewInfo = M.drawOverview(overview, terrain, cx * C, cy * C, state.overview, 'terrain', [x0 * C, y0 * C, x1 * C, y1 * C]);
+      overviewInfo.cx = cx * C;
+      overviewInfo.cy = cy * C;
+    }
   }
   overview.addEventListener('click', (e) => {
     const r = overview.getBoundingClientRect();
-    const { W, H, mpp } = overviewInfo;
-    centre = [centre[0] + (e.clientX - r.left - W / 2) * mpp, centre[1] + (e.clientY - r.top - H / 2) * mpp];
-    rebuild();
-    renderer.fit(grid);
+    const { W, H, mpp, cx, cy } = overviewInfo;
+    const x = cx + (e.clientX - r.left - W / 2) * mpp, y = cy + (e.clientY - r.top - H / 2) * mpp;
+    renderer.centreOn(x / C, y / C);
     draw();
   });
   const extentSel = $('extent');
   extentSel.value = state.overview;
   extentSel.addEventListener('change', () => {
     state.overview = parseFloat(extentSel.value);
-    drawOverview();
+    drawOverview(true);
   });
   const move = (fx, fy) => {
-    centre = [centre[0] + fx * grid.cols * C, centre[1] + fy * grid.rows * C];
-    rebuild();
-    renderer.fit(grid);
+    renderer.view.ox -= fx * renderer.cssW;
+    renderer.view.oy -= fy * renderer.cssH;
     draw();
   };
   $('go-n').addEventListener('click', () => move(0, -0.5));
@@ -93,21 +146,11 @@
   $('go-w').addEventListener('click', () => move(-0.5, 0));
   $('go-e').addEventListener('click', () => move(0.5, 0));
 
-  let pending = false;
-  function draw() {
-    if (pending) return;
-    pending = true;
-    requestAnimationFrame(() => {
-      pending = false;
-      renderer.draw(grid);
-    });
-  }
-
   // --- controls -----------------------------------------------------------
   const modeSel = $('mode');
-  for (const [key, m] of Object.entries(M.MODES)) {
+  for (const [k, m] of Object.entries(M.MODES)) {
     const o = document.createElement('option');
-    o.value = key;
+    o.value = k;
     o.textContent = m.label;
     modeSel.appendChild(o);
   }
@@ -132,14 +175,14 @@
     el.querySelector('.hi').textContent = hi;
   }
 
-  function bindRange(id, key, fmt, onInput) {
+  function bindRange(id, k, fmt, onInput) {
     const input = $(id);
     const out = $(id + '-out');
-    input.value = state[key];
-    out.textContent = fmt(state[key]);
+    input.value = state[k];
+    out.textContent = fmt(state[k]);
     input.addEventListener('input', () => {
-      state[key] = parseFloat(input.value);
-      out.textContent = fmt(state[key]);
+      state[k] = parseFloat(input.value);
+      out.textContent = fmt(state[k]);
       onInput();
     });
   }
@@ -148,17 +191,19 @@
   const rebuildSoon = () => {
     clearTimeout(rebuildTimer);
     rebuildTimer = setTimeout(() => {
-      rebuild();
-      renderer.fit(grid);
+      makeWorld();
       draw();
-    }, 120);
+    }, 150);
   };
 
-  bindRange('cols', 'cols', (v) => `${v}`, rebuildSoon);
   bindRange('strength', 'strength', (v) => v.toFixed(1), rebuildSoon);
   bindRange('warp', 'warp', (v) => v.toFixed(2), rebuildSoon);
+  bindRange('buffer', 'buffer', (v) => `${v} ruter`, rebuildSoon);
+  bindRange('sources', 'sources', (v) => `${v}`, rebuildSoon);
+  bindRange('riverlength', 'riverLength', (v) => `${v} ruter (${km(v * C)} km)`, rebuildSoon);
   bindRange('autosplit', 'autoSplit', (v) => (v >= 8 ? `side > ${v} m` : 'av'), () => {
-    grid.autoSplit(splitSide());
+    world.autoSplit = splitSide();
+    for (const s of world.sections.values()) s.autoSplit(world.autoSplit);
     renderer.hover = null;
     draw();
   });
@@ -172,34 +217,30 @@
 
   const seedInput = $('seed');
   seedInput.value = state.seed;
-  seedInput.addEventListener('change', () => {
-    state.seed = parseInt(seedInput.value, 10) || 0;
-    rebuild();
-    renderer.fit(grid);
-  });
-  $('reseed').addEventListener('click', () => {
-    state.seed = Math.floor(Math.random() * 100000);
-    seedInput.value = state.seed;
-    rebuild();
-    renderer.fit(grid);
+  const newSeed = (seed) => {
+    state.seed = seed;
+    seedInput.value = seed;
+    edits.clear();
+    makeWorld();
+    const [x, y] = findStart(terrain);
+    renderer.centreOn(x / C, y / C);
+    drawOverview(true);
     draw();
-  });
+  };
+  seedInput.addEventListener('change', () => newSeed(parseInt(seedInput.value, 10) || 0));
+  $('reseed').addEventListener('click', () => newSeed(Math.floor(Math.random() * 100000)));
 
-  $('lines').addEventListener('change', (e) => {
-    renderer.showLines = e.target.checked;
-    draw();
-  });
-  $('labels').addEventListener('change', (e) => {
-    renderer.showLabels = e.target.checked;
-    draw();
-  });
-  $('fit').addEventListener('click', () => {
-    renderer.fit(grid);
-    draw();
-  });
+  for (const [id, prop] of [['lines', 'showLines'], ['labels', 'showLabels'], ['sections', 'showSections'], ['streams', 'showStreams']]) {
+    $(id).checked = renderer[prop];
+    $(id).addEventListener('change', (e) => {
+      renderer[prop] = e.target.checked;
+      draw();
+    });
+  }
+
   const zoomBy = (f, sx = renderer.cssW / 2, sy = renderer.cssH / 2) => {
     const v = renderer.view;
-    const ns = Math.max(3, Math.min(400, v.scale * f));
+    const ns = Math.max(4, Math.min(400, v.scale * f));
     v.ox = sx - ((sx - v.ox) * ns) / v.scale;
     v.oy = sy - ((sy - v.oy) * ns) / v.scale;
     v.scale = ns;
@@ -207,6 +248,12 @@
   };
   $('zoom-in').addEventListener('click', () => zoomBy(1.4));
   $('zoom-out').addEventListener('click', () => zoomBy(1 / 1.4));
+  $('home').addEventListener('click', () => {
+    const [x, y] = findStart(terrain);
+    renderer.view.scale = 16;
+    renderer.centreOn(x / C, y / C);
+    draw();
+  });
 
   // --- hover info -----------------------------------------------------------
   const pct = (v) => `${Math.round(v * 100)} %`;
@@ -222,12 +269,14 @@
     const m = (x) => Math.round(x).toLocaleString('nb-NO');
     const rows = [
       ['Indeks', path.join(' → ')],
+      ['Seksjon', `(${c.section.sx}, ${c.section.sy})`],
       ['Nivå', `${c.level} (${c.nominalSize} m${c.level === 0 ? ', grunnrute' : ''})`],
       ['Areal', `${m(v.area)} m² (≈ ${v.side.toFixed(1)} m)`],
       [v.water ? 'Dybde' : 'Høyde', v.water ? `${m(-v.elevation)} m` : `${m(v.elevation)} moh.`],
       ['Fuktighet', pct(v.moisture)],
       ['Ulendthet', pct(v.ruggedness)],
       ['Helning', pct(v.steepness)],
+      ['Vassdrag', v.streams ? `${v.streams}` : '–'],
       ['Jordbruk', pct(v.farmland)],
       ['Byggegrunn', pct(v.building)],
       ['Ressurser', pct(v.resource)],
@@ -254,7 +303,7 @@
       }
     }
     const [x, y] = renderer.toWorld(e.clientX - r.left, e.clientY - r.top);
-    const c = grid.leafAt(x, y, renderer.morph);
+    const c = world.leafAt(x, y, renderer.morph);
     if (c !== renderer.hover) {
       renderer.hover = c;
       showInfo(c);
@@ -265,15 +314,21 @@
     if (drag && !drag.moved) {
       const r = canvas.getBoundingClientRect();
       const [x, y] = renderer.toWorld(e.clientX - r.left, e.clientY - r.top);
-      const c = grid.leafAt(x, y, renderer.morph);
+      const c = world.leafAt(x, y, renderer.morph);
       const merge = drag.button === 2 || document.querySelector('input[name=click]:checked').value === 'merge';
       if (c) {
         if (merge) {
-          if (c.parent) c.parent.merge();
+          if (c.parent) {
+            c.parent.merge();
+            world.recordEdit(c.parent, 'merge');
+          }
           renderer.hover = c.parent || c;
         } else {
           const kids = c.split();
-          if (kids) renderer.hover = kids[0];
+          if (kids) {
+            world.recordEdit(c, 'split');
+            renderer.hover = kids[0];
+          }
         }
         showInfo(renderer.hover);
         draw();
@@ -299,16 +354,14 @@
 
   window.addEventListener('resize', () => {
     renderer.resize();
-    drawOverview();
+    drawOverview(true);
     draw();
   });
 
   renderer.resize();
-  rebuild();
-  renderer.fit(grid);
   updateLegend();
   showInfo(null);
-  draw();
+  newSeed(state.seed);
 
-  M.app = { get grid() { return grid; }, renderer, state, rebuild };
+  M.app = { get world() { return world; }, renderer, state, edits };
 })(window.Markr = window.Markr || {});

@@ -44,7 +44,7 @@
   // the tree line at 1000 m, bare heath and rock above it, snow on the high peaks.
   function terrainColor(v) {
     const h = v.elevation;
-    if (h < 0) return ramp(RAMPS.sea, depthT(h));
+    if (v.water || h < 0) return ramp(RAMPS.sea, depthT(Math.min(h, -0.5)));
     const dry = [184, 182, 112], lush = [86, 132, 66], marsh = [96, 128, 104];
     const heath = [150, 138, 106], rock = [138, 130, 120], snow = [240, 240, 236];
     let c = mix(dry, lush, clamp01((v.moisture - 0.15) / 0.6));
@@ -62,6 +62,12 @@
 
   const MODES = {
     terrain: { label: 'Terreng', color: terrainColor },
+    streams: {
+      label: 'Vassdrag',
+      color: (v) => (v.water ? ramp(RAMPS.sea, 0.3) : ramp(RAMPS.stone, Math.min(1, Math.log2(1 + v.streams) / 4))),
+      ramp: RAMPS.stone,
+      legend: ['ingen', 'mange'],
+    },
     elevation: {
       label: 'Høyde',
       color: elevationColor,
@@ -85,7 +91,7 @@
 
   // Overview of the terrain around the grid window, drawn straight from the
   // continuous fields (no cells). extent is the width shown, in metres.
-  function drawOverview(canvas, terrain, cx, cy, extent, mode, windowRect) {
+  function drawOverview(canvas, terrain, cx, cy, extent, mode, viewRect) {
     const dpr = window.devicePixelRatio || 1;
     const r = canvas.getBoundingClientRect();
     const W = Math.max(1, Math.round(r.width)), H = Math.max(1, Math.round(r.height));
@@ -104,7 +110,7 @@
         const wx = cx + (x * res - W / 2) * mpp, wy = cy + (y * res - H / 2) * mpp;
         const s = terrain.sample(wx, wy, step / 2, step * 2);
         s.steepness = clamp01(s.slope / 0.5);
-        s.area = 256; s.side = 16; s.farmland = 0; s.building = 0; s.resource = 0;
+        s.area = 256; s.side = 16; s.farmland = 0; s.building = 0; s.resource = 0; s.streams = 0;
         const c = color(s);
         const k = (y * nx + x) * 4;
         img.data[k] = c[0]; img.data[k + 1] = c[1]; img.data[k + 2] = c[2]; img.data[k + 3] = 255;
@@ -117,8 +123,8 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(off, 0, 0, nx * res, ny * res);
-    // Grid window
-    const [x0, y0, x1, y1] = windowRect.map((v, k) => (k % 2 === 0 ? (v - cx) / mpp + W / 2 : (v - cy) / mpp + H / 2));
+    // The part shown in the main view
+    const [x0, y0, x1, y1] = viewRect.map((v, k) => (k % 2 === 0 ? (v - cx) / mpp + W / 2 : (v - cy) / mpp + H / 2));
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 1.5;
     if (x1 - x0 > 6) {
@@ -137,11 +143,13 @@
     constructor(canvas) {
       this.canvas = canvas;
       this.ctx = canvas.getContext('2d');
-      this.view = { scale: 16, ox: 0, oy: 0 };
+      this.view = { scale: 16, ox: 0, oy: 0 }; // pixels per index unit, offset
       this.mode = 'terrain';
       this.morph = 1;
       this.showLines = true;
       this.showLabels = true;
+      this.showSections = false;
+      this.showStreams = true;
       this.hover = null;
     }
 
@@ -163,12 +171,28 @@
       this.cssH = r.height;
     }
 
-    fit(grid) {
-      const pad = 24;
-      const s = Math.min((this.cssW - 2 * pad) / grid.cols, (this.cssH - 2 * pad) / grid.rows);
-      this.view.scale = s;
-      this.view.ox = (this.cssW - grid.cols * s) / 2 - grid.i0 * s;
-      this.view.oy = (this.cssH - grid.rows * s) / 2 - grid.j0 * s;
+    // Centre of the view, in index units.
+    get centre() {
+      return this.toWorld(this.cssW / 2, this.cssH / 2);
+    }
+
+    centreOn(x, y) {
+      this.view.ox = this.cssW / 2 - x * this.view.scale;
+      this.view.oy = this.cssH / 2 - y * this.view.scale;
+    }
+
+    // Sections that touch the view, nearest to the centre first.
+    visibleSections() {
+      const S = M.SECTION;
+      const [x0, y0] = this.toWorld(0, 0), [x1, y1] = this.toWorld(this.cssW, this.cssH);
+      const [cx, cy] = this.centre;
+      const out = [];
+      for (let sy = Math.floor((y0 - 1) / S); sy <= Math.floor((y1 + 1) / S); sy++) {
+        for (let sx = Math.floor((x0 - 1) / S); sx <= Math.floor((x1 + 1) / S); sx++) {
+          out.push([sx, sy, Math.hypot((sx + 0.5) * S - cx, (sy + 0.5) * S - cy)]);
+        }
+      }
+      return out.sort((p, q) => p[2] - q[2]);
     }
 
     path(corners) {
@@ -182,15 +206,26 @@
       ctx.closePath();
     }
 
-    draw(grid) {
+    centroid(c, t) {
+      const p = c.corners(t);
+      return this.toScreen((p[0][0] + p[1][0] + p[2][0] + p[3][0]) / 4, (p[0][1] + p[1][1] + p[2][1] + p[3][1]) / 4);
+    }
+
+    draw(world) {
       const ctx = this.ctx;
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--canvas-bg') || '#1d2024';
       ctx.fillRect(0, 0, this.cssW, this.cssH);
 
+      const sections = [];
+      for (const [sx, sy] of this.visibleSections()) {
+        const s = world.loaded(sx, sy);
+        if (s) sections.push(s);
+      }
       const color = MODES[this.mode].color;
       const t = this.morph;
-      const leaves = [...grid.leaves()];
+      const leaves = [];
+      for (const s of sections) for (const c of s.leaves()) leaves.push(c);
 
       // Fill cells; stroke with the same colour to hide anti-aliasing seams.
       ctx.lineWidth = 1;
@@ -203,7 +238,7 @@
         ctx.stroke();
       }
 
-      if (this.showLines) {
+      if (this.showLines && this.view.scale > 3) {
         const s = this.view.scale;
         for (const c of leaves) {
           this.path(c.corners(t));
@@ -214,26 +249,92 @@
         }
       }
 
-      if (this.hover) {
+      if (this.showStreams) this.drawStreams(world, sections, t);
+      if (this.showSections) this.drawSectionEdges(sections, t);
+
+      if (this.hover && world.loaded(this.hover.section.sx, this.hover.section.sy)) {
         this.path(this.hover.corners(t));
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 2;
         ctx.stroke();
       }
 
-      if (this.showLabels && this.view.scale > 42) {
-        ctx.fillStyle = 'rgba(15,18,22,0.75)';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.font = '11px ui-monospace, monospace';
-        // Skip labels that would overlap one already drawn.
-        const drawn = [];
-        for (const c of grid.baseCells()) {
+      if (this.showLabels && this.view.scale > 42) this.drawLabels(sections, t);
+    }
+
+    // Streams as smooth lines through their world-space points, wider where more
+    // streams share a point. They belong to world space, so they fade out as the
+    // view morphs to index space.
+    drawStreams(world, sections, t) {
+      const ctx = this.ctx, S = M.SECTION;
+      if (t < 0.05) return;
+      const seen = new Set();
+      ctx.save();
+      ctx.globalAlpha = t;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = rgb(RAMPS.sea[1]);
+      const pts = [];
+      const flush = () => {
+        for (let k = 1; k < pts.length; k++) {
+          const [x0, y0] = pts[k - 1], [x1, y1, f] = pts[k];
+          const m0 = k === 1 ? [x0, y0] : [(pts[k - 2][0] + x0) / 2, (pts[k - 2][1] + y0) / 2];
+          ctx.beginPath();
+          ctx.moveTo(m0[0], m0[1]);
+          ctx.quadraticCurveTo(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
+          if (k === pts.length - 1) ctx.lineTo(x1, y1);
+          ctx.lineWidth = Math.max(1, Math.min(this.view.scale * 0.5, this.view.scale * (0.1 + 0.08 * Math.log2(f))));
+          ctx.stroke();
+        }
+        pts.length = 0;
+      };
+      for (const s of sections) {
+        for (const path of world.flowData(s.sx, s.sy).paths) {
+          if (seen.has(path)) continue;
+          seen.add(path);
+          for (const [i, j] of path) {
+            if (!world.loaded(Math.floor(i / S), Math.floor(j / S))) {
+              flush();
+              continue;
+            }
+            const [x, y] = this.toScreen(i + 0.5, j + 0.5);
+            pts.push([x, y, Math.max(1, world.flow(i, j))]);
+          }
+          flush();
+        }
+      }
+      ctx.restore();
+    }
+
+    drawSectionEdges(sections, t) {
+      const ctx = this.ctx, S = M.SECTION;
+      ctx.strokeStyle = 'rgba(230,60,60,0.9)';
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([6, 4]);
+      for (const s of sections) {
+        ctx.beginPath();
+        for (let k = 0; k <= S; k++) {
+          const [x, y] = this.toScreen(...s.vertex(s.a0, s.b0 + S - k, t));
+          if (k === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        for (let k = 1; k <= S; k++) ctx.lineTo(...this.toScreen(...s.vertex(s.a0 + k, s.b0, t)));
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+
+    drawLabels(sections, t) {
+      const ctx = this.ctx;
+      ctx.fillStyle = 'rgba(15,18,22,0.75)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '11px ui-monospace, monospace';
+      // Skip labels that would overlap one already drawn.
+      const drawn = [];
+      for (const s of sections) {
+        for (const c of s.baseCells()) {
           if ((c.values.side / M.CELL_SIZE) * this.view.scale < 38) continue;
-          const p = c.corners(t);
-          const cx = (p[0][0] + p[1][0] + p[2][0] + p[3][0]) / 4;
-          const cy = (p[0][1] + p[1][1] + p[2][1] + p[3][1]) / 4;
-          const [sx, sy] = this.toScreen(cx, cy);
+          const [sx, sy] = this.centroid(c, t);
           if (sx < -20 || sy < -20 || sx > this.cssW + 20 || sy > this.cssH + 20) continue;
           const label = `${c.i},${c.j}`;
           const hw = ctx.measureText(label).width / 2 + 3;

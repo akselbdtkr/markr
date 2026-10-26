@@ -75,7 +75,7 @@
     <div class="zoom">
       <button id="zoom-in" title="Zoom inn">+</button>
       <button id="zoom-out" title="Zoom ut">−</button>
-      <button id="fit" title="Tilpass">Tilpass</button>
+      <button id="home" title="Tilbake til startpunktet">Start</button>
     </div>
   </main>
   <aside>
@@ -89,16 +89,25 @@
     <input id="morph" type="range" min="0" max="1" step="0.01" value="1">
     <div class="check"><input id="lines" type="checkbox" checked><label for="lines" style="margin:0">Vis rutenett</label></div>
     <div class="check"><input id="labels" type="checkbox" checked><label for="labels" style="margin:0">Vis indekser (når zoomet inn)</label></div>
+    <div class="check"><input id="streams" type="checkbox" checked><label for="streams" style="margin:0">Vis vassdrag</label></div>
+    <div class="check"><input id="sections" type="checkbox"><label for="sections" style="margin:0">Vis seksjonsgrenser (sømmer)</label></div>
 
     <h2>Terreng</h2>
     <label for="seed">Frø</label>
     <div class="row"><input id="seed" type="number"><button id="reseed">Nytt</button></div>
-    <label>Antall kolonner <output id="cols-out"></output></label>
-    <input id="cols" type="range" min="16" max="128" step="4">
     <label>Helning → små ruter <output id="strength-out"></output></label>
     <input id="strength" type="range" min="0" max="4" step="0.1">
     <label>Bølgete linjer <output id="warp-out"></output></label>
     <input id="warp" type="range" min="0" max="0.8" step="0.01">
+    <label>Sømbuffer <output id="buffer-out"></output></label>
+    <input id="buffer" type="range" min="2" max="12" step="1">
+    <p class="hint">Seksjoner er 32 × 32 ruter (512 m). Hver søm løses for seg i en stripe med så mange ruter på hver side.</p>
+
+    <h2>Vassdrag</h2>
+    <label>Kilder per seksjon <output id="sources-out"></output></label>
+    <input id="sources" type="range" min="0" max="4" step="1">
+    <label>Maks lengde <output id="riverlength-out"></output></label>
+    <input id="riverlength" type="range" min="32" max="320" step="32">
 
     <h2>Deling</h2>
     <div class="check"><input type="radio" name="click" value="split" id="c-split" checked><label for="c-split" style="margin:0">Klikk deler rute i fire</label></div>
@@ -121,7 +130,7 @@
       <button id="go-s" title="Flytt utsnittet mot sør">S</button>
       <button id="go-e" title="Flytt utsnittet mot øst">Ø</button>
     </div>
-    <p class="hint">Terrenget finnes overalt. Klikk i oversikten for å lage rutenett der.</p>
+    <p class="hint">Kartet fortsetter i alle retninger. Dra i kartet, eller klikk i oversikten for å hoppe.</p>
 
     <h2>Rute</h2>
     <div id="info"></div>
@@ -130,7 +139,7 @@
 
   <script src="src/noise.js"></script>
   <script src="src/terrain.js"></script>
-  <script src="src/grid.js"></script>
+  <script src="src/world.js"></script>
   <script src="src/render.js"></script>
   <script src="src/main.js"></script>
 </body>
