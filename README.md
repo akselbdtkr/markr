@@ -12,14 +12,15 @@ et kart som ser naturlig ut, med et enkelt rutenett i bunn.
 1. **Terreng som kontinuerlige felt** (`src/terrain.js`). Alle mål er i meter. Perlin-støy
    i flere lag gir høyde, fuktighet og ulendthet for hvert punkt `(x, y)`. Støyen bruker en
    heltallshash i stedet for en permutasjonstabell, så den gjentar seg aldri.
-   - **Landskapslag per seksjon.** Hver seksjon (512 m) får en typeverdi fra Perlin-støy, fra
-     marin (0) via slette, åser og platå til alpin (1), og en retning fra et annet støylag.
-     Typeverdien blandes mellom seksjonssentrene. Inne i hver seksjon hever retningen typen på
-     den ene siden og senker den på den andre (null ved seksjonskanten, så feltet henger
-     sammen), så en grense mellom for eksempel marin og slette kan gå midt i en seksjon.
+   - **Landskap.** En landskapsverdi bygges av to lag. Kontinenter (støy på 25 km) gir store,
+     sammenhengende hav og landområder. Fjellkjeder (ridged-støy på 12 km) gir sammenhengende,
+     forgrenede fjell på land. Begge ses gjennom en forvrengning (domain warp), så kyster og
+     fjellkjeder bøyer seg naturlig.
+   - **Overganger.** Fire grenser deler landskapsverdien i marin, slette, åser, platå og alpin.
+     Grensene kan stilles i menyen *Generering*, der andelen av hver type også vises.
    - **Hva typene gjør:** marin gir mye under 0 m, slette er jevn og lav, åser er småkupert,
      platå er jevnt men høyt, alpint er høyt med fjellrygger. Hver type har et ganske flatt
-     høydebånd; overgangene mellom typene er der landet stiger.
+     høydebånd. Overgangene mellom typene er der landet stiger, og de er myke, uten knekk.
    - **Ulendthet** (egen støy, 2,5 km og 600 m) skalerer relieffet uavhengig av typen og
      lager anomalier: bratte partier og skjær i marint og på sletter, flatere partier i alpint.
    - **Høyde** går fra −5000 til 5000 m. Omtrent 85 % ligger mellom −100 og 1000 m.
@@ -46,21 +47,30 @@ et kart som ser naturlig ut, med et enkelt rutenett i bunn.
    Hjørnepunktene på grensen mellom land og vann flyttes inn på 0 m-koten (Newton-steg langs
    gradienten, begrenset til halve korteste kant), så kysten blir glatt.
 7. **Vassdrag.** Alle vassdrag ender i havet.
-   - **Nett mellom seksjoner.** Hver seksjon får en grov høyde (terrenget midt i seksjonen),
-     og er hav hvis den er under 0 m. Hver seksjon finner avstanden til nærmeste
-     havseksjon. Den drenerer til den laveste av de fire naboene som ligger nærmere havet.
-     Hvert steg kommer nærmere havet, så alle kjeder ender der. Nettet bygger bare på disse
-     grove verdiene, så hver seksjon kan regne det ut selv, uten å kjenne rutene i andre
-     seksjoner, og uavhengig av rekkefølgen spilleren utforsker i.
-   - **Kryssingspunkt.** Vannet går over til nabo-seksjonen i det laveste punktet langs den
-     felles kanten, prøvd direkte fra terrenget. Begge seksjonene får samme svar.
-   - **Inne i seksjonen.** Vassdraget som kommer inn fra seksjonene oppstrøms, går først. Det
-     bærer med seg nedbørfeltet sitt: alle kildene oppstrøms. Så kommer seksjonens egne
-     kilder, de høyeste punktene holdt minst 8 ruter fra hverandre, som teller 1 hver. Alle
-     går mot seksjonens utløp, så de møtes og følger samme løp videre. Hvert steg går til en
-     nabo som er nærmere utløpet. I bratt terreng vinner laveste nabo. Der det er flatere,
-     vurderes naboene etter snittet i blokker på 2, 4, 8 og 16 ruter, og en fast slyngning
-     per punkt hindrer rette løp. I en havseksjon slutter vassdraget ved første vann.
+   - **Nett mellom seksjoner, i nivåer.** Hver seksjon får en grov høyde (terrenget midt i
+     seksjonen), og er hav hvis den er under 0 m. Seksjonene grupperes i blokker på 2, 4, 8 og
+     16 seksjoner. En blokk på øverste nivå drenerer til den laveste nabo-blokken som ligger
+     nærmere havet. Inne i en blokk drenerer hver delblokk mot blokkens utløp, og så videre
+     ned til enkeltseksjoner. Slik samles vannet fra en hel blokk i ett utløp, og bekker blir
+     til elver i stedet for å renne side om side. Blokker med hav i drenerer til nærmeste hav.
+     Hvert steg kommer nærmere målet på sitt nivå, så alle løp ender i havet. Nettet bygger
+     bare på grove verdier, så hver seksjon kan regne det ut selv, uavhengig av rekkefølgen
+     spilleren utforsker i.
+   - **Kryssingspunkt.** Vannet går over til nabo-seksjonen der en dal krysser den felles
+     kanten: den dypeste forsenkningen under den rette linja mellom endene, innenfor den
+     midterste halvdelen av kanten. Det laveste punktet alene lå nesten alltid i et hjørne,
+     og da rant elvene langs seksjonskantene. Utløp mellom blokker velges på samme måte.
+   - **Kilder.** Antallet kilder avhenger av landskapstypen: alpint og åser får flest,
+     sletter og platåer få, så vannet der samles i færre og større elver.
+   - **Inne i seksjonen.** Vassdraget som kommer inn ovenfra, går først. Det bærer med seg
+     nedbørfeltet sitt. Så kommer seksjonens egne kilder, de høyeste punktene holdt minst 8
+     ruter fra hverandre. Alle passerer et vendepunkt før utløpet: litt til siden for den
+     rette linja og flyttet til lavest terreng i nærheten. Der møtes de, og løpet svinger. Hvert
+     steg går til en nabo som er nærmere målet. I bratt terreng vinner laveste nabo. Der det er
+     flatere, vurderes naboene etter terrenget sett i blokker på 2, 4, 8 og 16 ruter (glattet
+     mellom blokksentrene), og en fast slyngning per punkt hindrer rette løp.
+   - **Deltaer.** Der en stor elv kommer inn i en havseksjon, deler den seg i opptil tre
+     løp mot hvert sitt punkt i havkanten.
    - **Virkning.** Bekken gjør landet brattere (som gir mindre ruter) og våtere, i et bånd på
      tvers av løpet like bredt som skalaen.
    - **Rutene eier vassdraget.** Hver grunnrute som bekkelinja krysser, lagrer biten av

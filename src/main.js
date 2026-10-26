@@ -8,7 +8,7 @@
   const renderer = new M.Renderer(canvas);
   const C = M.CELL_SIZE, S = M.SECTION;
 
-  const state = { seed: 1848, strength: 2.5, warp: 0.35, buffer: 6, sources: 3, autoSplit: 28, overview: 15000 };
+  const state = { b0: M.BOUNDS[0], b1: M.BOUNDS[1], b2: M.BOUNDS[2], b3: M.BOUNDS[3], seed: 1848, strength: 2.5, warp: 0.35, buffer: 6, sources: 3, autoSplit: 28, overview: 15000 };
   let terrain, world;
   const edits = new Map(); // the player's split/merge edits; the only state worth saving
 
@@ -41,8 +41,13 @@
 
   // New world with the current settings. Keeps cached elevations when the seed is unchanged.
   function makeWorld() {
-    const keep = world && terrain.seed === state.seed ? world.elev : undefined;
-    if (!terrain || terrain.seed !== state.seed) terrain = new M.Terrain(state.seed);
+    const bounds = [state.b0, state.b1, state.b2, state.b3];
+    const same = terrain && terrain.seed === state.seed && terrain.bounds.join() === bounds.join();
+    const keep = world && same ? world.elev : undefined;
+    if (!same) {
+      terrain = new M.Terrain(state.seed, { bounds });
+      showShares();
+    }
     world = new M.World(terrain, {
       strength: state.strength,
       warp: state.warp,
@@ -54,6 +59,15 @@
     });
     renderer.hover = null;
     lastBuild = [];
+  }
+
+  // Share of each landscape type with the current transitions.
+  const SHARE_COLOURS = ['#4677aa', '#9fbf70', '#6a9450', '#b89a62', '#8f8a94'];
+  function showShares() {
+    const shares = terrain.landscapeShares();
+    $('shares').innerHTML = shares
+      .map((v, k) => `<span style="flex:${v};background:${SHARE_COLOURS[k]}" title="${M.LANDSCAPES[k].name} ${Math.round(v * 100)} %">${v > 0.08 ? `${M.LANDSCAPES[k].name} ${Math.round(v * 100)}%` : ''}</span>`)
+      .join('');
   }
 
   // --- generation loop --------------------------------------------------------
@@ -115,7 +129,7 @@
   function drawOverview(force) {
     const [cx, cy] = renderer.centre;
     // Re-render the terrain only when the view has moved noticeably.
-    const k = `${state.seed}|${state.overview}|${Math.round((cx * C) / (state.overview / 40))}|${Math.round((cy * C) / (state.overview / 40))}`;
+    const k = `${state.seed}|${terrain.bounds.join()}|${state.overview}|${Math.round((cx * C) / (state.overview / 40))}|${Math.round((cy * C) / (state.overview / 40))}`;
     const [x0, y0] = renderer.toWorld(0, 0), [x1, y1] = renderer.toWorld(renderer.cssW, renderer.cssH);
     if (k !== overviewKey || force) {
       overviewKey = k;
@@ -200,6 +214,18 @@
   bindRange('strength', 'strength', (v) => v.toFixed(1), rebuildSoon);
   bindRange('warp', 'warp', (v) => v.toFixed(2), rebuildSoon);
   bindRange('buffer', 'buffer', (v) => `${v} ruter`, rebuildSoon);
+  // Transitions must stay in order; a slider pushes its neighbours along.
+  for (let k = 0; k < 4; k++) {
+    bindRange('b' + k, 'b' + k, (v) => v.toFixed(2), () => {
+      for (let q = k + 1; q < 4; q++) state['b' + q] = Math.max(state['b' + q], state['b' + (q - 1)] + 0.02);
+      for (let q = k - 1; q >= 0; q--) state['b' + q] = Math.min(state['b' + q], state['b' + (q + 1)] - 0.02);
+      for (let q = 0; q < 4; q++) {
+        $('b' + q).value = state['b' + q];
+        $('b' + q + '-out').textContent = state['b' + q].toFixed(2);
+      }
+      rebuildSoon();
+    });
+  }
   bindRange('sources', 'sources', (v) => `${v}`, rebuildSoon);
   bindRange('autosplit', 'autoSplit', (v) => (v >= 8 ? `side > ${v} m` : 'av'), () => {
     world.autoSplit = splitSide();
@@ -224,6 +250,7 @@
     makeWorld();
     const [x, y] = findStart(terrain);
     renderer.centreOn(x / C, y / C);
+    overviewKey = '';
     drawOverview(true);
     draw();
   };
@@ -270,7 +297,7 @@
     const drain = s.drain ? `${compass([s.drain[0] - sx, s.drain[1] - sy])} til (${s.drain[0]}, ${s.drain[1]})` : s.sea ? 'hav' : 'innsjø (ingen utløp)';
     $('section-info').innerHTML = dl([
       ['Seksjon', `(${sx}, ${sy})`],
-      ['Landskap', `${M.landscapeName(s.landscape)} (${s.landscape.toFixed(2)}), retning ${compass(s.dir).replace('mot ', '')}`],
+      ['Landskap', `${M.landscapeName(s.landscape)} (${s.landscape.toFixed(2)})`],
       ['Høyde midt', s.sea ? `${m(-s.height)} m dyp` : `${m(s.height)} moh.`],
       ['Til hav', s.sea ? 'er hav' : Number.isFinite(s.seaDist) ? `${km(s.seaDist * S * C)} km` : 'ikke innen rekkevidde'],
       ['Drenerer', drain],

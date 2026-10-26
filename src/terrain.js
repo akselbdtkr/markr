@@ -24,8 +24,7 @@
   // Measured standard deviation of 5-octave fbm, to turn it into a normal value.
   const FBM5_STD = 0.157;
 
-  // Landscape types along the section layer, from marine (0) to alpine (1).
-  // base: typical height (m). relief: typical height variation (m).
+  // Landscape types, from marine (0) to alpine (1), on the type scale tau.
   const LANDSCAPES = [
     { t: 0, name: 'marin' },
     { t: 0.25, name: 'slette' },
@@ -37,30 +36,36 @@
   // where the land rises (escarpments, coastal slopes).
   const BASE = [[-0.6, -3500], [0.05, -200], [0.15, 5], [0.18, 20], [0.32, 70], [0.4, 150], [0.6, 500], [0.68, 880], [0.82, 960], [0.9, 1300], [1, 1600], [1.5, 2600]];
   const RELIEF = [[-0.6, 200], [0.05, 60], [0.15, 20], [0.35, 20], [0.4, 160], [0.6, 160], [0.65, 35], [0.85, 35], [0.95, 1200], [1.5, 1800]];
-  // Section layer: mean and spread of the type value, so most land is plains and hills.
-  const T_MEAN = 0.42, T_STD = 0.25;
-  // How far a section's direction shifts the type inside it.
-  const TILT = 0.15;
+  // The landscape value t: continents (mean and spread) plus mountain ranges.
+  const T_MEAN = 0.3, T_STD = 0.22, MOUNTAIN = 0.75;
+  // Default transitions marine|plains, plains|hills, hills|plateau, plateau|alpine,
+  // as values of t. They can be changed in the UI.
+  const BOUNDS = [0.26, 0.42, 0.6, 0.8];
 
-  function piecewise(knots, t) {
+  // Interpolates between knots. With smooth = true the curve eases in and out of
+  // every knot, so there are no kinks (which showed as sharp bands on the land).
+  function piecewise(knots, t, smooth = false) {
     if (t <= knots[0][0]) return knots[0][1];
     for (let k = 1; k < knots.length; k++) {
       if (t <= knots[k][0]) {
         const [t0, v0] = knots[k - 1], [t1, v1] = knots[k];
-        return v0 + ((v1 - v0) * (t - t0)) / (t1 - t0);
+        let f = (t - t0) / (t1 - t0);
+        if (smooth) f = f * f * (3 - 2 * f);
+        return v0 + (v1 - v0) * f;
       }
     }
     return knots[knots.length - 1][1];
   }
 
   class Terrain {
-    constructor(seed) {
+    constructor(seed, opts = {}) {
       this.seed = seed;
+      this.bounds = opts.bounds || BOUNDS;
       const P = (k) => createPerlin(seed * 17 + k);
       this.nType = P(1);
       this.nTypeLocal = P(2);
-      this.nDirX = P(3);
-      this.nDirY = P(4);
+      this.nMount = P(3);
+      this.nWarpL = P(4);
       this.nHills = P(5);
       this.nRidge = P(6);
       this.nDetail = P(7);
@@ -71,46 +76,52 @@
       this.nMoistLocal = P(12);
       this.nWarpX = P(13);
       this.nWarpY = P(14);
-      this.sections = new Map();
+      this.nWarpL2 = P(15);
     }
 
-    // The section layer: each section gets a type value (marine .. alpine) and a
-    // direction, both from Perlin noise sampled at the section centre.
-    sectionParams(sx, sy) {
-      const id = (sx + 1048576) * 2097152 + (sy + 1048576);
-      let p = this.sections.get(id);
-      if (!p) {
-        const cx = (sx + 0.5) * SECTION_M, cy = (sy + 0.5) * SECTION_M;
-        const t = T_MEAN + (T_STD * fbm(this.nType, cx / 30000, cy / 30000, 5)) / FBM5_STD;
-        let dx = this.nDirX(cx / 7000, cy / 7000), dy = this.nDirY(cx / 7000, cy / 7000);
-        const len = Math.hypot(dx, dy) || 1;
-        p = { t, dx: dx / len, dy: dy / len };
-        this.sections.set(id, p);
-        if (this.sections.size > 50000) this.sections.clear();
+    // Landscape value t at a point, before the transitions are applied. Continents
+    // (25 km noise) give large connected seas and land; ridged noise (12 km) gives
+    // connected, branching mountain ranges on land. Both are seen through a domain
+    // warp so coasts and ranges bend naturally. `local` is finer variation (3 km).
+    landscapeValue(x, y) {
+      const qx = x + 5000 * fbm(this.nWarpL, x / 20000, y / 20000, 2);
+      const qy = y + 5000 * fbm(this.nWarpL2, x / 20000, y / 20000, 2);
+      const c = fbm(this.nType, qx / 25000, qy / 25000, 5) / FBM5_STD;
+      const ridges = ridged(this.nMount, qx / 12000, qy / 12000, 4);
+      const range = smoothstep(0.5, 0.85, ridges) * smoothstep(-0.4, 0.8, c);
+      const t = T_MEAN + T_STD * c + MOUNTAIN * range;
+      const local = 0.06 * fbm(this.nTypeLocal, x / 3000, y / 3000, 3);
+      return [t, local];
+    }
+
+    // Type scale tau from t: the four transitions map to 0.125, 0.375, 0.625 and
+    // 0.875, so marine is near 0, plains 0.25, hills 0.5, plateau 0.75, alpine 1.
+    tau(t) {
+      const b = this.bounds;
+      if (t <= b[0]) return 0.125 - ((b[0] - t) * 0.25) / (b[1] - b[0]);
+      for (let k = 1; k < 4; k++) {
+        if (t <= b[k]) return 0.125 + 0.25 * (k - 1) + (0.25 * (t - b[k - 1])) / (b[k] - b[k - 1]);
       }
-      return p;
+      return 0.875 + ((t - b[3]) * 0.25) / (b[3] - b[2]);
     }
 
-    // Landscape type value at a point, [base, character]. Section values are blended
-    // between section centres. Inside each section its direction raises the type on
-    // one side and lowers it on the other, so a boundary (marine/plains, say) can run
-    // through the middle of a section. The shift is zero at section edges, so the
-    // field stays continuous. Height (base) follows the local variation and the
-    // shift only slightly, or they would raise cliffs; the character of the
-    // terrain (relief, ridges) follows them fully.
+    // Landscape type at a point on the tau scale, [base, character]. Height (base)
+    // follows the fine variation only slightly, or it would raise cliffs; the
+    // character of the terrain (relief, ridges) follows it fully.
     landscape(x, y) {
-      const u = x / SECTION_M - 0.5, v = y / SECTION_M - 0.5;
-      const i = Math.floor(u), j = Math.floor(v), fu = u - i, fv = v - j;
-      const t00 = this.sectionParams(i, j).t, t10 = this.sectionParams(i + 1, j).t;
-      const t01 = this.sectionParams(i, j + 1).t, t11 = this.sectionParams(i + 1, j + 1).t;
-      let t = (t00 * (1 - fu) + t10 * fu) * (1 - fv) + (t01 * (1 - fu) + t11 * fu) * fv;
-      const local = 0.12 * fbm(this.nTypeLocal, x / 4000, y / 4000, 3);
-      const sx = Math.floor(x / SECTION_M), sy = Math.floor(y / SECTION_M);
-      const lu = x / SECTION_M - sx, lv = y / SECTION_M - sy;
-      const p = this.sectionParams(sx, sy);
-      const bubble = Math.sin(Math.PI * lu) * Math.sin(Math.PI * lv);
-      const tilt = TILT * 2 * (p.dx * (lu - 0.5) + p.dy * (lv - 0.5)) * bubble;
-      return [t + 0.25 * local + 0.03 * tilt, t + local + tilt];
+      const [t, local] = this.landscapeValue(x, y);
+      return [this.tau(t + 0.25 * local), this.tau(t + local)];
+    }
+
+    // Share of each landscape type, from a fixed sample of points.
+    landscapeShares(n = 3000) {
+      const rand = M.noise.mulberry32(this.seed + 99);
+      const counts = [0, 0, 0, 0, 0];
+      for (let k = 0; k < n; k++) {
+        const tc = this.landscape((rand() - 0.5) * 400000, (rand() - 0.5) * 400000)[1];
+        counts[Math.max(0, Math.min(4, Math.floor((tc + 0.125) / 0.25)))]++;
+      }
+      return counts.map((c) => c / n);
     }
 
     // Ruggedness [0, 1]. Strong enough to override the landscape type: steep
@@ -130,7 +141,7 @@
       const fade = (w) => smoothstep(minWavelength, minWavelength * 2, w);
       if (minWavelength < 1800) relief += (1 - rw) * fade(900) * fbm(this.nHills, x / 900, y / 900, 4);
       if (rw > 0) relief += rw * (2 * ridged(this.nRidge, x / 4000, y / 4000, 5) - 1);
-      let h = piecewise(BASE, tb) + amp * relief;
+      let h = piecewise(BASE, tb, true) + amp * relief;
       // Rugged anomalies: knolls, skerries and gullies wherever ruggedness is high.
       if (r > 0.7 && minWavelength < 700) h += fade(350) * 140 * smoothstep(0.7, 0.95, r) * (2 * ridged(this.nAnomaly, x / 350, y / 350, 3) - 1);
       if (minWavelength < 220) h += fade(110) * (2 + 0.06 * amp) * fbm(this.nDetail, x / 110, y / 110, 3);
@@ -194,5 +205,7 @@
   M.H_MIN = H_MIN;
   M.H_MAX = H_MAX;
   M.landscapeName = landscapeName;
+  M.LANDSCAPES = LANDSCAPES;
+  M.BOUNDS = BOUNDS;
   M.util = { clamp01, smoothstep };
 })(window.Markr = window.Markr || {});

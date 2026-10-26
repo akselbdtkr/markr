@@ -64,6 +64,8 @@
     summary { cursor: pointer; font-weight: 600; }
     summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     #info, #section-info { min-height: 2.6em; }
+    .shares { display: flex; height: 22px; border-radius: 4px; overflow: hidden; margin-top: 8px; font-size: 11px; }
+    .shares span { display: flex; align-items: center; justify-content: center; color: #fff; text-shadow: 0 0 2px rgba(0,0,0,0.6); white-space: nowrap; overflow: hidden; }
     .zoom { position: absolute; left: 12px; top: 12px; display: flex; gap: 4px; }
     .zoom button { background: var(--panel); min-width: 34px; }
     main { position: relative; min-width: 0; }
@@ -134,6 +136,18 @@
       <input id="buffer" type="range" min="2" max="12" step="1">
       <p class="hint">Seksjoner er 32 × 32 ruter (512 m). Hver søm løses for seg i en stripe med så mange ruter på hver side.</p>
 
+      <h2>Landskap</h2>
+      <p class="hint">Hvor overgangene mellom landskapstypene ligger. Høyere verdi gir mer av typen under grensen.</p>
+      <label>Marin | slette <output id="b0-out"></output></label>
+      <input id="b0" type="range" min="-0.2" max="1.2" step="0.01">
+      <label>Slette | åser <output id="b1-out"></output></label>
+      <input id="b1" type="range" min="-0.2" max="1.2" step="0.01">
+      <label>Åser | platå <output id="b2-out"></output></label>
+      <input id="b2" type="range" min="-0.2" max="1.2" step="0.01">
+      <label>Platå | alpin <output id="b3-out"></output></label>
+      <input id="b3" type="range" min="-0.2" max="1.2" step="0.01">
+      <div id="shares" class="shares" aria-label="Andel av hver landskapstype"></div>
+
       <h2>Vassdrag</h2>
       <label>Maks antall vassdrag per seksjon <output id="sources-out"></output></label>
       <input id="sources" type="range" min="0" max="6" step="1">
@@ -146,11 +160,11 @@
     <div id="status" class="muted"></div>
   </aside>
 
-  <script>window.Markr = { VERSION: 5 };</script>
-  <script src="src/noise.js?v=5"></script>
-  <script src="src/terrain.js?v=5"></script>
-  <script src="src/world.js?v=5"></script>
-  <script src="src/render.js?v=5"></script>
-  <script src="src/main.js?v=5"></script>
+  <script>window.Markr = { VERSION: 6 };</script>
+  <script src="src/noise.js?v=6"></script>
+  <script src="src/terrain.js?v=6"></script>
+  <script src="src/world.js?v=6"></script>
+  <script src="src/render.js?v=6"></script>
+  <script src="src/main.js?v=6"></script>
 </body>
 </html>
