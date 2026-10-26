@@ -21,10 +21,12 @@
   // Natural moisture stays below this; only streams and water reach 1.
   const MOISTURE_MAX = 0.9;
 
-  // Measured standard deviation of 5-octave fbm, to turn it into a normal value.
-  const FBM5_STD = 0.157;
+  // Measured standard deviation of fbm by octave count, to turn it into a
+  // normal value.
+  const FBM_STD = { 2: 0.197, 3: 0.173, 4: 0.163, 5: 0.157 };
+  const FBM5_STD = FBM_STD[5];
 
-  // Landscape types, from marine (0) to alpine (1), on the type scale tau.
+  // Landscape types, on the type scale tau used for colours, names and sources.
   const LANDSCAPES = [
     { t: 0, name: 'marin' },
     { t: 0.25, name: 'slette' },
@@ -32,15 +34,13 @@
     { t: 0.75, name: 'platå' },
     { t: 1, name: 'alpin' },
   ];
-  // Each type has a fairly flat band of heights; the steps between types are
-  // where the land rises (escarpments, coastal slopes).
-  const BASE = [[-0.6, -3500], [0.05, -200], [0.15, 5], [0.18, 20], [0.32, 70], [0.4, 150], [0.6, 500], [0.68, 880], [0.82, 960], [0.9, 1300], [1, 1600], [1.5, 2600]];
-  const RELIEF = [[-0.6, 200], [0.05, 60], [0.15, 20], [0.35, 20], [0.4, 160], [0.6, 160], [0.65, 35], [0.85, 35], [0.95, 1200], [1.5, 1800]];
-  // The landscape value t: continents (mean and spread) plus mountain ranges.
-  const T_MEAN = 0.3, T_STD = 0.22, MOUNTAIN = 0.75;
-  // Default transitions marine|plains, plains|hills, hills|plateau, plateau|alpine,
-  // as values of t. They can be changed in the UI.
-  const BOUNDS = [0.26, 0.42, 0.6, 0.8];
+
+  // Wavelengths (m) of the landscape layers at landscape scale 1. Short enough
+  // that a few kilometres hold a bit of everything.
+  const L_COAST = 9000, L_HILLS = 2500, L_PLATEAU = 10000, L_EDGE = 2500, L_MOUNT = 4500, L_WARP = 6000;
+  // Defaults for the four controls in the UI: coast level, plains|hills, plateau
+  // level and mountain level (higher gives less plateau and fewer mountains).
+  const BOUNDS = [-0.5, 0.1, 1.0, 0.77];
 
   // Interpolates between knots. With smooth = true the curve eases in and out of
   // every knot, so there are no kinks (which showed as sharp bands on the land).
@@ -61,6 +61,7 @@
     constructor(seed, opts = {}) {
       this.seed = seed;
       this.bounds = opts.bounds || BOUNDS;
+      this.scale = opts.scale || 1; // landscape scale: multiplies the layer wavelengths
       const P = (k) => createPerlin(seed * 17 + k);
       this.nType = P(1);
       this.nTypeLocal = P(2);
@@ -77,40 +78,45 @@
       this.nWarpX = P(13);
       this.nWarpY = P(14);
       this.nWarpL2 = P(15);
+      this.nPlateau = P(16);
+      this.nEdge = P(17);
+      this.nPlateauH = P(18);
     }
 
-    // Landscape value t at a point, before the transitions are applied. Continents
-    // (25 km noise) give large connected seas and land; ridged noise (12 km) gives
-    // connected, branching mountain ranges on land. Both are seen through a domain
-    // warp so coasts and ranges bend naturally. `local` is finer variation (3 km).
-    landscapeValue(x, y) {
-      const qx = x + 5000 * fbm(this.nWarpL, x / 20000, y / 20000, 2);
-      const qy = y + 5000 * fbm(this.nWarpL2, x / 20000, y / 20000, 2);
-      const c = fbm(this.nType, qx / 25000, qy / 25000, 5) / FBM5_STD;
-      const ridges = ridged(this.nMount, qx / 12000, qy / 12000, 4);
-      const range = smoothstep(0.5, 0.85, ridges) * smoothstep(-0.4, 0.8, c);
-      const t = T_MEAN + T_STD * c + MOUNTAIN * range;
-      const local = 0.06 * fbm(this.nTypeLocal, x / 3000, y / 3000, 3);
-      return [t, local];
+    // The landscape at a point, as separate layers, all seen through a gentle
+    // domain warp so coasts and ranges bend naturally:
+    // - coast: continents (9 km). Land where the value is above the coast level.
+    // - hills: plains or hills (2.5 km), blending softly.
+    // - plateau: its own layer (10 km), so large areas can lie on a plateau. How
+    //   sharp its edge is varies (2.5 km noise): steep like an old coastline in
+    //   some places, a soft rise from the hills in others.
+    // - mountains: connected, branching ranges (ridged noise, 4.5 km), inside or
+    //   outside plateaus.
+    layers(x, y) {
+      const s = this.scale;
+      const [b0, b1, b2, b3] = this.bounds;
+      const qx = x + 1500 * s * fbm(this.nWarpL, x / (L_WARP * s), y / (L_WARP * s), 2);
+      const qy = y + 1500 * s * fbm(this.nWarpL2, x / (L_WARP * s), y / (L_WARP * s), 2);
+      const u = fbm(this.nType, qx / (L_COAST * s), qy / (L_COAST * s), 5) / FBM_STD[5] - b0;
+      const land = smoothstep(-0.05, 0.05, u);
+      const hv = fbm(this.nTypeLocal, qx / (L_HILLS * s), qy / (L_HILLS * s), 3) / FBM_STD[3];
+      const hills = smoothstep(b1 - 0.8, b1 + 0.8, hv);
+      const pv = fbm(this.nPlateau, qx / (L_PLATEAU * s), qy / (L_PLATEAU * s), 4) / FBM_STD[4];
+      const soft = smoothstep(-0.5, 0.5, fbm(this.nEdge, x / (L_EDGE * s), y / (L_EDGE * s), 2) / FBM_STD[2]);
+      const edge = 0.22 + 0.6 * soft;
+      const plateau = smoothstep(b2 - edge, b2 + edge, pv) * land;
+      const mount = smoothstep(b3 - 0.02, b3 + 0.16, ridged(this.nMount, qx / (L_MOUNT * s), qy / (L_MOUNT * s), 4)) * smoothstep(0, 0.6, u);
+      // Type scale: marine 0, plains 0.25, hills 0.5, plateau 0.75, alpine 1.
+      let tau = land * (0.25 + 0.25 * hills);
+      tau += (0.75 - tau) * plateau;
+      tau += (1 - tau) * mount;
+      return { u, land, hills, plateau, mount, soft, tau };
     }
 
-    // Type scale tau from t: the four transitions map to 0.125, 0.375, 0.625 and
-    // 0.875, so marine is near 0, plains 0.25, hills 0.5, plateau 0.75, alpine 1.
-    tau(t) {
-      const b = this.bounds;
-      if (t <= b[0]) return 0.125 - ((b[0] - t) * 0.25) / (b[1] - b[0]);
-      for (let k = 1; k < 4; k++) {
-        if (t <= b[k]) return 0.125 + 0.25 * (k - 1) + (0.25 * (t - b[k - 1])) / (b[k] - b[k - 1]);
-      }
-      return 0.875 + ((t - b[3]) * 0.25) / (b[3] - b[2]);
-    }
-
-    // Landscape type at a point on the tau scale, [base, character]. Height (base)
-    // follows the fine variation only slightly, or it would raise cliffs; the
-    // character of the terrain (relief, ridges) follows it fully.
+    // Landscape type at a point on the tau scale, as [base, character] (the same).
     landscape(x, y) {
-      const [t, local] = this.landscapeValue(x, y);
-      return [this.tau(t + 0.25 * local), this.tau(t + local)];
+      const tau = this.layers(x, y).tau;
+      return [tau, tau];
     }
 
     // Share of each landscape type, from a fixed sample of points.
@@ -118,7 +124,7 @@
       const rand = M.noise.mulberry32(this.seed + 99);
       const counts = [0, 0, 0, 0, 0];
       for (let k = 0; k < n; k++) {
-        const tc = this.landscape((rand() - 0.5) * 400000, (rand() - 0.5) * 400000)[1];
+        const tc = this.layers((rand() - 0.5) * 400000 * this.scale, (rand() - 0.5) * 400000 * this.scale).tau;
         counts[Math.max(0, Math.min(4, Math.floor((tc + 0.125) / 0.25)))]++;
       }
       return counts.map((c) => c / n);
@@ -133,15 +139,25 @@
     // Elevation in metres, [-5000, 5000].
     // minWavelength drops layers too fine to see (for zoomed-out views).
     elevation(x, y, minWavelength = 0) {
-      const [tb, tc] = this.landscape(x, y);
+      const L = this.layers(x, y);
       const r = this.ruggedness(x, y);
-      const amp = piecewise(RELIEF, tc) * (0.25 + 1.5 * r * Math.sqrt(r));
-      const rw = smoothstep(0.8, 1, tc); // alpine ridges
-      let relief = 0;
+      const rug = 0.25 + 1.5 * r * Math.sqrt(r);
       const fade = (w) => smoothstep(minWavelength, minWavelength * 2, w);
-      if (minWavelength < 1800) relief += (1 - rw) * fade(900) * fbm(this.nHills, x / 900, y / 900, 4);
-      if (rw > 0) relief += rw * (2 * ridged(this.nRidge, x / 4000, y / 4000, 5) - 1);
-      let h = piecewise(BASE, tb, true) + amp * relief;
+      // Base: sea floor falls away from the coast, land rises slowly inland.
+      let h = L.u < 0 ? 900 * L.u : 50 * L.u;
+      h += 60 * L.hills * L.land;
+      // Plateaus lift the land about 500-800 m and smooth it. The lift varies
+      // slowly, so a plateau stays fairly level across.
+      const lift = 650 + 80 * fbm(this.nPlateauH, x / (16000 * this.scale), y / (16000 * this.scale), 2) / FBM_STD[2];
+      h += L.plateau * Math.max(300, lift);
+      // Rolling relief: plains are gentle, hills more, plateaus smoother again.
+      let amp = 50 + (18 + 132 * L.hills - 50) * L.land;
+      amp *= (1 - 0.65 * L.plateau) * rug;
+      if (minWavelength < 1800) h += fade(900) * amp * fbm(this.nHills, x / 900, y / 900, 4);
+      // Mountains: lifted and ridged, on top of whatever they stand on.
+      // The ridges are centred on their mean, so peaks and valleys shape the range
+      // rather than one smooth tent along it.
+      if (L.mount > 0) h += L.mount * (150 + 1500 * (0.4 + 0.6 * r) * (ridged(this.nRidge, x / 1400, y / 1400, 5) - 0.45));
       // Rugged anomalies: knolls, skerries and gullies wherever ruggedness is high.
       if (r > 0.7 && minWavelength < 700) h += fade(350) * 140 * smoothstep(0.7, 0.95, r) * (2 * ridged(this.nAnomaly, x / 350, y / 350, 3) - 1);
       if (minWavelength < 220) h += fade(110) * (2 + 0.06 * amp) * fbm(this.nDetail, x / 110, y / 110, 3);

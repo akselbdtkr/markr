@@ -42,6 +42,8 @@
   const SOURCE_SHARE = [[0, 0.3], [0.25, 0.2], [0.5, 0.9], [0.75, 0.2], [1, 1]];
   // Rivers at least this large split into a delta where they reach the sea.
   const DELTA_SIZE = 6;
+  // Share of plains sections next to the sea where a delta already begins.
+  const PLAINS_DELTA = 0.5;
   // Density samples per cell side. Samples are shared by all patches.
   const DR = 2;
 
@@ -996,11 +998,12 @@
     // straight line by a fixed per-section amount (up to a fifth of a section
     // either way), then moved to the lowest ground nearby. In a valley it lands in
     // the valley; on flat land it makes the river swing.
-    waypoint(sx, sy, [ai, aj], [ti, tj]) {
+    // `offset` (cells) replaces the per-section amount, for delta branches.
+    waypoint(sx, sy, [ai, aj], [ti, tj], offset) {
       const len = Math.hypot(ti - ai, tj - aj);
       if (len < 8) return null;
       const px = -(tj - aj) / len, py = (ti - ai) / len;
-      const off = (hash01(this.terrain.seed + 11, sx, sy) - 0.5) * S * 0.45;
+      const off = offset ?? (hash01(this.terrain.seed + 11, sx, sy) - 0.5) * S * 0.45;
       const lo = sx * S + 3, hi = sx * S + S - 4, lo2 = sy * S + 3, hi2 = sy * S + S - 4;
       const cx = Math.round(Math.max(lo, Math.min(hi, (ai + ti) / 2 + px * off)));
       const cy = Math.round(Math.max(lo2, Math.min(hi2, (aj + tj) / 2 + py * off)));
@@ -1015,6 +1018,15 @@
         }
       }
       return best;
+    }
+
+    // Whether rivers start splitting into a delta in this section: plains that
+    // drain straight into a sea section, in a share of such sections.
+    plainsDelta(sx, sy) {
+      const d = this.drainTo(sx, sy);
+      if (!d || !this.isSea(d[0], d[1])) return false;
+      const tau = this.terrain.landscape((sx + 0.5) * S * C, (sy + 0.5) * S * C)[1];
+      return tau > 0.12 && tau < 0.4 && hash01(this.terrain.seed + 13, sx, sy) < PLAINS_DELTA;
     }
 
     // Lowest lattice point of a section (where a basin with no outlet collects).
@@ -1087,17 +1099,24 @@
       // A bend: the main stream (the largest coming in, or the highest source) and
       // every other stream pass a waypoint before the outlet, so they join there
       // and the course swings instead of running straight from edge to edge.
-      let wp = null;
+      let wp = null, braid = null;
       if (drain && starts.length) {
         const main = starts.reduce((a, b) => (b[1] > a[1] ? b : a));
         wp = this.waypoint(sx, sy, main[0], target);
+        // On plains near the sea a large river may already split here, into
+        // branches that spread out across the section: the start of a delta.
+        if (this.plainsDelta(sx, sy)) {
+          braid = [-0.3, 0, 0.3].map((f) => this.waypoint(sx, sy, main[0], target, f * S)).filter(Boolean);
+        }
       }
       for (const [start, w0] of starts) {
-        for (const [goal, weight] of goals(start, w0)) {
+        const branches = braid && w0 >= DELTA_SIZE ? braid : [wp];
+        for (const [goal, w1] of goals(start, w0)) for (const via of branches) {
+          const weight = w1 / branches.length;
           let path = this.walk(sx, sy, start, goal, out, weight);
-          if (wp && !water) {
-            const first = this.walk(sx, sy, start, wp, null, weight);
-            const rest = this.walk(sx, sy, wp, goal, out, weight);
+          if (via && !water) {
+            const first = this.walk(sx, sy, start, via, null, weight);
+            const rest = this.walk(sx, sy, via, goal, out, weight);
             path = { pts: first.pts.concat(rest.pts.slice(1)), scales: first.scales.concat(rest.scales.slice(1)), weight };
           }
           path.pts.forEach(([pi, pj], k) => {

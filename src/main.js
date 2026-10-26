@@ -8,28 +8,29 @@
   const renderer = new M.Renderer(canvas);
   const C = M.CELL_SIZE, S = M.SECTION;
 
-  const state = { b0: M.BOUNDS[0], b1: M.BOUNDS[1], b2: M.BOUNDS[2], b3: M.BOUNDS[3], seed: 1848, strength: 2.5, warp: 0.35, buffer: 6, sources: 3, autoSplit: 28, overview: 15000 };
+  const state = { b0: M.BOUNDS[0], b1: M.BOUNDS[1], b2: M.BOUNDS[2], b3: M.BOUNDS[3], lscale: 1, seed: 1848, strength: 2.5, warp: 0.35, buffer: 6, sources: 3, autoSplit: 28, overview: 15000 };
   let terrain, world;
   const edits = new Map(); // the player's split/merge edits; the only state worth saving
 
   const km = (m) => (m / 1000).toLocaleString('nb-NO', { maximumFractionDigits: 1 });
   const splitSide = () => (state.autoSplit >= 8 ? state.autoSplit : 0);
 
-  // Picks a start point with both water and varied land nearby. Returns metres.
+  // Picks a start point where a small area holds a bit of everything: as many
+  // landscape types as possible, and some sea. Returns metres.
   function findStart(t) {
-    const span = 1000;
+    const span = 2000 * t.scale, step = 3000 * t.scale;
     let best = [0, 0], bestScore = -Infinity;
-    for (let gy = -12; gy <= 12; gy++) {
-      for (let gx = -12; gx <= 12; gx++) {
-        const x = gx * 4000, y = gy * 4000;
-        let water = 0, lo = Infinity, hi = -Infinity;
-        for (let k = 0; k < 25; k++) {
-          const h = t.elevation(x + ((k % 5) / 4 - 0.5) * span, y + (Math.floor(k / 5) / 4 - 0.5) * span * 0.7, 50);
-          if (h < 0) water++;
-          lo = Math.min(lo, h);
-          hi = Math.max(hi, h);
+    for (let gy = -10; gy <= 10; gy++) {
+      for (let gx = -10; gx <= 10; gx++) {
+        const x = gx * step, y = gy * step;
+        const types = new Set();
+        let water = 0;
+        for (let k = 0; k < 36; k++) {
+          const px = x + ((k % 6) / 5 - 0.5) * span, py = y + (Math.floor(k / 6) / 5 - 0.5) * span * 0.7;
+          types.add(Math.round(t.layers(px, py).tau * 4));
+          if (t.elevation(px, py, 50) < 0) water++;
         }
-        const score = (water > 3 && water < 12 ? 400 : 0) + Math.min(hi - lo, 300) - Math.abs(hi - 200) * 0.2;
+        const score = types.size * 100 + (water >= 4 && water <= 16 ? 80 : 0) - Math.hypot(gx, gy);
         if (score > bestScore) {
           bestScore = score;
           best = [x, y];
@@ -42,10 +43,10 @@
   // New world with the current settings. Keeps cached elevations when the seed is unchanged.
   function makeWorld() {
     const bounds = [state.b0, state.b1, state.b2, state.b3];
-    const same = terrain && terrain.seed === state.seed && terrain.bounds.join() === bounds.join();
+    const same = terrain && terrain.seed === state.seed && terrain.bounds.join() === bounds.join() && terrain.scale === state.lscale;
     const keep = world && same ? world.elev : undefined;
     if (!same) {
-      terrain = new M.Terrain(state.seed, { bounds });
+      terrain = new M.Terrain(state.seed, { bounds, scale: state.lscale });
       showShares();
     }
     world = new M.World(terrain, {
@@ -129,7 +130,7 @@
   function drawOverview(force) {
     const [cx, cy] = renderer.centre;
     // Re-render the terrain only when the view has moved noticeably.
-    const k = `${state.seed}|${terrain.bounds.join()}|${state.overview}|${Math.round((cx * C) / (state.overview / 40))}|${Math.round((cy * C) / (state.overview / 40))}`;
+    const k = `${state.seed}|${terrain.bounds.join()}|${terrain.scale}|${state.overview}|${Math.round((cx * C) / (state.overview / 40))}|${Math.round((cy * C) / (state.overview / 40))}`;
     const [x0, y0] = renderer.toWorld(0, 0), [x1, y1] = renderer.toWorld(renderer.cssW, renderer.cssH);
     if (k !== overviewKey || force) {
       overviewKey = k;
@@ -214,18 +215,8 @@
   bindRange('strength', 'strength', (v) => v.toFixed(1), rebuildSoon);
   bindRange('warp', 'warp', (v) => v.toFixed(2), rebuildSoon);
   bindRange('buffer', 'buffer', (v) => `${v} ruter`, rebuildSoon);
-  // Transitions must stay in order; a slider pushes its neighbours along.
-  for (let k = 0; k < 4; k++) {
-    bindRange('b' + k, 'b' + k, (v) => v.toFixed(2), () => {
-      for (let q = k + 1; q < 4; q++) state['b' + q] = Math.max(state['b' + q], state['b' + (q - 1)] + 0.02);
-      for (let q = k - 1; q >= 0; q--) state['b' + q] = Math.min(state['b' + q], state['b' + (q + 1)] - 0.02);
-      for (let q = 0; q < 4; q++) {
-        $('b' + q).value = state['b' + q];
-        $('b' + q + '-out').textContent = state['b' + q].toFixed(2);
-      }
-      rebuildSoon();
-    });
-  }
+  for (let k = 0; k < 4; k++) bindRange('b' + k, 'b' + k, (v) => v.toFixed(2), rebuildSoon);
+  bindRange('lscale', 'lscale', (v) => `× ${v.toFixed(2)}`, rebuildSoon);
   bindRange('sources', 'sources', (v) => `${v}`, rebuildSoon);
   bindRange('autosplit', 'autoSplit', (v) => (v >= 8 ? `side > ${v} m` : 'av'), () => {
     world.autoSplit = splitSide();

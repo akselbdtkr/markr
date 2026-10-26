@@ -25,7 +25,9 @@
   };
 
   const WATER_SHALLOW = [132, 186, 214];
-  const STREAM = [62, 122, 170];
+  // Streams and fully wet land take the colour of shallow water, so a river or
+  // delta meets the sea without a seam.
+  const STREAM = ramp(RAMPS.sea, Math.log1p(2) / Math.log1p(5000));
   const LANDSCAPE = [[70, 120, 170], [170, 200, 120], [110, 150, 80], [190, 165, 110], [150, 145, 150]];
 
   // Depth below 0 m mapped to [0, 1] on a log scale, so shallow water still varies.

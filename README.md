@@ -12,15 +12,23 @@ et kart som ser naturlig ut, med et enkelt rutenett i bunn.
 1. **Terreng som kontinuerlige felt** (`src/terrain.js`). Alle mål er i meter. Perlin-støy
    i flere lag gir høyde, fuktighet og ulendthet for hvert punkt `(x, y)`. Støyen bruker en
    heltallshash i stedet for en permutasjonstabell, så den gjentar seg aldri.
-   - **Landskap.** En landskapsverdi bygges av to lag. Kontinenter (støy på 25 km) gir store,
-     sammenhengende hav og landområder. Fjellkjeder (ridged-støy på 12 km) gir sammenhengende,
-     forgrenede fjell på land. Begge ses gjennom en forvrengning (domain warp), så kyster og
-     fjellkjeder bøyer seg naturlig.
-   - **Overganger.** Fire grenser deler landskapsverdien i marin, slette, åser, platå og alpin.
-     Grensene kan stilles i menyen *Generering*, der andelen av hver type også vises.
-   - **Hva typene gjør:** marin gir mye under 0 m, slette er jevn og lav, åser er småkupert,
-     platå er jevnt men høyt, alpint er høyt med fjellrygger. Hver type har et ganske flatt
-     høydebånd. Overgangene mellom typene er der landet stiger, og de er myke, uten knekk.
+   - **Landskap i lag.** Landskapet bygges av fire lag, alle sett gjennom en svak forvrengning
+     (domain warp) så kyster og fjellkjeder bøyer seg naturlig. Bølgelengdene er korte, så
+     noen få kilometer viser litt av hvert:
+     - *Kyst* (9 km): land der kontinentlaget ligger over kystnivået. Havbunnen faller av
+       fra kysten, og landet stiger sakte innover.
+     - *Slette eller åser* (2,5 km): glir mykt over i hverandre. Åser er litt høyere og mer
+       kuperte.
+     - *Platå* (10 km): et eget lag, så store områder kan ligge på et platå. Platået hever
+       landet 500–800 m og er jevnt på toppen. Hvor bratt kanten er, varierer (2,5 km
+       støy): bratt som en gammel kystlinje noen steder, en myk overgang til åsene andre
+       steder. Når et platå når havet, blir kysten bratt.
+     - *Fjell* (4,5 km): sammenhengende, forgrenede kjeder (ridged-støy). Topper og skar kommer
+       fra rygger sentrert om sitt snitt. Fjell kan ligge på et platå eller utenfor.
+   - **Innstillinger.** Under *Generering → Landskap* stiller man havnivå, overgangen slette |
+     åser, platånivå, fjellnivå og landskapsskala. Andelen av hver type vises. Standard er
+     omtrent 30 % hav, 25 % slette, 30 % åser, 12 % platå og 2–3 % alpint.
+   - **Start.** Kartet åpner der et lite område har flest landskapstyper og litt hav.
    - **Ulendthet** (egen støy, 2,5 km og 600 m) skalerer relieffet uavhengig av typen og
      lager anomalier: bratte partier og skjær i marint og på sletter, flatere partier i alpint.
    - **Høyde** går fra −5000 til 5000 m. Omtrent 85 % ligger mellom −100 og 1000 m.
@@ -70,7 +78,9 @@ et kart som ser naturlig ut, med et enkelt rutenett i bunn.
      flatere, vurderes naboene etter terrenget sett i blokker på 2, 4, 8 og 16 ruter (glattet
      mellom blokksentrene), og en fast slyngning per punkt hindrer rette løp.
    - **Deltaer.** Der en stor elv kommer inn i en havseksjon, deler den seg i opptil tre
-     løp mot hvert sitt punkt i havkanten.
+     løp mot hvert sitt punkt i havkanten. På sletter som drenerer rett ut i en havseksjon,
+     begynner deltaet halvparten av gangene allerede der: elva deler seg i tre løp som sprer
+     seg over seksjonen. Elvevann og grunt hav har samme farge, så elv og hav møtes uten skjøt.
    - **Virkning.** Bekken gjør landet brattere (som gir mindre ruter) og våtere, i et bånd på
      tvers av løpet like bredt som skalaen.
    - **Rutene eier vassdraget.** Hver grunnrute som bekkelinja krysser, lagrer biten av
