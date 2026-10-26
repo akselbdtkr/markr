@@ -1,4 +1,4 @@
-// UI wiring: controls, pan/zoom, hover info, split/merge on click.
+// UI wiring: controls, pan/zoom, hover info, split/merge on click, overview map.
 (function (M) {
   'use strict';
 
@@ -6,19 +6,92 @@
   const canvas = $('map');
   const renderer = new M.Renderer(canvas);
 
-  const state = { seed: 1848, cols: 64, strength: 2.5, warp: 0.35, autoSplit: 0 };
+  const C = M.CELL_SIZE;
+  const state = { seed: 1848, cols: 64, strength: 2.5, warp: 0.35, autoSplit: 28, overview: 15000 };
   let terrain, grid;
+  // Centre of the grid window in world metres.
+  let centre = null;
+
+  const km = (m) => (m / 1000).toLocaleString('nb-NO', { maximumFractionDigits: 1 });
+  const rowsFor = (cols) => Math.round((cols * 44) / 64);
+  const splitSide = () => (state.autoSplit >= 8 ? state.autoSplit : 0);
+
+  // Picks a start point with both water and varied land inside the window.
+  function findStart(t) {
+    const span = state.cols * C;
+    let best = [0, 0], bestScore = -Infinity;
+    for (let gy = -12; gy <= 12; gy++) {
+      for (let gx = -12; gx <= 12; gx++) {
+        const x = gx * 4000, y = gy * 4000;
+        let water = 0, lo = Infinity, hi = -Infinity;
+        for (let k = 0; k < 25; k++) {
+          const h = t.elevation(x + ((k % 5) / 4 - 0.5) * span, y + (Math.floor(k / 5) / 4 - 0.5) * span * 0.7, 50);
+          if (h < 0) water++;
+          lo = Math.min(lo, h);
+          hi = Math.max(hi, h);
+        }
+        const score = (water > 3 && water < 12 ? 400 : 0) + Math.min(hi - lo, 300) - Math.abs(hi - 200) * 0.2;
+        if (score > bestScore) {
+          bestScore = score;
+          best = [x, y];
+        }
+      }
+    }
+    return best;
+  }
 
   function rebuild() {
     const t0 = performance.now();
-    terrain = new M.Terrain(state.seed);
-    const rows = Math.round((state.cols * 44) / 64);
-    grid = new M.Grid(terrain, { cols: state.cols, rows, strength: state.strength, warp: state.warp });
-    grid.autoSplit(state.autoSplit);
+    if (!terrain || terrain.seed !== state.seed) {
+      terrain = new M.Terrain(state.seed);
+      centre = findStart(terrain);
+    }
+    const rows = rowsFor(state.cols);
+    const i0 = Math.round(centre[0] / C - state.cols / 2);
+    const j0 = Math.round(centre[1] / C - rows / 2);
+    grid = new M.Grid(terrain, { cols: state.cols, rows, i0, j0, strength: state.strength, warp: state.warp });
+    grid.autoSplit(splitSide());
     renderer.hover = null;
-    $('status').textContent = `${grid.cols} × ${grid.rows} ruter · bygget på ${Math.round(performance.now() - t0)} ms`;
+    const leaves = [...grid.leaves()].length;
+    $('status').textContent =
+      `${grid.cols} × ${grid.rows} grunnruter (${leaves} med underruter), ` +
+      `${km(grid.cols * C)} × ${km(grid.rows * C)} km ved x ${km(centre[0])} km, y ${km(centre[1])} km. ` +
+      `Bygget på ${Math.round(performance.now() - t0)} ms.`;
+    drawOverview();
     draw();
   }
+
+  // --- overview -------------------------------------------------------------
+  const overview = $('overview');
+  let overviewInfo = null;
+  function drawOverview() {
+    const rect = [grid.i0 * C, grid.j0 * C, (grid.i0 + grid.cols) * C, (grid.j0 + grid.rows) * C];
+    overviewInfo = M.drawOverview(overview, terrain, centre[0], centre[1], state.overview, 'terrain', rect);
+  }
+  overview.addEventListener('click', (e) => {
+    const r = overview.getBoundingClientRect();
+    const { W, H, mpp } = overviewInfo;
+    centre = [centre[0] + (e.clientX - r.left - W / 2) * mpp, centre[1] + (e.clientY - r.top - H / 2) * mpp];
+    rebuild();
+    renderer.fit(grid);
+    draw();
+  });
+  const extentSel = $('extent');
+  extentSel.value = state.overview;
+  extentSel.addEventListener('change', () => {
+    state.overview = parseFloat(extentSel.value);
+    drawOverview();
+  });
+  const move = (fx, fy) => {
+    centre = [centre[0] + fx * grid.cols * C, centre[1] + fy * grid.rows * C];
+    rebuild();
+    renderer.fit(grid);
+    draw();
+  };
+  $('go-n').addEventListener('click', () => move(0, -0.5));
+  $('go-s').addEventListener('click', () => move(0, 0.5));
+  $('go-w').addEventListener('click', () => move(-0.5, 0));
+  $('go-e').addEventListener('click', () => move(0.5, 0));
 
   let pending = false;
   function draw() {
@@ -84,8 +157,8 @@
   bindRange('cols', 'cols', (v) => `${v}`, rebuildSoon);
   bindRange('strength', 'strength', (v) => v.toFixed(1), rebuildSoon);
   bindRange('warp', 'warp', (v) => v.toFixed(2), rebuildSoon);
-  bindRange('autosplit', 'autoSplit', (v) => (v ? `> ${v.toFixed(1)}` : 'av'), () => {
-    grid.autoSplit(state.autoSplit);
+  bindRange('autosplit', 'autoSplit', (v) => (v >= 8 ? `side > ${v} m` : 'av'), () => {
+    grid.autoSplit(splitSide());
     renderer.hover = null;
     draw();
   });
@@ -102,11 +175,14 @@
   seedInput.addEventListener('change', () => {
     state.seed = parseInt(seedInput.value, 10) || 0;
     rebuild();
+    renderer.fit(grid);
   });
   $('reseed').addEventListener('click', () => {
     state.seed = Math.floor(Math.random() * 100000);
     seedInput.value = state.seed;
     rebuild();
+    renderer.fit(grid);
+    draw();
   });
 
   $('lines').addEventListener('change', (e) => {
@@ -143,11 +219,12 @@
     const v = c.values;
     const path = [];
     for (let p = c; p; p = p.parent) path.unshift(`(${p.i}, ${p.j})`);
+    const m = (x) => Math.round(x).toLocaleString('nb-NO');
     const rows = [
       ['Indeks', path.join(' → ')],
-      ['Nivå', c.level === 0 ? '0 (grunnrute)' : `${c.level} (underrute)`],
-      ['Areal', `${v.area.toFixed(2)} × nominell`],
-      ['Høyde', v.elevation.toFixed(3)],
+      ['Nivå', `${c.level} (${c.nominalSize} m${c.level === 0 ? ', grunnrute' : ''})`],
+      ['Areal', `${m(v.area)} m² (≈ ${v.side.toFixed(1)} m)`],
+      [v.water ? 'Dybde' : 'Høyde', v.water ? `${m(-v.elevation)} m` : `${m(v.elevation)} moh.`],
       ['Fuktighet', pct(v.moisture)],
       ['Ulendthet', pct(v.ruggedness)],
       ['Helning', pct(v.steepness)],
@@ -195,7 +272,8 @@
           if (c.parent) c.parent.merge();
           renderer.hover = c.parent || c;
         } else {
-          renderer.hover = c.split()[0];
+          const kids = c.split();
+          if (kids) renderer.hover = kids[0];
         }
         showInfo(renderer.hover);
         draw();
@@ -221,6 +299,7 @@
 
   window.addEventListener('resize', () => {
     renderer.resize();
+    drawOverview();
     draw();
   });
 

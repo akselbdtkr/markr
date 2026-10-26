@@ -28,27 +28,24 @@
     }
   }
 
+  // Integer hash of a lattice point. No permutation table, so the noise never
+  // repeats: the map can continue in every direction.
+  function hash2(seed, x, y) {
+    let h = seed ^ Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1);
+    h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+    return (h ^ (h >>> 16)) >>> 0;
+  }
+
   // Returns a function (x, y) -> roughly [-1, 1].
   function createPerlin(seed) {
-    const rand = mulberry32(seed);
-    const p = new Uint8Array(256);
-    for (let i = 0; i < 256; i++) p[i] = i;
-    for (let i = 255; i > 0; i--) {
-      const j = Math.floor(rand() * (i + 1));
-      const t = p[i]; p[i] = p[j]; p[j] = t;
-    }
-    const perm = new Uint8Array(512);
-    for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
-
+    const s = (mulberry32(seed)() * 4294967296) | 0;
     return function (x, y) {
       const xi = Math.floor(x), yi = Math.floor(y);
-      const X = xi & 255, Y = yi & 255;
       const xf = x - xi, yf = y - yi;
       const u = fade(xf), v = fade(yf);
-      const aa = perm[perm[X] + Y], ab = perm[perm[X] + Y + 1];
-      const ba = perm[perm[X + 1] + Y], bb = perm[perm[X + 1] + Y + 1];
-      const x1 = lerp(grad(aa, xf, yf), grad(ba, xf - 1, yf), u);
-      const x2 = lerp(grad(ab, xf, yf - 1), grad(bb, xf - 1, yf - 1), u);
+      const x1 = lerp(grad(hash2(s, xi, yi), xf, yf), grad(hash2(s, xi + 1, yi), xf - 1, yf), u);
+      const x2 = lerp(grad(hash2(s, xi, yi + 1), xf, yf - 1), grad(hash2(s, xi + 1, yi + 1), xf - 1, yf - 1), u);
       return lerp(x1, x2, v);
     };
   }

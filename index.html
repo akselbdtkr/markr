@@ -58,6 +58,8 @@
     dd { margin: 0; text-align: right; }
     #status { font-size: 12px; margin-top: 14px; }
     .hint { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+    #overview { width: 100%; aspect-ratio: 3 / 2; display: block; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; margin-bottom: 6px; }
+    .row select { flex: 1; width: auto; }
     .zoom { position: absolute; left: 12px; top: 12px; display: flex; gap: 4px; }
     .zoom button { background: var(--panel); min-width: 34px; }
     main { position: relative; min-width: 0; }
@@ -78,7 +80,7 @@
   </main>
   <aside>
     <h1>Markr</h1>
-    <div class="muted">Rutenett over simulert terreng</div>
+    <div class="muted">Rutenett over simulert terreng · grunnrute 16 m</div>
 
     <h2>Visning</h2>
     <select id="mode"></select>
@@ -102,8 +104,24 @@
     <div class="check"><input type="radio" name="click" value="split" id="c-split" checked><label for="c-split" style="margin:0">Klikk deler rute i fire</label></div>
     <div class="check"><input type="radio" name="click" value="merge" id="c-merge"><label for="c-merge" style="margin:0">Klikk slår sammen igjen</label></div>
     <p class="hint">Høyreklikk slår også sammen. Dra for å panorere, hjul for zoom.</p>
-    <label>Auto-del ruter med areal <output id="autosplit-out"></output></label>
-    <input id="autosplit" type="range" min="0" max="4" step="0.1">
+    <label>Auto-del ruter <output id="autosplit-out"></output></label>
+    <input id="autosplit" type="range" min="6" max="48" step="2">
+
+    <h2>Oversikt</h2>
+    <canvas id="overview" title="Klikk for å flytte utsnittet hit"></canvas>
+    <div class="row">
+      <select id="extent" aria-label="Bredde på oversikten">
+        <option value="3000">3 km</option>
+        <option value="15000">15 km</option>
+        <option value="75000">75 km</option>
+        <option value="300000">300 km</option>
+      </select>
+      <button id="go-w" title="Flytt utsnittet mot vest">V</button>
+      <button id="go-n" title="Flytt utsnittet mot nord">N</button>
+      <button id="go-s" title="Flytt utsnittet mot sør">S</button>
+      <button id="go-e" title="Flytt utsnittet mot øst">Ø</button>
+    </div>
+    <p class="hint">Terrenget finnes overalt. Klikk i oversikten for å lage rutenett der.</p>
 
     <h2>Rute</h2>
     <div id="info"></div>

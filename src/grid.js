@@ -1,7 +1,7 @@
 // The grid: a plain matrix of cells in index space, deformed in world space.
 //
 // Index space: cell (i, j) is the unit square [i, i+1] x [j, j+1], vertex (a, b)
-// sits at (a, b). Topology never changes: every base cell has exactly four
+// sits at (a, b). One index unit is CELL_SIZE (16 m) in the world. Topology never changes: every base cell has exactly four
 // neighbours (i±1, j) and (i, j±1), and the grid is always contiguous.
 //
 // World space: vertices are moved so that cells shrink where the terrain is steep
@@ -13,6 +13,10 @@
   'use strict';
 
   const { clamp01, smoothstep } = M.util;
+  const C = M.CELL_SIZE;
+  // Slope (m per m) treated as fully steep when shaping cells: about 27 degrees.
+  const STEEP_SLOPE = 0.5;
+  const WATER_SLOPE = 0.2;
   const bell = (v, mid, width) => Math.exp(-((v - mid) * (v - mid)) / (2 * width * width));
 
   class Cell {
@@ -48,8 +52,10 @@
     }
 
     // Splits the cell into four. Children get indices (2i..2i+1, 2j..2j+1) on the next level.
+    // Returns null at the finest level (1 m).
     split() {
       if (this.children) return this.children;
+      if (this.level >= M.MAX_LEVEL) return null;
       const [u0, v0, u1, v1] = this.rect;
       const um = (u0 + u1) / 2, vm = (v0 + v1) / 2;
       const L = this.level + 1, i2 = this.i * 2, j2 = this.j * 2;
@@ -76,20 +82,29 @@
       }
     }
 
+    // Nominal side length in metres: 16, 8, 4, 2, 1.
+    get nominalSize() {
+      return C / (1 << this.level);
+    }
+
     // Samples the terrain and derives land-use values. Always uses world positions.
     evaluate() {
       const p = this.corners(1);
-      const area = polygonArea(p);
-      const cx = (p[0][0] + p[1][0] + p[2][0] + p[3][0]) / 4;
-      const cy = (p[0][1] + p[1][1] + p[2][1] + p[3][1]) / 4;
+      const area = polygonArea(p) * C * C; // m²
+      const rel = area / (C * C); // relative to a nominal base cell
+      const cx = ((p[0][0] + p[1][0] + p[2][0] + p[3][0]) / 4) * C;
+      const cy = ((p[0][1] + p[1][1] + p[2][1] + p[3][1]) / 4) * C;
       const s = this.grid.terrain.sample(cx, cy);
-      const steepness = clamp01(s.slope / this.grid.slopeRef);
-      // Size is judged against the base-cell equivalent, so a quarter cell counts as small.
-      const flat = 1 - steepness;
+      const steepness = clamp01(s.slope / STEEP_SLOPE);
+      const land = s.water ? 0 : 1;
+      const belowTreeline = 1 - smoothstep(800, 1000, s.elevation);
+      const flat = (1 - steepness) * land;
       this.values = {
         area,
+        side: Math.sqrt(area),
         cx,
         cy,
+        water: s.water,
         elevation: s.elevation,
         moisture: s.moisture,
         ruggedness: s.ruggedness,
@@ -98,11 +113,11 @@
         gx: s.gx,
         gy: s.gy,
         // Large cell, medium moisture -> farmland.
-        farmland: smoothstep(0.7, 2.2, area) * bell(s.moisture, 0.55, 0.17) * flat,
+        farmland: smoothstep(0.7, 2.2, rel) * bell(s.moisture, 0.55, 0.17) * flat * belowTreeline,
         // Medium cell, somewhat dry -> building land.
-        building: bell(Math.log(area), 0, 0.5) * bell(s.moisture, 0.35, 0.15) * flat,
+        building: bell(Math.log(rel), 0, 0.5) * bell(s.moisture, 0.35, 0.15) * flat,
         // Small (steep, broken) cells -> resources such as stone, ore, timber.
-        resource: smoothstep(0.7, 0.15, area) * (0.4 + 0.6 * s.ruggedness),
+        resource: smoothstep(0.7, 0.15, rel) * (0.4 + 0.6 * s.ruggedness) * land,
       };
       return this.values;
     }
@@ -158,21 +173,22 @@
       ];
     }
 
-    // Raster of terrain density over the window, sampled 4 times per cell unit.
+    // Raster of terrain density over the window, sampled twice per cell unit.
     buildDensity() {
-      const R = 4;
+      const R = 2;
       const nx = this.cols * R + 1, ny = this.rows * R + 1;
       const slope = new Float64Array(nx * ny);
       for (let y = 0; y < ny; y++) {
         for (let x = 0; x < nx; x++) {
-          slope[y * nx + x] = this.terrain.slope(this.i0 + x / R, this.j0 + y / R);
+          const wx = (this.i0 + x / R) * C, wy = (this.j0 + y / R) * C;
+          // Water gets a fixed middling density: open water cells grow, but not so
+          // much that the coast pulls them into long strips.
+          slope[y * nx + x] = this.terrain.elevation(wx, wy) < 0 ? WATER_SLOPE : this.terrain.slope(wx, wy);
         }
       }
-      const sorted = Float64Array.from(slope).sort();
-      this.slopeRef = sorted[Math.floor(sorted.length * 0.95)] || 1;
       const density = new Float64Array(nx * ny);
       for (let k = 0; k < density.length; k++) {
-        const s = clamp01(slope[k] / this.slopeRef);
+        const s = clamp01(slope[k] / STEEP_SLOPE);
         density[k] = Math.exp(this.strength * s);
       }
       this.dens = { R, nx, ny, data: density };
@@ -245,7 +261,7 @@
           const fade = smoothstep(0, 3, edge) * this.warpAmount;
           // Keep the warp small where cells are already compressed.
           const scale = fade / Math.sqrt(this.density(wx[k], wy[k]));
-          const [dx, dy] = this.terrain.warp(wx[k], wy[k]);
+          const [dx, dy] = this.terrain.warp(wx[k] * C, wy[k] * C);
           wx[k] += dx * scale;
           wy[k] += dy * scale;
         }
@@ -292,14 +308,14 @@
       return null;
     }
 
-    // Splits every leaf larger than maxArea, repeatedly (up to maxLevel).
-    autoSplit(maxArea, maxLevel = 3) {
+    // Splits every leaf whose side (sqrt of area) exceeds maxSide metres, repeatedly.
+    autoSplit(maxSide) {
       for (const c of this.baseCells()) c.merge();
-      if (!maxArea) return;
+      if (!maxSide) return;
       const stack = [...this.baseCells()];
       while (stack.length) {
         const c = stack.pop();
-        if (c.values.area > maxArea && c.level < maxLevel) stack.push(...c.split());
+        if (c.values.side > maxSide && c.level < M.MAX_LEVEL) stack.push(...c.split());
       }
     }
   }
