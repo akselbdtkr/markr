@@ -8,7 +8,7 @@
   const renderer = new M.Renderer(canvas);
   const C = M.CELL_SIZE, S = M.SECTION;
 
-  const state = { seed: 1848, strength: 2.5, warp: 0.35, buffer: 6, sources: 2, riverLength: 128, autoSplit: 28, overview: 15000 };
+  const state = { seed: 1848, strength: 2.5, warp: 0.35, buffer: 6, sources: 3, riverLength: 256, autoSplit: 28, overview: 15000 };
   let terrain, world;
   const edits = new Map(); // the player's split/merge edits; the only state worth saving
 
@@ -257,6 +257,10 @@
 
   // --- hover info -----------------------------------------------------------
   const pct = (v) => `${Math.round(v * 100)} %`;
+  const compass = ([dx, dy]) => {
+    const names = ['Ø', 'SØ', 'S', 'SV', 'V', 'NV', 'N', 'NØ'];
+    return 'mot ' + names[(Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) % 8];
+  };
   function showInfo(c) {
     const el = $('info');
     if (!c) {
@@ -276,7 +280,8 @@
       ['Fuktighet', pct(v.moisture)],
       ['Ulendthet', pct(v.ruggedness)],
       ['Helning', pct(v.steepness)],
-      ['Vassdrag', v.streams ? `${v.streams}` : '–'],
+      ['Landskap', `${M.landscapeName(v.landscape)} (${v.landscape.toFixed(2)})`],
+      ['Vassdrag', v.streams ? `størrelse ${v.streams.toFixed(1)}, ${compass(v.streamDir)}, skala ${v.streamScale}` : '–'],
       ['Jordbruk', pct(v.farmland)],
       ['Byggegrunn', pct(v.building)],
       ['Ressurser', pct(v.resource)],

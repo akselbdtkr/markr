@@ -25,6 +25,8 @@
   };
 
   const WATER_SHALLOW = [132, 186, 214];
+  const STREAM = [62, 122, 170];
+  const LANDSCAPE = [[70, 120, 170], [170, 200, 120], [110, 150, 80], [190, 165, 110], [150, 145, 150]];
 
   // Depth below 0 m mapped to [0, 1] on a log scale, so shallow water still varies.
   const depthT = (h) => clamp01(Math.log1p(-h) / Math.log1p(5000));
@@ -45,15 +47,18 @@
   function terrainColor(v) {
     const h = v.elevation;
     if (v.water || h < 0) return ramp(RAMPS.sea, depthT(Math.min(h, -0.5)));
-    const dry = [184, 182, 112], lush = [86, 132, 66], marsh = [96, 128, 104];
+    const dry = [184, 182, 112], lush = [86, 132, 66], marsh = [80, 128, 120];
     const heath = [150, 138, 106], rock = [138, 130, 120], snow = [240, 240, 236];
-    let c = mix(dry, lush, clamp01((v.moisture - 0.15) / 0.6));
-    if (v.moisture > 0.8) c = mix(c, marsh, (v.moisture - 0.8) / 0.2);
+    // Moisture: dry, then green, then bluer; at 100 % the cell is fully blue.
+    let c = mix(dry, lush, clamp01((v.moisture - 0.15) / 0.55));
+    c = mix(c, marsh, M.util.smoothstep(0.7, 0.92, v.moisture));
     c = mix(c, heath, M.util.smoothstep(850, 1000, h));
     c = mix(c, rock, M.util.smoothstep(1100, 1700, h));
     c = mix(c, snow, M.util.smoothstep(1900, 2300, h));
     if (h < 1.5) c = mix(c, WATER_SHALLOW, 0.35); // wet shoreline
-    return shade(c, v);
+    c = shade(c, v);
+    if (v.moisture > 0.92) c = mix(c, STREAM, (v.moisture - 0.92) / 0.08);
+    return c;
   }
 
   function elevationColor(v) {
@@ -62,11 +67,17 @@
 
   const MODES = {
     terrain: { label: 'Terreng', color: terrainColor },
+    landscape: {
+      label: 'Landskap',
+      color: (v) => ramp(LANDSCAPE, v.landscape),
+      ramp: LANDSCAPE,
+      legend: ['marin · slette · åser · platå · alpin', ''],
+    },
     streams: {
       label: 'Vassdrag',
-      color: (v) => (v.water ? ramp(RAMPS.sea, 0.3) : ramp(RAMPS.stone, Math.min(1, Math.log2(1 + v.streams) / 4))),
+      color: (v) => (v.water ? ramp(RAMPS.sea, 0.3) : ramp(RAMPS.stone, Math.min(1, Math.log2(1 + v.streams) / 6))),
       ramp: RAMPS.stone,
-      legend: ['ingen', 'mange'],
+      legend: ['ingen', 'store'],
     },
     elevation: {
       label: 'Høyde',
@@ -111,6 +122,7 @@
         const s = terrain.sample(wx, wy, step / 2, step * 2);
         s.steepness = clamp01(s.slope / 0.5);
         s.area = 256; s.side = 16; s.farmland = 0; s.building = 0; s.resource = 0; s.streams = 0;
+        s.moisture = Math.min(s.moisture, 0.9);
         const c = color(s);
         const k = (y * nx + x) * 4;
         img.data[k] = c[0]; img.data[k + 1] = c[1]; img.data[k + 2] = c[2]; img.data[k + 3] = 255;
@@ -238,6 +250,8 @@
         ctx.stroke();
       }
 
+      if (this.showStreams) this.drawStreams(sections, t);
+
       if (this.showLines && this.view.scale > 3) {
         const s = this.view.scale;
         for (const c of leaves) {
@@ -249,7 +263,6 @@
         }
       }
 
-      if (this.showStreams) this.drawStreams(world, sections, t);
       if (this.showSections) this.drawSectionEdges(sections, t);
 
       if (this.hover && world.loaded(this.hover.section.sx, this.hover.section.sy)) {
@@ -262,44 +275,44 @@
       if (this.showLabels && this.view.scale > 42) this.drawLabels(sections, t);
     }
 
-    // Streams as smooth lines through their world-space points, wider where more
-    // streams share a point. They belong to world space, so they fade out as the
-    // view morphs to index space.
-    drawStreams(world, sections, t) {
-      const ctx = this.ctx, S = M.SECTION;
-      if (t < 0.05) return;
-      const seen = new Set();
+    // Streams are a texture on the cells that own them: each piece is drawn from
+    // where it enters the cell to where it leaves, clipped to the cell, in the
+    // cell's own (u, v) space, so it follows the cell through the morph.
+    drawStreams(sections, t) {
+      const ctx = this.ctx;
       ctx.save();
-      ctx.globalAlpha = t;
       ctx.lineCap = 'round';
-      ctx.strokeStyle = rgb(RAMPS.sea[1]);
-      const pts = [];
-      const flush = () => {
-        for (let k = 1; k < pts.length; k++) {
-          const [x0, y0] = pts[k - 1], [x1, y1, f] = pts[k];
-          const m0 = k === 1 ? [x0, y0] : [(pts[k - 2][0] + x0) / 2, (pts[k - 2][1] + y0) / 2];
-          ctx.beginPath();
-          ctx.moveTo(m0[0], m0[1]);
-          ctx.quadraticCurveTo(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
-          if (k === pts.length - 1) ctx.lineTo(x1, y1);
-          ctx.lineWidth = Math.max(1, Math.min(this.view.scale * 0.5, this.view.scale * (0.1 + 0.08 * Math.log2(f))));
-          ctx.stroke();
-        }
-        pts.length = 0;
-      };
+      ctx.strokeStyle = rgb(STREAM);
       for (const s of sections) {
-        for (const path of world.flowData(s.sx, s.sy).paths) {
-          if (seen.has(path)) continue;
-          seen.add(path);
-          for (const [i, j] of path) {
-            if (!world.loaded(Math.floor(i / S), Math.floor(j / S))) {
-              flush();
-              continue;
+        for (const c of s.baseCells()) {
+          if (!c.pieces) continue;
+          const q = c.corners(t);
+          ctx.save();
+          this.path(q);
+          ctx.clip();
+          for (const p of c.pieces) {
+            const [ax, ay] = this.toScreen(...M.bilinear(q, p.a[0], p.a[1]));
+            const [bx, by] = this.toScreen(...M.bilinear(q, p.b[0], p.b[1]));
+            const w = Math.max(1, (M.channelWidth(p.size) / M.CELL_SIZE) * this.view.scale);
+            // Reach a little past both ends so pieces in neighbouring cells join.
+            let dx = bx - ax, dy = by - ay;
+            const len = Math.hypot(dx, dy);
+            if (len > 0.01) {
+              dx /= len;
+              dy /= len;
+            } else {
+              const [ux, uy] = p.dir, l = Math.hypot(ux, uy) || 1;
+              dx = ux / l;
+              dy = uy / l;
             }
-            const [x, y] = this.toScreen(i + 0.5, j + 0.5);
-            pts.push([x, y, Math.max(1, world.flow(i, j))]);
+            const ext = this.view.scale * 0.25;
+            ctx.lineWidth = w;
+            ctx.beginPath();
+            ctx.moveTo(ax - dx * ext, ay - dy * ext);
+            ctx.lineTo(bx + dx * ext, by + dy * ext);
+            ctx.stroke();
           }
-          flush();
+          ctx.restore();
         }
       }
       ctx.restore();

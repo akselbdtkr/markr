@@ -18,13 +18,21 @@
 
   const { clamp01, smoothstep } = M.util;
   const C = M.CELL_SIZE;
-  const S = 32; // cells per section side (512 m)
+  const S = M.SECTION; // cells per section side (512 m)
   // Slope (m per m) treated as fully steep when shaping cells: about 27 degrees.
   const STEEP_SLOPE = 0.5;
   // Open water gets a fixed middling density so the coast does not pull it into strips.
   const WATER_SLOPE = 0.2;
-  // Extra steepness per stream in a cell (log scale); neighbours get half.
-  const RIVER_STEEP = 0.35;
+  // Extra steepness from a stream (log of its size), across a band set by its scale.
+  const RIVER_STEEP = 0.3;
+  // Largest block a stream looks at, in cells per side.
+  const MAX_SCALE = 16;
+  // A block counts as flat when it falls less than this per metre across its width.
+  const FLAT_SLOPE = 0.04;
+  // Sources in a section must be at least this many cells apart.
+  const SOURCE_SPACING = 8;
+  // Metres of jitter per unit of scale when a stream picks its next step.
+  const MEANDER = 0.6;
   // A pit floods at most this many cells looking for an outlet; else it is a closed lake.
   const FLOOD_MAX = 600;
   // Density samples per cell side. Samples are shared by all patches.
@@ -62,7 +70,28 @@
       this.children = null;
       this.values = null;
       this.water = parent ? parent.water : false;
-      this.streams = 0; // streams crossing the base cell (largest count)
+      // Stream pieces owned by a base cell, as a texture in the cell's own (u, v)
+      // space: [{a: [u, v], b: [u, v], size, scale}], entering at a, leaving at b.
+      this.pieces = null;
+    }
+
+    // Adds a piece of a stream from world point a to b (index units).
+    addStream(a, b, size, scale) {
+      const q = this.corners(1);
+      const piece = { a: invBilinear(q, a[0], a[1]), b: invBilinear(q, b[0], b[1]), size, scale, dir: [b[0] - a[0], b[1] - a[1]] };
+      (this.pieces = this.pieces || []).push(piece);
+    }
+
+    // The largest stream piece in this cell (or, for a sub-cell, crossing it), or null.
+    get stream() {
+      const pieces = this.base.pieces;
+      if (!pieces) return null;
+      let best = null;
+      for (const p of pieces) {
+        if (this.level > 0 && !pieceInRect(p, this.rect)) continue;
+        if (!best || p.size > best.size) best = p;
+      }
+      return best;
     }
 
     get isLeaf() {
@@ -129,9 +158,11 @@
       let elevation = s.elevation;
       if (water && elevation >= 0) elevation = -0.5;
       if (!water && elevation < 0) elevation = 0.5;
-      const streams = this.base.streams;
+      const stream = this.stream;
       const steepness = water ? 0 : clamp01(s.slope / STEEP_SLOPE + w.riverSteepAt(cx / C, cy / C));
-      const moisture = water ? 1 : s.moisture;
+      // Streams wet the land around them. A cell the channel fills is fully wet.
+      let moisture = water ? 1 : Math.min(1, s.moisture + w.wetAt(cx / C, cy / C));
+      if (stream && channelWidth(stream.size) >= 0.4 * Math.sqrt(area)) moisture = 1;
       const land = water ? 0 : 1;
       const belowTreeline = 1 - smoothstep(800, 1000, elevation);
       const flat = (1 - steepness) * land;
@@ -146,7 +177,10 @@
         ruggedness: s.ruggedness,
         slope: s.slope,
         steepness,
-        streams,
+        landscape: s.landscape,
+        streams: stream ? stream.size : 0,
+        streamScale: stream ? stream.scale : 0,
+        streamDir: stream ? stream.dir : null,
         gx: s.gx,
         gy: s.gy,
         // Large cell, medium moisture, below the tree line -> farmland.
@@ -200,8 +234,10 @@
       this.fixed[k] = 1;
     }
 
-    // Weighted Laplacian relaxation (successive over-relaxation) of the free vertices.
-    relax(maxIter = 300, omega = 1.3) {
+    // Weighted Laplacian relaxation (Gauss-Seidel) of the free vertices. Every
+    // update is a weighted average of the neighbours, so it cannot run away even
+    // where density varies a lot; over-relaxation (omega > 1) can, and did.
+    relax(maxIter = 400, omega = 1) {
       const w = this.world;
       const R = DR;
       // Local copy of the shared density samples, for fast lookups.
@@ -352,20 +388,53 @@
       return (r && r[i - this.a0]) || null;
     }
 
-    // Streams are lines in world space. A cell is a stream cell when a stream point
-    // falls inside it, whatever its index, so the cells follow the real water.
+    // Streams are lines in world space, smoothed through their lattice points.
+    // Every base cell the line crosses owns the piece inside it: where it enters
+    // and leaves, the stream's size and scale. A cell is a stream cell because the
+    // water runs through it, whatever its index.
     markStreams() {
-      const w = this.world, a0 = this.a0, b0 = this.b0, M8 = 8;
+      const w = this.world, a0 = this.a0, b0 = this.b0, MARGIN = 3, STEP = 0.125;
+      const seen = new Set();
+      let hint = null;
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
-          const sx = this.sx + dx, sy = this.sy + dy;
-          const flow = w.flowData(sx, sy).flow;
-          for (let k = 0; k < flow.length; k++) {
-            if (!flow[k]) continue;
-            const px = sx * S + (k % S) + 0.5, py = sy * S + Math.floor(k / S) + 0.5;
-            if (px < a0 - M8 || py < b0 - M8 || px > a0 + S + M8 || py > b0 + S + M8) continue;
-            const c = this.cellAt(px, py, M8);
-            if (c && flow[k] > c.streams) c.streams = flow[k];
+          for (const path of w.flowData(this.sx + dx, this.sy + dy).paths) {
+            if (seen.has(path)) continue;
+            seen.add(path);
+            const line = smoothLine(path.pts);
+            let cur = null;
+            const finish = () => {
+              if (cur) cur.cell.addStream(cur.a, cur.b, cur.size, cur.scale);
+              cur = null;
+            };
+            for (let k = 1; k < line.length; k++) {
+              const [x0, y0, n0] = line[k - 1], [x1, y1] = line[k];
+              const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / STEP));
+              for (let s = 0; s < steps; s++) {
+                const x = x0 + ((x1 - x0) * s) / steps, y = y0 + ((y1 - y0) * s) / steps;
+                if (x < a0 - MARGIN || y < b0 - MARGIN || x > a0 + S + MARGIN || y > b0 + S + MARGIN) {
+                  finish();
+                  continue;
+                }
+                const c = hint && hint.contains(x, y) ? hint : this.cellAt(x, y, 8, hint);
+                if (!c) {
+                  finish();
+                  continue;
+                }
+                hint = c;
+                const [pi, pj] = path.pts[n0];
+                const size = w.flow(pi, pj), scale = path.scales[n0];
+                if (cur && cur.cell === c) {
+                  cur.b = [x, y];
+                  cur.size = Math.max(cur.size, size);
+                  cur.scale = Math.max(cur.scale, scale);
+                } else {
+                  finish();
+                  cur = { cell: c, a: [x, y], b: [x, y], size, scale };
+                }
+              }
+            }
+            finish();
           }
         }
       }
@@ -373,7 +442,13 @@
 
     // Base cell of this section containing world point (x, y), searching index
     // positions within r cells of the point.
-    cellAt(x, y, r) {
+    cellAt(x, y, r, hint) {
+      if (hint && hint.section === this) {
+        for (const [di, dj] of N8) {
+          const c = this.cell(hint.i + di, hint.j + dj);
+          if (c && c.contains(x, y)) return c;
+        }
+      }
       const ci = Math.floor(x), cj = Math.floor(y);
       for (let d = 0; d <= r; d++) {
         for (let j = cj - d; j <= cj + d; j++) {
@@ -437,8 +512,8 @@
       this.strength = opts.strength ?? 2.5; // how strongly steepness shrinks cells
       this.warpAmount = opts.warp ?? 0.35; // waviness of grid lines, in cell units
       this.buffer = opts.buffer ?? 6; // seam strip half-width, in cells
-      this.sourceCount = opts.sources ?? 2; // stream sources per section
-      this.riverLength = opts.riverLength ?? 128; // max cells per stream
+      this.sourceCount = opts.sources ?? 3; // max stream sources per section
+      this.riverLength = opts.riverLength ?? 256; // max points per stream
       this.autoSplit = opts.autoSplit ?? 0;
       this.edits = opts.edits ?? new Map(); // the player's split/merge edits, by section
       this.elev = opts.elevCache ?? new Map();
@@ -446,7 +521,8 @@
       this.down = new Map();
       this.paths = new Map();
       this.flows = new Map();
-      this.rsteep = new Map();
+      this.fields = new Map();
+      this.blockCache = new Map();
       this.dens = new Map();
       this.cornerCache = new Map();
       this.seamCacheV = new Map();
@@ -460,16 +536,23 @@
 
     // --- cells in index space (pure functions of the seed) ---------------------
 
-    // Elevation at the centre of every cell of a section.
+    // Elevation at the centre of every cell of a section. The section's stream
+    // sources are picked on the way: the highest points, kept apart.
     sectionElev(sx, sy) {
       const id = key(sx, sy);
       let e = this.elev.get(id);
       if (!e) {
         e = new Float32Array(S * S);
+        const picker = new SourcePicker(this.sourceCount, SOURCE_SPACING);
         for (let b = 0; b < S; b++) {
-          for (let a = 0; a < S; a++) e[b * S + a] = this.terrain.elevation((sx * S + a + 0.5) * C, (sy * S + b + 0.5) * C);
+          for (let a = 0; a < S; a++) {
+            const h = this.terrain.elevation((sx * S + a + 0.5) * C, (sy * S + b + 0.5) * C);
+            e[b * S + a] = h;
+            picker.offer(h, sx * S + a, sy * S + b);
+          }
         }
         this.elev.set(id, e);
+        this.src.set(id, picker.list);
         cap(this.elev, 6000);
       }
       return e;
@@ -481,50 +564,141 @@
     }
 
     // --- streams -------------------------------------------------------------
+    // Streams are traced on a regular 16 m lattice in world space: point (i, j) is
+    // the world position ((i + 0.5) * 16 m, (j + 0.5) * 16 m). The cells that the
+    // stream line crosses own the stream (see Section.markStreams).
 
-    // Stream sources of a section: its highest land cell, then the next highest
-    // cell that is not a neighbour of one already chosen, and so on.
+    // Stream sources of a section: up to sourceCount highest points, kept apart.
     sources(sx, sy) {
       const id = key(sx, sy);
       let list = this.src.get(id);
-      if (list) return list;
-      list = [];
-      const e = this.sectionElev(sx, sy);
-      const order = [...e.keys()].sort((p, q) => e[q] - e[p]);
-      for (const k of order) {
-        if (list.length >= this.sourceCount || e[k] < 0) break;
-        const i = sx * S + (k % S), j = sy * S + Math.floor(k / S);
-        if (list.some(([si, sj]) => Math.abs(si - i) <= 1 && Math.abs(sj - j) <= 1)) continue;
-        list.push([i, j]);
+      if (!list) {
+        // Elevations came from a cache made with other settings: pick again.
+        const e = this.sectionElev(sx, sy);
+        const picker = new SourcePicker(this.sourceCount, SOURCE_SPACING);
+        for (let k = 0; k < e.length; k++) picker.offer(e[k], sx * S + (k % S), sy * S + Math.floor(k / S));
+        list = picker.list;
+        this.src.set(id, list);
       }
-      this.src.set(id, list);
       return list;
     }
 
-    // Streams are traced on a regular 16 m lattice in world space: point (i, j) is
-    // the world position ((i + 0.5) * 16 m, (j + 0.5) * 16 m).
-    // Next step(s) from a point: its steepest lower neighbour (of eight), or, from
-    // a pit, the way out through the lake that fills it. null if no outlet in reach.
+    // Mean, min, max and lowest point of the b x b blocks of a section, b = 2..16.
+    blocks(sx, sy) {
+      const id = key(sx, sy);
+      let bl = this.blockCache.get(id);
+      if (bl) return bl;
+      const e = this.sectionElev(sx, sy);
+      bl = {};
+      for (let b = 2; b <= MAX_SCALE; b *= 2) {
+        const n = S / b;
+        const mean = new Float32Array(n * n), min = new Float32Array(n * n), max = new Float32Array(n * n);
+        const arg = new Int32Array(n * n);
+        for (let q = 0; q < n * n; q++) {
+          const ba = (q % n) * b, bb = Math.floor(q / n) * b;
+          let sum = 0, lo = Infinity, hi = -Infinity, at = 0;
+          for (let y = bb; y < bb + b; y++) {
+            for (let x = ba; x < ba + b; x++) {
+              const h = e[y * S + x];
+              sum += h;
+              if (h < lo) {
+                lo = h;
+                at = y * S + x;
+              }
+              if (h > hi) hi = h;
+            }
+          }
+          mean[q] = sum / (b * b);
+          min[q] = lo;
+          max[q] = hi;
+          arg[q] = at;
+        }
+        bl[b] = { n, mean, min, max, arg };
+      }
+      this.blockCache.set(id, bl);
+      cap(this.blockCache, 6000);
+      return bl;
+    }
+
+    // Stats of the b x b block with block index (bi, bj): {mean, min, max, i, j}.
+    block(b, bi, bj) {
+      if (b === 1) {
+        const h = this.cellElevation(bi, bj);
+        return { mean: h, min: h, max: h, i: bi, j: bj };
+      }
+      const sx = fdiv(bi * b, S), sy = fdiv(bj * b, S);
+      const bl = this.blocks(sx, sy)[b];
+      const q = (bj - (sy * S) / b) * bl.n + (bi - (sx * S) / b);
+      const at = bl.arg[q];
+      return { mean: bl.mean[q], min: bl.min[q], max: bl.max[q], i: sx * S + (at % S), j: sy * S + Math.floor(at / S) };
+    }
+
+    // How far a stream looks from point (i, j): the largest block around it that is
+    // flat. Steep, rugged land gives 1 (the lowest neighbour); flatter or lower land
+    // gives blocks of 2, 4, 8 and 16 cells. The scale is the same for every point in
+    // a block, so streams in it agree on where to go.
+    scaleOf(i, j) {
+      for (let b = MAX_SCALE; b >= 2; b /= 2) {
+        const bl = this.block(b, fdiv(i, b), fdiv(j, b));
+        const flat = FLAT_SLOPE * (bl.mean < 50 ? 2 : 1);
+        if (bl.max - bl.min < b * C * flat) return b;
+      }
+      return 1;
+    }
+
+    // Where a b-block drains to: the lowest point of the neighbouring block with the
+    // lowest mean, if that block is lower than this one. null if none is.
+    blockTarget(b, bi, bj) {
+      const own = this.block(b, bi, bj);
+      let best = null;
+      for (const [di, dj] of N8) {
+        const nb = this.block(b, bi + di, bj + dj);
+        if (nb.mean < own.mean && nb.min < own.min && (!best || nb.mean < best.mean)) best = nb;
+      }
+      return best ? [best.i, best.j] : null;
+    }
+
+    // Next step(s) from a point. The stream heads for the target of its block at its
+    // scale (at scale 1, simply the lowest neighbour); if the block has no lower
+    // neighbour it looks at larger blocks. Each step goes to the lowest neighbour
+    // that brings it closer to the target, which makes the course meander. From a
+    // pit with no way out at any scale, the lake that fills it finds the outlet.
     downstream(i, j) {
       const id = key(i, j);
       if (this.down.has(id)) return this.down.get(id);
-      const h = this.cellElevation(i, j);
-      let best = null, bestDrop = 0;
-      for (const [di, dj] of N8) {
-        const drop = (h - this.cellElevation(i + di, j + dj)) / (di && dj ? Math.SQRT2 : 1);
-        if (drop > bestDrop) {
-          bestDrop = drop;
-          best = [i + di, j + dj];
-        }
+      let steps = null;
+      for (let b = this.scaleOf(i, j); b <= MAX_SCALE && !steps; b *= 2) {
+        const t = this.blockTarget(b, fdiv(i, b), fdiv(j, b));
+        if (t && this.cellElevation(t[0], t[1]) < this.cellElevation(i, j)) steps = [this.stepToward(i, j, t)];
       }
-      const steps = best ? [best] : this.pitOutlet(i, j, h);
+      if (!steps) steps = this.pitOutlet(i, j, this.cellElevation(i, j));
       this.down.set(id, steps);
       cap(this.down, 400000);
       return steps;
     }
 
-    // Flood a pit, lowest cell first, until a cell lower than the pit is found.
-    // Every cell draining into the pit is higher than it, so that cell is outside
+    // Any neighbour that gets closer to the target will do; the lowest one wins,
+    // so the terrain decides how the stream winds on its way. On flat land the
+    // differences are tiny, so a fixed per-point jitter (larger at larger scales)
+    // keeps the stream from running dead straight.
+    stepToward(i, j, [ti, tj]) {
+      const d0 = Math.hypot(ti - i, tj - j);
+      const jitter = MEANDER * this.scaleOf(i, j);
+      let best = null, bh = Infinity;
+      for (const [di, dj] of N8) {
+        const ni = i + di, nj = j + dj;
+        if (Math.hypot(ti - ni, tj - nj) >= d0) continue;
+        const h = this.cellElevation(ni, nj) + jitter * (hash01(this.terrain.seed, ni, nj) - 0.5);
+        if (h < bh) {
+          bh = h;
+          best = [ni, nj];
+        }
+      }
+      return best;
+    }
+
+    // Flood a pit, lowest point first, until a point lower than the pit is found.
+    // Every point draining into the pit is higher than it, so that point is outside
     // the basin. Returns the path through the lake to it.
     pitOutlet(i, j, h0) {
       const start = key(i, j);
@@ -550,37 +724,44 @@
       return null;
     }
 
-    // The path of a stream from a source: downhill until it reaches water, has
-    // no outlet, or is riverLength cells long. Streams that meet share the
-    // memoised steps, so the second one costs almost nothing.
+    // The course of a stream from a source: points and their scale, until it
+    // reaches water, has no outlet, comes back on itself, or is riverLength long.
+    // Streams that meet share the memoised steps, so the second one costs little.
     riverPath(i, j) {
       const id = key(i, j);
       let path = this.paths.get(id);
       if (path) return path;
-      path = [[i, j]];
+      const pts = [[i, j]];
+      const seen = new Set([id]);
       let ci = i, cj = j;
-      while (path.length < this.riverLength && this.cellElevation(ci, cj) >= 0) {
+      walk: while (pts.length < this.riverLength && this.cellElevation(ci, cj) >= 0) {
         const steps = this.downstream(ci, cj);
         if (!steps) break;
         for (const st of steps) {
-          path.push(st);
-          if (path.length >= this.riverLength) break;
+          const sk = key(st[0], st[1]);
+          if (seen.has(sk)) break walk;
+          seen.add(sk);
+          pts.push(st);
+          if (pts.length >= this.riverLength) break;
         }
-        [ci, cj] = path[path.length - 1];
+        [ci, cj] = pts[pts.length - 1];
       }
+      path = { pts, scales: pts.map(([pi, pj]) => this.scaleOf(pi, pj)) };
       this.paths.set(id, path);
       cap(this.paths, 60000);
       return path;
     }
 
-    // Number of streams through each cell of a section, and the paths that cross it.
-    // A stream is at most riverLength cells long, so only sources within that many
-    // cells can reach this section: the answer is exact and local.
+    // Stream size and scale at each lattice point of a section, and the paths that
+    // cross it. Each stream adds 1 + (its length so far) / 32 to the size, so
+    // streams grow as they run and add up where they meet. A stream is at most
+    // riverLength points long, so only sources that close can reach this section:
+    // the answer is exact and local.
     flowData(sx, sy) {
       const id = key(sx, sy);
       let d = this.flows.get(id);
       if (d) return d;
-      const flow = new Uint16Array(S * S);
+      const size = new Float32Array(S * S), scale = new Uint8Array(S * S);
       const paths = [];
       const R = Math.ceil(this.riverLength / S);
       for (let dy = -R; dy <= R; dy++) {
@@ -588,18 +769,18 @@
           for (const [i, j] of this.sources(sx + dx, sy + dy)) {
             const path = this.riverPath(i, j);
             let hit = false;
-            for (const [pi, pj] of path) {
+            path.pts.forEach(([pi, pj], k) => {
               const a = pi - sx * S, b = pj - sy * S;
-              if (a >= 0 && b >= 0 && a < S && b < S) {
-                flow[b * S + a]++;
-                hit = true;
-              }
-            }
+              if (a < 0 || b < 0 || a >= S || b >= S) return;
+              size[b * S + a] += 1 + k / 32;
+              scale[b * S + a] = Math.max(scale[b * S + a], path.scales[k]);
+              hit = true;
+            });
             if (hit) paths.push(path);
           }
         }
       }
-      d = { flow, paths };
+      d = { size, scale, paths };
       this.flows.set(id, d);
       cap(this.flows, 3000);
       return d;
@@ -607,43 +788,71 @@
 
     flow(i, j) {
       const sx = fdiv(i, S), sy = fdiv(j, S);
-      return this.flowData(sx, sy).flow[(j - sy * S) * S + (i - sx * S)];
+      return this.flowData(sx, sy).size[(j - sy * S) * S + (i - sx * S)];
     }
 
-    // Extra steepness from streams: the cell a stream crosses gets steeper, its four
-    // neighbours half as much. More streams give a larger effect.
-    riverSteepData(sx, sy) {
+    // What streams do to the land around them, on the lattice of a section:
+    // steep, which makes cells smaller, and wet, which raises moisture. Both reach
+    // across the stream as far as its scale: a stream that looks at 8-blocks
+    // affects a band about 8 cells wide. The strongest stream nearby wins; since a
+    // stream's size adds up where streams meet, more streams give a larger effect.
+    riverField(sx, sy) {
       const id = key(sx, sy);
-      let r = this.rsteep.get(id);
-      if (r) return r;
-      const e = (n) => (n ? RIVER_STEEP * Math.log2(1 + n) : 0);
-      r = new Float32Array(S * S);
-      for (let b = 0; b < S; b++) {
-        for (let a = 0; a < S; a++) {
-          const i = sx * S + a, j = sy * S + b;
-          let v = e(this.flow(i, j));
-          for (const [di, dj] of N4) v += 0.5 * e(this.flow(i + di, j + dj));
-          r[b * S + a] = v;
+      let f = this.fields.get(id);
+      if (f) return f;
+      const steep = new Float32Array(S * S), wet = new Float32Array(S * S);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const fd = this.flowData(sx + dx, sy + dy);
+          for (let k = 0; k < S * S; k++) {
+            const z = fd.size[k];
+            if (!z) continue;
+            const pi = (sx + dx) * S + (k % S), pj = (sy + dy) * S + Math.floor(k / S);
+            const sc = fd.scale[k];
+            const ws = Math.max(0.8, 0.35 * sc), ww = Math.max(1.2, 0.6 * sc);
+            const es = RIVER_STEEP * Math.log2(1 + z), ew = Math.min(0.35, 0.1 * Math.log2(1 + z));
+            const r = Math.ceil(2 * ww);
+            for (let b = pj - r; b <= pj + r; b++) {
+              const lb = b - sy * S;
+              if (lb < 0 || lb >= S) continue;
+              for (let a = pi - r; a <= pi + r; a++) {
+                const la = a - sx * S;
+                if (la < 0 || la >= S) continue;
+                const d2 = (a - pi) * (a - pi) + (b - pj) * (b - pj);
+                const q = lb * S + la;
+                steep[q] = Math.max(steep[q], es * Math.exp(-d2 / (ws * ws)));
+                wet[q] = Math.max(wet[q], ew * Math.exp(-d2 / (ww * ww)));
+              }
+            }
+          }
         }
       }
-      this.rsteep.set(id, r);
-      cap(this.rsteep, 3000);
-      return r;
+      f = { steep, wet };
+      this.fields.set(id, f);
+      cap(this.fields, 3000);
+      return f;
     }
 
-    riverSteepCell(i, j) {
-      const sx = fdiv(i, S), sy = fdiv(j, S);
-      return this.riverSteepData(sx, sy)[(j - sy * S) * S + (i - sx * S)];
-    }
-
-    // Bilinear between cell centres, at index-space point (x, y).
-    riverSteepAt(x, y) {
+    // A river field value, bilinear between lattice points, at index-space (x, y).
+    fieldAt(name, x, y) {
       const fx = x - 0.5, fy = y - 0.5;
       const i = Math.floor(fx), j = Math.floor(fy);
       const tx = fx - i, ty = fy - j;
-      const top = this.riverSteepCell(i, j) * (1 - tx) + this.riverSteepCell(i + 1, j) * tx;
-      const bot = this.riverSteepCell(i, j + 1) * (1 - tx) + this.riverSteepCell(i + 1, j + 1) * tx;
+      const v = (ii, jj) => {
+        const sx = fdiv(ii, S), sy = fdiv(jj, S);
+        return this.riverField(sx, sy)[name][(jj - sy * S) * S + (ii - sx * S)];
+      };
+      const top = v(i, j) * (1 - tx) + v(i + 1, j) * tx;
+      const bot = v(i, j + 1) * (1 - tx) + v(i + 1, j + 1) * tx;
       return top * (1 - ty) + bot * ty;
+    }
+
+    riverSteepAt(x, y) {
+      return this.fieldAt('steep', x, y);
+    }
+
+    wetAt(x, y) {
+      return this.fieldAt('wet', x, y);
     }
 
     // --- geometry ------------------------------------------------------------
@@ -823,6 +1032,29 @@
   // ---------------------------------------------------------------------------
   // Helpers
 
+  // Keeps the highest points offered, at most `count`, none closer than `spacing`
+  // cells to a higher one. Points are offered one by one as a section is made.
+  class SourcePicker {
+    constructor(count, spacing) {
+      this.count = count;
+      this.spacing = spacing;
+      this.list = []; // [i, j, h], highest first
+    }
+    offer(h, i, j) {
+      const L = this.list;
+      if (h < 0 || this.count === 0) return;
+      if (L.length === this.count && h <= L[L.length - 1][2]) return;
+      const near = (p) => Math.max(Math.abs(p[0] - i), Math.abs(p[1] - j)) < this.spacing;
+      if (L.some((p) => near(p) && p[2] >= h)) return; // too close to a higher point
+      const keep = L.filter((p) => !near(p)); // drop lower points that are too close
+      let k = 0;
+      while (k < keep.length && keep[k][2] > h) k++;
+      keep.splice(k, 0, [i, j, h]);
+      if (keep.length > this.count) keep.length = this.count;
+      this.list = keep;
+    }
+  }
+
   class MinHeap {
     constructor() {
       this.h = [];
@@ -867,6 +1099,64 @@
     }
   }
 
+  // Deterministic pseudo-random value in [0, 1) for a lattice point.
+  function hash01(seed, x, y) {
+    let h = seed ^ Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1);
+    h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+
+  // Width of a stream's channel in metres, from its size.
+  function channelWidth(size) {
+    return Math.min(40, 1.2 + 1.1 * Math.sqrt(size));
+  }
+
+  // Chaikin smoothing of lattice points (index units, at point centres). Each
+  // output point is [x, y, n], n being the path point it came from.
+  function smoothLine(pts) {
+    let line = pts.map(([i, j], n) => [i + 0.5, j + 0.5, n]);
+    for (let it = 0; it < 2; it++) {
+      if (line.length < 3) break;
+      const out = [line[0]];
+      for (let k = 0; k < line.length - 1; k++) {
+        const [x0, y0, n0] = line[k], [x1, y1, n1] = line[k + 1];
+        out.push([0.75 * x0 + 0.25 * x1, 0.75 * y0 + 0.25 * y1, n0], [0.25 * x0 + 0.75 * x1, 0.25 * y0 + 0.75 * y1, n1]);
+      }
+      out.push(line[line.length - 1]);
+      line = out;
+    }
+    return line;
+  }
+
+  // (u, v) of world point (x, y) inside the bilinear quad q, by Newton steps.
+  function invBilinear(q, x, y) {
+    let u = 0.5, v = 0.5;
+    for (let it = 0; it < 8; it++) {
+      const p = bilinear(q, u, v);
+      const ex = p[0] - x, ey = p[1] - y;
+      // Partial derivatives of the bilinear map.
+      const xu = (1 - v) * (q[1][0] - q[0][0]) + v * (q[2][0] - q[3][0]);
+      const yu = (1 - v) * (q[1][1] - q[0][1]) + v * (q[2][1] - q[3][1]);
+      const xv = (1 - u) * (q[3][0] - q[0][0]) + u * (q[2][0] - q[1][0]);
+      const yv = (1 - u) * (q[3][1] - q[0][1]) + u * (q[2][1] - q[1][1]);
+      const det = xu * yv - xv * yu;
+      if (Math.abs(det) < 1e-12) break;
+      u -= (ex * yv - ey * xv) / det;
+      v -= (ey * xu - ex * yu) / det;
+    }
+    return [Math.max(0, Math.min(1, u)), Math.max(0, Math.min(1, v))];
+  }
+
+  // True if a stream piece passes through a sub-cell's (u, v) rectangle.
+  function pieceInRect(p, [u0, v0, u1, v1]) {
+    for (let k = 0; k <= 4; k++) {
+      const u = p.a[0] + ((p.b[0] - p.a[0]) * k) / 4, v = p.a[1] + ((p.b[1] - p.a[1]) * k) / 4;
+      if (u >= u0 && u <= u1 && v >= v0 && v <= v1) return true;
+    }
+    return false;
+  }
+
   function bilinear(q, u, v) {
     const top = [q[0][0] + (q[1][0] - q[0][0]) * u, q[0][1] + (q[1][1] - q[0][1]) * u];
     const bot = [q[3][0] + (q[2][0] - q[3][0]) * u, q[3][1] + (q[2][1] - q[3][1]) * u];
@@ -902,5 +1192,6 @@
 
   M.World = World;
   M.Cell = Cell;
-  M.SECTION = S;
+  M.channelWidth = channelWidth;
+  M.bilinear = bilinear;
 })(window.Markr = window.Markr || {});
