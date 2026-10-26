@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Markr – kart</title>
+  <style>
+    :root {
+      --bg: #f4f2ec; --panel: #ffffff; --text: #22262b; --muted: #6b7178;
+      --border: #dcd8ce; --accent: #3f6f4a; --canvas-bg: #e7e3d9;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #16181b; --panel: #1f2226; --text: #e6e6e3; --muted: #9aa0a6;
+        --border: #33373c; --accent: #8cc49a; --canvas-bg: #121417;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #16181b; --panel: #1f2226; --text: #e6e6e3; --muted: #9aa0a6;
+      --border: #33373c; --accent: #8cc49a; --canvas-bg: #121417;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--bg); color: var(--text);
+      font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      display: grid; grid-template-columns: 1fr 290px; height: 100vh; overflow: hidden;
+    }
+    #map { width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+    aside {
+      background: var(--panel); border-left: 1px solid var(--border);
+      padding: 16px; overflow-y: auto;
+    }
+    h1 { font-size: 18px; margin: 0 0 2px; letter-spacing: 0.02em; }
+    h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 18px 0 8px; }
+    .muted { color: var(--muted); }
+    label { display: block; margin: 8px 0 2px; }
+    label output { float: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+    input[type=range] { width: 100%; accent-color: var(--accent); }
+    select, input[type=number], button {
+      font: inherit; color: var(--text); background: var(--bg);
+      border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
+    }
+    select { width: 100%; }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    .row { display: flex; gap: 6px; align-items: center; }
+    .row input[type=number] { flex: 1; min-width: 0; }
+    .check { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+    .check input { margin: 0; accent-color: var(--accent); }
+    #legend { margin-top: 8px; }
+    #legend .bar { height: 10px; border-radius: 3px; border: 1px solid var(--border); }
+    #legend .ends { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; font-variant-numeric: tabular-nums; }
+    dt { color: var(--muted); }
+    dd { margin: 0; text-align: right; }
+    #status { font-size: 12px; margin-top: 14px; }
+    .hint { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+    .zoom { position: absolute; left: 12px; top: 12px; display: flex; gap: 4px; }
+    .zoom button { background: var(--panel); min-width: 34px; }
+    main { position: relative; min-width: 0; }
+    @media (max-width: 720px) {
+      body { grid-template-columns: 1fr; grid-template-rows: 58vh 1fr; height: auto; min-height: 100vh; overflow: auto; }
+      aside { border-left: none; border-top: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <canvas id="map"></canvas>
+    <div class="zoom">
+      <button id="zoom-in" title="Zoom inn">+</button>
+      <button id="zoom-out" title="Zoom ut">−</button>
+      <button id="fit" title="Tilpass">Tilpass</button>
+    </div>
+  </main>
+  <aside>
+    <h1>Markr</h1>
+    <div class="muted">Rutenett over simulert terreng</div>
+
+    <h2>Visning</h2>
+    <select id="mode"></select>
+    <div id="legend"><div class="bar"></div><div class="ends"><span class="lo"></span><span class="hi"></span></div></div>
+    <label>Indeks ↔ verden <output id="morph-out">verden</output></label>
+    <input id="morph" type="range" min="0" max="1" step="0.01" value="1">
+    <div class="check"><input id="lines" type="checkbox" checked><label for="lines" style="margin:0">Vis rutenett</label></div>
+    <div class="check"><input id="labels" type="checkbox" checked><label for="labels" style="margin:0">Vis indekser (når zoomet inn)</label></div>
+
+    <h2>Terreng</h2>
+    <label for="seed">Frø</label>
+    <div class="row"><input id="seed" type="number"><button id="reseed">Nytt</button></div>
+    <label>Antall kolonner <output id="cols-out"></output></label>
+    <input id="cols" type="range" min="16" max="128" step="4">
+    <label>Helning → små ruter <output id="strength-out"></output></label>
+    <input id="strength" type="range" min="0" max="4" step="0.1">
+    <label>Bølgete linjer <output id="warp-out"></output></label>
+    <input id="warp" type="range" min="0" max="0.8" step="0.01">
+
+    <h2>Deling</h2>
+    <div class="check"><input type="radio" name="click" value="split" id="c-split" checked><label for="c-split" style="margin:0">Klikk deler rute i fire</label></div>
+    <div class="check"><input type="radio" name="click" value="merge" id="c-merge"><label for="c-merge" style="margin:0">Klikk slår sammen igjen</label></div>
+    <p class="hint">Høyreklikk slår også sammen. Dra for å panorere, hjul for zoom.</p>
+    <label>Auto-del ruter med areal <output id="autosplit-out"></output></label>
+    <input id="autosplit" type="range" min="0" max="4" step="0.1">
+
+    <h2>Rute</h2>
+    <div id="info"></div>
+    <div id="status" class="muted"></div>
+  </aside>
+
+  <script src="src/noise.js"></script>
+  <script src="src/terrain.js"></script>
+  <script src="src/grid.js"></script>
+  <script src="src/render.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>
