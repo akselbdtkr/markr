@@ -13,18 +13,20 @@
       :root:not([data-theme="light"]) {
         --bg: #16181b; --panel: #1f2226; --text: #e6e6e3; --muted: #9aa0a6;
         --border: #33373c; --accent: #8cc49a; --canvas-bg: #121417;
+        color-scheme: dark;
       }
     }
     :root[data-theme="dark"] {
       --bg: #16181b; --panel: #1f2226; --text: #e6e6e3; --muted: #9aa0a6;
       --border: #33373c; --accent: #8cc49a; --canvas-bg: #121417;
+        color-scheme: dark;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; }
     body {
       background: var(--bg); color: var(--text);
       font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
-      display: grid; grid-template-columns: 1fr 290px; height: 100vh; overflow: hidden;
+      display: grid; grid-template-columns: 1fr 290px; height: 100%; overflow: hidden;
     }
     #map { width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
     aside {
