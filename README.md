@@ -45,22 +45,24 @@ et kart som ser naturlig ut, med et enkelt rutenett i bunn.
 6. **Vannlinja.** Hver rute er enten land eller vann, så kysten går alltid langs rutesider.
    Hjørnepunktene på grensen mellom land og vann flyttes inn på 0 m-koten (Newton-steg langs
    gradienten, begrenset til halve korteste kant), så kysten blir glatt.
-7. **Vassdrag.** Hver seksjon får opptil *maks antall vassdrag* kilder. Mens høydene i
-   seksjonen regnes ut, holdes en liste over de høyeste punktene. Et nytt høyt punkt tas bare
-   med hvis det ikke ligger for nær et høyere punkt som allerede er valgt (8 ruter).
-   - Bekken spores på et fast 16 m-gitter i verdensrommet. I bratt, ulendt terreng går den
-     til laveste nabo. Der landet er flatere eller lavere, ser den på større blokker: 2×2,
-     4×4, 8×8 og 16×16 ruter. Den sikter mot laveste punkt i nabo-blokken med lavest snitt og
-     går dit via den laveste naboen som bringer den nærmere. En liten, fast slyngning per
-     punkt hindrer helt rette løp på flatt land. En grop uten lavere blokk fylles som en
-     innsjø til vannet finner et utløp.
-   - Størrelsen vokser nedover: hver bekk bidrar med 1 + (lengden så langt) / 32, og
-     bidragene legges sammen der bekker møtes. Når to bekker møtes, gjenbrukes resten av banen.
-   - Bekken gjør landet brattere (som gir mindre ruter) og våtere. Begge virker på tvers av
-     løpet, så langt som skalaen den ser på: en bekk som ser på 8×8-blokker, påvirker et
-     bånd på rundt 8 ruter.
-   - En bekk er høyst *maks lengde* punkter lang, så bare kilder innenfor den avstanden kan
-     nå en seksjon. Dermed er vassdragene lokale og deterministiske.
+7. **Vassdrag.** Alle vassdrag ender i havet.
+   - **Nett mellom seksjoner.** Hver seksjon får en grov høyde (terrenget midt i seksjonen),
+     og er hav hvis den er under 0 m. Hver seksjon finner avstanden til nærmeste
+     havseksjon. Den drenerer til den laveste av de fire naboene som ligger nærmere havet.
+     Hvert steg kommer nærmere havet, så alle kjeder ender der. Nettet bygger bare på disse
+     grove verdiene, så hver seksjon kan regne det ut selv, uten å kjenne rutene i andre
+     seksjoner, og uavhengig av rekkefølgen spilleren utforsker i.
+   - **Kryssingspunkt.** Vannet går over til nabo-seksjonen i det laveste punktet langs den
+     felles kanten, prøvd direkte fra terrenget. Begge seksjonene får samme svar.
+   - **Inne i seksjonen.** Vassdraget som kommer inn fra seksjonene oppstrøms, går først. Det
+     bærer med seg nedbørfeltet sitt: alle kildene oppstrøms. Så kommer seksjonens egne
+     kilder, de høyeste punktene holdt minst 8 ruter fra hverandre, som teller 1 hver. Alle
+     går mot seksjonens utløp, så de møtes og følger samme løp videre. Hvert steg går til en
+     nabo som er nærmere utløpet. I bratt terreng vinner laveste nabo. Der det er flatere,
+     vurderes naboene etter snittet i blokker på 2, 4, 8 og 16 ruter, og en fast slyngning
+     per punkt hindrer rette løp. I en havseksjon slutter vassdraget ved første vann.
+   - **Virkning.** Bekken gjør landet brattere (som gir mindre ruter) og våtere, i et bånd på
+     tvers av løpet like bredt som skalaen.
    - **Rutene eier vassdraget.** Hver grunnrute som bekkelinja krysser, lagrer biten av
      bekken som går gjennom den: hvor den går inn og ut (i rutas egne u,v-koordinater),
      størrelse, skala og retning. Bekken tegnes som en tekstur på ruta. Er kanalen bred nok

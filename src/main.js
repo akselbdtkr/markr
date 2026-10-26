@@ -8,7 +8,7 @@
   const renderer = new M.Renderer(canvas);
   const C = M.CELL_SIZE, S = M.SECTION;
 
-  const state = { seed: 1848, strength: 2.5, warp: 0.35, buffer: 6, sources: 3, riverLength: 256, autoSplit: 28, overview: 15000 };
+  const state = { seed: 1848, strength: 2.5, warp: 0.35, buffer: 6, sources: 3, autoSplit: 28, overview: 15000 };
   let terrain, world;
   const edits = new Map(); // the player's split/merge edits; the only state worth saving
 
@@ -48,7 +48,6 @@
       warp: state.warp,
       buffer: state.buffer,
       sources: state.sources,
-      riverLength: state.riverLength,
       autoSplit: splitSide(),
       edits,
       elevCache: keep,
@@ -99,12 +98,14 @@
   function updateStatus(missing) {
     const vis = renderer.visibleSections().map(([sx, sy]) => world.loaded(sx, sy)).filter(Boolean);
     const nonConvex = vis.reduce((n, s) => n + s.nonConvex, 0);
+    const outside = vis.reduce((n, s) => n + s.outside, 0);
     const avg = lastBuild.length ? Math.round(lastBuild.reduce((a, b) => a + b, 0) / lastBuild.length) : 0;
     const [cx, cy] = renderer.centre;
     $('status').textContent =
       `Midt i bildet: x ${km(cx * C)} km, y ${km(cy * C)} km. ` +
       `${vis.length} seksjoner synlige${missing ? `, ${missing} genereres` : ''}, ${world.sections.size} i minnet. ` +
-      `Snitt ${avg} ms per seksjon. Ikke-konvekse ruter i bildet: ${nonConvex}.`;
+      `Snitt ${avg} ms per seksjon. Ikke-konvekse ruter i bildet: ${nonConvex}. ` +
+      `Punkter utenfor egen seksjon: ${outside}. Versjon ${M.VERSION}.`;
     drawOverview();
   }
 
@@ -200,7 +201,6 @@
   bindRange('warp', 'warp', (v) => v.toFixed(2), rebuildSoon);
   bindRange('buffer', 'buffer', (v) => `${v} ruter`, rebuildSoon);
   bindRange('sources', 'sources', (v) => `${v}`, rebuildSoon);
-  bindRange('riverlength', 'riverLength', (v) => `${v} ruter (${km(v * C)} km)`, rebuildSoon);
   bindRange('autosplit', 'autoSplit', (v) => (v >= 8 ? `side > ${v} m` : 'av'), () => {
     world.autoSplit = splitSide();
     for (const s of world.sections.values()) s.autoSplit(world.autoSplit);
@@ -261,19 +261,38 @@
     const names = ['Ø', 'SØ', 'S', 'SV', 'V', 'NV', 'N', 'NØ'];
     return 'mot ' + names[(Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) % 8];
   };
+  const dl = (rows) => '<dl>' + rows.map(([k, val]) => `<dt>${k}</dt><dd>${val}</dd>`).join('') + '</dl>';
+
+  // The section under the cursor, or else the one in the middle of the view.
+  function showSection(sx, sy) {
+    const s = world.sectionInfo(sx, sy);
+    const m = (x) => Math.round(x).toLocaleString('nb-NO');
+    const drain = s.drain ? `${compass([s.drain[0] - sx, s.drain[1] - sy])} til (${s.drain[0]}, ${s.drain[1]})` : s.sea ? 'hav' : 'innsjø (ingen utløp)';
+    $('section-info').innerHTML = dl([
+      ['Seksjon', `(${sx}, ${sy})`],
+      ['Landskap', `${M.landscapeName(s.landscape)} (${s.landscape.toFixed(2)}), retning ${compass(s.dir).replace('mot ', '')}`],
+      ['Høyde midt', s.sea ? `${m(-s.height)} m dyp` : `${m(s.height)} moh.`],
+      ['Til hav', s.sea ? 'er hav' : Number.isFinite(s.seaDist) ? `${km(s.seaDist * S * C)} km` : 'ikke innen rekkevidde'],
+      ['Drenerer', drain],
+      ['Nedbørfelt', `${s.catchment} kilder (${s.upstream} inn, ${s.sources} egne)`],
+    ]);
+  }
+
   function showInfo(c) {
     const el = $('info');
     if (!c) {
       el.innerHTML = '<p class="muted">Hold over en rute for å se verdiene.</p>';
+      const [cx, cy] = renderer.centre;
+      showSection(Math.floor(cx / S), Math.floor(cy / S));
       return;
     }
+    showSection(c.section.sx, c.section.sy);
     const v = c.values;
     const path = [];
     for (let p = c; p; p = p.parent) path.unshift(`(${p.i}, ${p.j})`);
     const m = (x) => Math.round(x).toLocaleString('nb-NO');
     const rows = [
       ['Indeks', path.join(' → ')],
-      ['Seksjon', `(${c.section.sx}, ${c.section.sy})`],
       ['Nivå', `${c.level} (${c.nominalSize} m${c.level === 0 ? ', grunnrute' : ''})`],
       ['Areal', `${m(v.area)} m² (≈ ${v.side.toFixed(1)} m)`],
       [v.water ? 'Dybde' : 'Høyde', v.water ? `${m(-v.elevation)} m` : `${m(v.elevation)} moh.`],
@@ -286,7 +305,7 @@
       ['Byggegrunn', pct(v.building)],
       ['Ressurser', pct(v.resource)],
     ];
-    el.innerHTML = '<dl>' + rows.map(([k, val]) => `<dt>${k}</dt><dd>${val}</dd>`).join('') + '</dl>';
+    el.innerHTML = dl(rows);
   }
 
   // --- pointer: pan, hover, click ------------------------------------------
@@ -365,8 +384,8 @@
 
   renderer.resize();
   updateLegend();
-  showInfo(null);
   newSeed(state.seed);
+  showInfo(null);
 
   M.app = { get world() { return world; }, renderer, state, edits };
 })(window.Markr = window.Markr || {});

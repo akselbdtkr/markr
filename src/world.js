@@ -33,8 +33,8 @@
   const SOURCE_SPACING = 8;
   // Metres of jitter per unit of scale when a stream picks its next step.
   const MEANDER = 0.6;
-  // A pit floods at most this many cells looking for an outlet; else it is a closed lake.
-  const FLOOD_MAX = 600;
+  // How far (in sections) to look for the sea from a section.
+  const SEA_SEARCH = 80;
   // Density samples per cell side. Samples are shared by all patches.
   const DR = 2;
 
@@ -371,10 +371,29 @@
         }
         this.cells.push(rowCells);
       }
+      this.outside = this.countOutside();
       this.markStreams();
       for (const c of this.baseCells()) c.evaluate();
       this.autoSplit(world.autoSplit);
       this.buildTime = performance.now() - t0;
+    }
+
+    // Inner vertices that ended up outside the section's own boundary. Such a
+    // vertex makes cells overlap their neighbours, so it should always be 0.
+    countOutside() {
+      const a0 = this.a0, b0 = this.b0, poly = [];
+      for (let k = 0; k < S; k++) poly.push(this.vertex(a0 + k, b0));
+      for (let k = 0; k < S; k++) poly.push(this.vertex(a0 + S, b0 + k));
+      for (let k = S; k > 0; k--) poly.push(this.vertex(a0 + k, b0 + S));
+      for (let k = S; k > 0; k--) poly.push(this.vertex(a0, b0 + k));
+      let n = 0;
+      for (let b = 1; b < S; b++) {
+        for (let a = 1; a < S; a++) {
+          const [x, y] = this.vertex(a0 + a, b0 + b);
+          if (!pointInPolygon(poly, x, y)) n++;
+        }
+      }
+      return n;
     }
 
     // Vertex at the top-left corner of cell (i, j), as [x, y], morphed by t.
@@ -417,7 +436,7 @@
                   continue;
                 }
                 const c = hint && hint.contains(x, y) ? hint : this.cellAt(x, y, 8, hint);
-                if (!c) {
+                if (!c || c.water) {
                   finish();
                   continue;
                 }
@@ -513,16 +532,18 @@
       this.warpAmount = opts.warp ?? 0.35; // waviness of grid lines, in cell units
       this.buffer = opts.buffer ?? 6; // seam strip half-width, in cells
       this.sourceCount = opts.sources ?? 3; // max stream sources per section
-      this.riverLength = opts.riverLength ?? 256; // max points per stream
       this.autoSplit = opts.autoSplit ?? 0;
       this.edits = opts.edits ?? new Map(); // the player's split/merge edits, by section
       this.elev = opts.elevCache ?? new Map();
       this.src = new Map();
-      this.down = new Map();
-      this.paths = new Map();
       this.flows = new Map();
       this.fields = new Map();
       this.blockCache = new Map();
+      this.secHeight = new Map();
+      this.secSeaDist = new Map();
+      this.secDrain = new Map();
+      this.secCatch = new Map();
+      this.crossCache = new Map();
       this.dens = new Map();
       this.cornerCache = new Map();
       this.seamCacheV = new Map();
@@ -634,9 +655,8 @@
     }
 
     // How far a stream looks from point (i, j): the largest block around it that is
-    // flat. Steep, rugged land gives 1 (the lowest neighbour); flatter or lower land
-    // gives blocks of 2, 4, 8 and 16 cells. The scale is the same for every point in
-    // a block, so streams in it agree on where to go.
+    // flat. Steep, rugged land gives 1 (single cells); flatter or lower land gives
+    // blocks of 2, 4, 8 and 16 cells.
     scaleOf(i, j) {
       for (let b = MAX_SCALE; b >= 2; b /= 2) {
         const bl = this.block(b, fdiv(i, b), fdiv(j, b));
@@ -646,144 +666,242 @@
       return 1;
     }
 
-    // Where a b-block drains to: the lowest point of the neighbouring block with the
-    // lowest mean, if that block is lower than this one. null if none is.
-    blockTarget(b, bi, bj) {
-      const own = this.block(b, bi, bj);
+    // --- drainage network between sections -----------------------------------
+    // Every stream ends in the sea. At section level, each section drains to one
+    // of its four neighbours, chosen from coarse section values only, so any
+    // section can work out the network around it without knowing other sections'
+    // cells, and the result never depends on the order sections are visited in.
+
+    // Coarse height of a section: the terrain at its centre, without fine detail.
+    sectionHeight(sx, sy) {
+      const id = key(sx, sy);
+      let h = this.secHeight.get(id);
+      if (h === undefined) {
+        h = this.terrain.elevation((sx + 0.5) * S * C, (sy + 0.5) * S * C, 600);
+        this.secHeight.set(id, h);
+        cap(this.secHeight, 200000);
+      }
+      return h;
+    }
+
+    isSea(sx, sy) {
+      return this.sectionHeight(sx, sy) < 0;
+    }
+
+    // Distance, in sections, to the nearest sea section (searching rings outward).
+    // Infinity if there is none within SEA_SEARCH sections.
+    seaDist(sx, sy) {
+      const id = key(sx, sy);
+      let d = this.secSeaDist.get(id);
+      if (d !== undefined) return d;
+      d = this.isSea(sx, sy) ? 0 : Infinity;
+      for (let r = 1; r <= SEA_SEARCH && r <= d; r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          const step = Math.abs(dy) === r ? 1 : 2 * r;
+          for (let dx = -r; dx <= r; dx += step) {
+            if (this.isSea(sx + dx, sy + dy)) d = Math.min(d, Math.hypot(dx, dy));
+          }
+        }
+      }
+      this.secSeaDist.set(id, d);
+      cap(this.secSeaDist, 200000);
+      return d;
+    }
+
+    // The neighbour a section drains to: among the neighbours closer to the sea,
+    // the lowest. A step to a neighbour always gets closer to the nearest sea, so
+    // every chain ends in the sea. null for sea sections, and for basins with no
+    // sea in reach and no lower neighbour.
+    drainTo(sx, sy) {
+      const id = key(sx, sy);
+      if (this.secDrain.has(id)) return this.secDrain.get(id);
       let best = null;
-      for (const [di, dj] of N8) {
-        const nb = this.block(b, bi + di, bj + dj);
-        if (nb.mean < own.mean && nb.min < own.min && (!best || nb.mean < best.mean)) best = nb;
+      if (!this.isSea(sx, sy)) {
+        const d0 = this.seaDist(sx, sy), h0 = this.sectionHeight(sx, sy);
+        let bh = Infinity;
+        for (const [dx, dy] of N4) {
+          const nx = sx + dx, ny = sy + dy, h = this.sectionHeight(nx, ny);
+          const closer = Number.isFinite(d0) ? this.seaDist(nx, ny) < d0 : h < h0;
+          if (closer && h < bh) {
+            bh = h;
+            best = [nx, ny];
+          }
+        }
       }
-      return best ? [best.i, best.j] : null;
+      this.secDrain.set(id, best);
+      cap(this.secDrain, 200000);
+      return best;
     }
 
-    // Next step(s) from a point. The stream heads for the target of its block at its
-    // scale (at scale 1, simply the lowest neighbour); if the block has no lower
-    // neighbour it looks at larger blocks. Each step goes to the lowest neighbour
-    // that brings it closer to the target, which makes the course meander. From a
-    // pit with no way out at any scale, the lake that fills it finds the outlet.
-    downstream(i, j) {
-      const id = key(i, j);
-      if (this.down.has(id)) return this.down.get(id);
-      let steps = null;
-      for (let b = this.scaleOf(i, j); b <= MAX_SCALE && !steps; b *= 2) {
-        const t = this.blockTarget(b, fdiv(i, b), fdiv(j, b));
-        if (t && this.cellElevation(t[0], t[1]) < this.cellElevation(i, j)) steps = [this.stepToward(i, j, t)];
+    // Neighbours that drain into this section.
+    upstream(sx, sy) {
+      const out = [];
+      for (const [dx, dy] of N4) {
+        const d = this.drainTo(sx + dx, sy + dy);
+        if (d && d[0] === sx && d[1] === sy) out.push([sx + dx, sy + dy]);
       }
-      if (!steps) steps = this.pitOutlet(i, j, this.cellElevation(i, j));
-      this.down.set(id, steps);
-      cap(this.down, 400000);
-      return steps;
+      return out;
     }
 
-    // Any neighbour that gets closer to the target will do; the lowest one wins,
-    // so the terrain decides how the stream winds on its way. On flat land the
-    // differences are tiny, so a fixed per-point jitter (larger at larger scales)
-    // keeps the stream from running dead straight.
-    stepToward(i, j, [ti, tj]) {
+    // Size of the water leaving a section: its own sources plus everything that
+    // drains into it from upstream. Sea sections add nothing of their own.
+    catchment(sx, sy) {
+      const memo = this.secCatch;
+      const id0 = key(sx, sy);
+      if (memo.has(id0)) return memo.get(id0);
+      const stack = [[sx, sy, false]];
+      while (stack.length) {
+        const [x, y, done] = stack.pop();
+        const id = key(x, y);
+        if (memo.has(id)) continue;
+        const ups = this.upstream(x, y);
+        if (!done) {
+          stack.push([x, y, true]);
+          for (const [ux, uy] of ups) if (!memo.has(key(ux, uy))) stack.push([ux, uy, false]);
+        } else {
+          let sum = this.isSea(x, y) ? 0 : this.sourceCount;
+          for (const [ux, uy] of ups) sum += memo.get(key(ux, uy));
+          memo.set(id, sum);
+        }
+      }
+      return memo.get(id0);
+    }
+
+    // Where water crosses from section (sx, sy) to its neighbour (sx + dx, sy + dy):
+    // the lowest point along their shared edge (away from the corners), sampled
+    // from the terrain itself. Both sections get the same answer.
+    // Returns {inside, outside}: the lattice points on this and the other side.
+    crossing(sx, sy, dx, dy) {
+      const vertical = dx !== 0;
+      const edge = vertical ? sx + Math.max(dx, 0) : sy + Math.max(dy, 0); // edge line, in sections
+      const id = `${vertical ? 'v' : 'h'}${edge},${vertical ? sy : sx}`;
+      let k = this.crossCache.get(id);
+      if (k === undefined) {
+        let bh = Infinity;
+        for (let n = 2; n < S - 2; n++) {
+          const along = (vertical ? sy : sx) * S + n + 0.5;
+          const h = vertical ? this.terrain.elevation(edge * S * C, along * C) : this.terrain.elevation(along * C, edge * S * C);
+          if (h < bh) {
+            bh = h;
+            k = n;
+          }
+        }
+        this.crossCache.set(id, k);
+        cap(this.crossCache, 50000);
+      }
+      const line = edge * S, along = (vertical ? sy : sx) * S + k;
+      const pos = vertical ? [[line - 1, along], [line, along]] : [[along, line - 1], [along, line]];
+      // pos[0] lies before the edge line, pos[1] after it.
+      const fwd = dx + dy > 0;
+      return { inside: fwd ? pos[0] : pos[1], outside: fwd ? pos[1] : pos[0] };
+    }
+
+    // One step of a stream inside section (sx, sy) on its way to target: any
+    // neighbour that gets closer to the target. At scale 1 the lowest one wins.
+    // At larger scales neighbours are judged by the mean of their block, so the
+    // stream heads for lower 2-, 4-, 8- or 16-blocks; inside a block a fixed
+    // per-point jitter decides, so the stream winds instead of running straight.
+    stepToward(sx, sy, [i, j], [ti, tj]) {
       const d0 = Math.hypot(ti - i, tj - j);
-      const jitter = MEANDER * this.scaleOf(i, j);
-      let best = null, bh = Infinity;
+      const b = this.scaleOf(i, j), jitter = MEANDER * b;
+      let best = null, bs = Infinity;
       for (const [di, dj] of N8) {
         const ni = i + di, nj = j + dj;
+        if (fdiv(ni, S) !== sx || fdiv(nj, S) !== sy) continue;
         if (Math.hypot(ti - ni, tj - nj) >= d0) continue;
-        const h = this.cellElevation(ni, nj) + jitter * (hash01(this.terrain.seed, ni, nj) - 0.5);
-        if (h < bh) {
-          bh = h;
+        const h = b === 1 ? this.cellElevation(ni, nj) : this.block(b, fdiv(ni, b), fdiv(nj, b)).mean;
+        const score = h + jitter * (hash01(this.terrain.seed, ni, nj) - 0.5);
+        if (score < bs) {
+          bs = score;
           best = [ni, nj];
         }
       }
       return best;
     }
 
-    // Flood a pit, lowest point first, until a point lower than the pit is found.
-    // Every point draining into the pit is higher than it, so that point is outside
-    // the basin. Returns the path through the lake to it.
-    pitOutlet(i, j, h0) {
-      const start = key(i, j);
-      const nodes = new Map([[start, null]]);
-      const heap = new MinHeap();
-      const push = (ii, jj, from) => {
-        const id = key(ii, jj);
-        if (nodes.has(id)) return;
-        nodes.set(id, { i: ii, j: jj, from });
-        heap.push(this.cellElevation(ii, jj), id);
-      };
-      for (const [di, dj] of N8) push(i + di, j + dj, start);
-      for (let pops = 0; heap.size && pops < FLOOD_MAX; pops++) {
-        const [h, id] = heap.pop();
-        const n = nodes.get(id);
-        if (h < h0) {
-          const path = [];
-          for (let m = n; m; m = nodes.get(m.from)) path.push([m.i, m.j]);
-          return path.reverse();
-        }
-        for (const [di, dj] of N8) push(n.i + di, n.j + dj, id);
-      }
-      return null;
+    // Lowest lattice point of a section (where a basin with no outlet collects).
+    lowestPoint(sx, sy) {
+      const e = this.sectionElev(sx, sy);
+      let k = 0;
+      for (let q = 1; q < e.length; q++) if (e[q] < e[k]) k = q;
+      return [sx * S + (k % S), sy * S + Math.floor(k / S)];
     }
 
-    // The course of a stream from a source: points and their scale, until it
-    // reaches water, has no outlet, comes back on itself, or is riverLength long.
-    // Streams that meet share the memoised steps, so the second one costs little.
-    riverPath(i, j) {
-      const id = key(i, j);
-      let path = this.paths.get(id);
-      if (path) return path;
-      const pts = [[i, j]];
-      const seen = new Set([id]);
-      let ci = i, cj = j;
-      walk: while (pts.length < this.riverLength && this.cellElevation(ci, cj) >= 0) {
-        const steps = this.downstream(ci, cj);
-        if (!steps) break;
-        for (const st of steps) {
-          const sk = key(st[0], st[1]);
-          if (seen.has(sk)) break walk;
-          seen.add(sk);
-          pts.push(st);
-          if (pts.length >= this.riverLength) break;
+    // A stream inside one section, from start to target (then across the edge to
+    // `out`, if the section drains on). In a sea section it ends at the first
+    // water; elsewhere it runs on through lakes and bays to its outlet.
+    walk(sx, sy, start, target, out, weight) {
+      const pts = [start];
+      const sea = this.isSea(sx, sy);
+      let cur = start;
+      for (let guard = 0; guard < 4 * S; guard++) {
+        if (sea && this.cellElevation(cur[0], cur[1]) < 0) break;
+        if (cur[0] === target[0] && cur[1] === target[1]) {
+          if (out) pts.push(out);
+          break;
         }
-        [ci, cj] = pts[pts.length - 1];
+        const nx = this.stepToward(sx, sy, cur, target);
+        if (!nx) break;
+        pts.push(nx);
+        cur = nx;
       }
-      path = { pts, scales: pts.map(([pi, pj]) => this.scaleOf(pi, pj)) };
-      this.paths.set(id, path);
-      cap(this.paths, 60000);
-      return path;
+      return { pts, scales: pts.map(([pi, pj]) => this.scaleOf(pi, pj)), weight };
     }
 
-    // Stream size and scale at each lattice point of a section, and the paths that
-    // cross it. Each stream adds 1 + (its length so far) / 32 to the size, so
-    // streams grow as they run and add up where they meet. A stream is at most
-    // riverLength points long, so only sources that close can reach this section:
-    // the answer is exact and local.
+    // The streams of one section: water coming in from upstream sections at their
+    // crossings (carrying their catchment), and the section's own sources (1 each),
+    // all heading for the section's outlet. They meet on the way, and the first
+    // stream sets the course the rest join.
     flowData(sx, sy) {
       const id = key(sx, sy);
       let d = this.flows.get(id);
       if (d) return d;
+      const drain = this.drainTo(sx, sy);
+      let target = null, out = null;
+      if (drain) {
+        const c = this.crossing(sx, sy, drain[0] - sx, drain[1] - sy);
+        target = c.inside;
+        out = c.outside;
+      } else {
+        target = this.lowestPoint(sx, sy);
+      }
+      const starts = [];
+      for (const [ux, uy] of this.upstream(sx, sy)) {
+        starts.push([this.crossing(ux, uy, sx - ux, sy - uy).outside, this.catchment(ux, uy)]);
+      }
+      for (const [i, j] of this.sources(sx, sy)) starts.push([[i, j], 1]);
       const size = new Float32Array(S * S), scale = new Uint8Array(S * S);
       const paths = [];
-      const R = Math.ceil(this.riverLength / S);
-      for (let dy = -R; dy <= R; dy++) {
-        for (let dx = -R; dx <= R; dx++) {
-          for (const [i, j] of this.sources(sx + dx, sy + dy)) {
-            const path = this.riverPath(i, j);
-            let hit = false;
-            path.pts.forEach(([pi, pj], k) => {
-              const a = pi - sx * S, b = pj - sy * S;
-              if (a < 0 || b < 0 || a >= S || b >= S) return;
-              size[b * S + a] += 1 + k / 32;
-              scale[b * S + a] = Math.max(scale[b * S + a], path.scales[k]);
-              hit = true;
-            });
-            if (hit) paths.push(path);
-          }
-        }
+      for (const [start, weight] of starts) {
+        const path = this.walk(sx, sy, start, target, out, weight);
+        path.pts.forEach(([pi, pj], k) => {
+          const a = pi - sx * S, b = pj - sy * S;
+          if (a < 0 || b < 0 || a >= S || b >= S) return;
+          size[b * S + a] += weight;
+          scale[b * S + a] = Math.max(scale[b * S + a], path.scales[k]);
+        });
+        paths.push(path);
       }
-      d = { size, scale, paths };
+      d = { size, scale, paths, drain, target };
       this.flows.set(id, d);
       cap(this.flows, 3000);
       return d;
+    }
+
+    // Section facts for the info panel.
+    sectionInfo(sx, sy) {
+      const p = this.terrain.sectionParams(sx, sy);
+      return {
+        landscape: p.t,
+        dir: [p.dx, p.dy],
+        height: this.sectionHeight(sx, sy),
+        sea: this.isSea(sx, sy),
+        seaDist: this.seaDist(sx, sy),
+        drain: this.drainTo(sx, sy),
+        upstream: this.upstream(sx, sy).length,
+        catchment: this.catchment(sx, sy),
+        sources: this.sources(sx, sy).length,
+      };
     }
 
     flow(i, j) {
@@ -1052,50 +1170,6 @@
       keep.splice(k, 0, [i, j, h]);
       if (keep.length > this.count) keep.length = this.count;
       this.list = keep;
-    }
-  }
-
-  class MinHeap {
-    constructor() {
-      this.h = [];
-      this.v = [];
-    }
-    get size() {
-      return this.h.length;
-    }
-    push(p, val) {
-      const h = this.h, v = this.v;
-      let n = h.length;
-      h.push(p);
-      v.push(val);
-      while (n > 0) {
-        const up = (n - 1) >> 1;
-        if (h[up] <= h[n]) break;
-        [h[up], h[n]] = [h[n], h[up]];
-        [v[up], v[n]] = [v[n], v[up]];
-        n = up;
-      }
-    }
-    pop() {
-      const h = this.h, v = this.v;
-      const top = [h[0], v[0]];
-      const lp = h.pop(), lv = v.pop();
-      if (h.length) {
-        h[0] = lp;
-        v[0] = lv;
-        let n = 0;
-        for (;;) {
-          const l = 2 * n + 1, r = l + 1;
-          let m = n;
-          if (l < h.length && h[l] < h[m]) m = l;
-          if (r < h.length && h[r] < h[m]) m = r;
-          if (m === n) break;
-          [h[m], h[n]] = [h[n], h[m]];
-          [v[m], v[n]] = [v[n], v[m]];
-          n = m;
-        }
-      }
-      return top;
     }
   }
 

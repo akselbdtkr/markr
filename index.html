@@ -60,6 +60,10 @@
     .hint { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
     #overview { width: 100%; aspect-ratio: 3 / 2; display: block; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; margin-bottom: 6px; }
     .row select { flex: 1; width: auto; }
+    details { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 10px; }
+    summary { cursor: pointer; font-weight: 600; }
+    summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    #info, #section-info { min-height: 2.6em; }
     .zoom { position: absolute; left: 12px; top: 12px; display: flex; gap: 4px; }
     .zoom button { background: var(--panel); min-width: 34px; }
     main { position: relative; min-width: 0; }
@@ -82,8 +86,14 @@
     <h1>Markr</h1>
     <div class="muted">Rutenett over simulert terreng · grunnrute 16 m</div>
 
+    <h2>Rute</h2>
+    <div id="info"></div>
+
+    <h2>Seksjon</h2>
+    <div id="section-info"></div>
+
     <h2>Visning</h2>
-    <select id="mode"></select>
+    <select id="mode" aria-label="Visning"></select>
     <div id="legend"><div class="bar"></div><div class="ends"><span class="lo"></span><span class="hi"></span></div></div>
     <label>Indeks ↔ verden <output id="morph-out">verden</output></label>
     <input id="morph" type="range" min="0" max="1" step="0.01" value="1">
@@ -91,30 +101,9 @@
     <div class="check"><input id="labels" type="checkbox" checked><label for="labels" style="margin:0">Vis indekser (når zoomet inn)</label></div>
     <div class="check"><input id="streams" type="checkbox" checked><label for="streams" style="margin:0">Vis vassdrag</label></div>
     <div class="check"><input id="sections" type="checkbox"><label for="sections" style="margin:0">Vis seksjonsgrenser (sømmer)</label></div>
-
-    <h2>Terreng</h2>
-    <label for="seed">Frø</label>
-    <div class="row"><input id="seed" type="number"><button id="reseed">Nytt</button></div>
-    <label>Helning → små ruter <output id="strength-out"></output></label>
-    <input id="strength" type="range" min="0" max="4" step="0.1">
-    <label>Bølgete linjer <output id="warp-out"></output></label>
-    <input id="warp" type="range" min="0" max="0.8" step="0.01">
-    <label>Sømbuffer <output id="buffer-out"></output></label>
-    <input id="buffer" type="range" min="2" max="12" step="1">
-    <p class="hint">Seksjoner er 32 × 32 ruter (512 m). Hver søm løses for seg i en stripe med så mange ruter på hver side.</p>
-
-    <h2>Vassdrag</h2>
-    <label>Maks antall vassdrag per seksjon <output id="sources-out"></output></label>
-    <input id="sources" type="range" min="0" max="6" step="1">
-    <label>Maks lengde <output id="riverlength-out"></output></label>
-    <input id="riverlength" type="range" min="64" max="512" step="32">
-
-    <h2>Deling</h2>
     <div class="check"><input type="radio" name="click" value="split" id="c-split" checked><label for="c-split" style="margin:0">Klikk deler rute i fire</label></div>
     <div class="check"><input type="radio" name="click" value="merge" id="c-merge"><label for="c-merge" style="margin:0">Klikk slår sammen igjen</label></div>
     <p class="hint">Høyreklikk slår også sammen. Dra for å panorere, hjul for zoom.</p>
-    <label>Auto-del ruter <output id="autosplit-out"></output></label>
-    <input id="autosplit" type="range" min="6" max="48" step="2">
 
     <h2>Oversikt</h2>
     <canvas id="overview" title="Klikk for å flytte utsnittet hit"></canvas>
@@ -132,15 +121,36 @@
     </div>
     <p class="hint">Kartet fortsetter i alle retninger. Dra i kartet, eller klikk i oversikten for å hoppe.</p>
 
-    <h2>Rute</h2>
-    <div id="info"></div>
+    <details id="generation">
+      <summary>Generering</summary>
+      <h2>Terreng</h2>
+      <label for="seed">Frø</label>
+      <div class="row"><input id="seed" type="number"><button id="reseed">Nytt</button></div>
+      <label>Helning → små ruter <output id="strength-out"></output></label>
+      <input id="strength" type="range" min="0" max="4" step="0.1">
+      <label>Bølgete linjer <output id="warp-out"></output></label>
+      <input id="warp" type="range" min="0" max="0.8" step="0.01">
+      <label>Sømbuffer <output id="buffer-out"></output></label>
+      <input id="buffer" type="range" min="2" max="12" step="1">
+      <p class="hint">Seksjoner er 32 × 32 ruter (512 m). Hver søm løses for seg i en stripe med så mange ruter på hver side.</p>
+
+      <h2>Vassdrag</h2>
+      <label>Maks antall vassdrag per seksjon <output id="sources-out"></output></label>
+      <input id="sources" type="range" min="0" max="6" step="1">
+
+      <h2>Deling</h2>
+      <label>Auto-del ruter <output id="autosplit-out"></output></label>
+      <input id="autosplit" type="range" min="6" max="48" step="2">
+    </details>
+
     <div id="status" class="muted"></div>
   </aside>
 
-  <script src="src/noise.js"></script>
-  <script src="src/terrain.js"></script>
-  <script src="src/world.js"></script>
-  <script src="src/render.js"></script>
-  <script src="src/main.js"></script>
+  <script>window.Markr = { VERSION: 5 };</script>
+  <script src="src/noise.js?v=5"></script>
+  <script src="src/terrain.js?v=5"></script>
+  <script src="src/world.js?v=5"></script>
+  <script src="src/render.js?v=5"></script>
+  <script src="src/main.js?v=5"></script>
 </body>
 </html>
