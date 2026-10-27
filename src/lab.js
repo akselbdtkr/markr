@@ -10,7 +10,8 @@
   const state = {
     seed: 1848, region: -1, sections: 8, cells: 8, align: 1, size: 0.5, anchor: 0.02, smoothing: 1,
     mode: 'global', buffer: 16, iters: 300, contour: 10,
-    method: 'jumps', step: 50, minSlope: 0.06, pull: 1, spread: 0.8, showSnaps: true, run: 4, reach: 0.9,
+    method: 'jumps', step: 50, minSlope: 0.06, pull: 1, spread: 0.7, passes: 3, showSnaps: true, run: 4, reach: 0.9,
+    coastRun: 8, coastReach: 1.3, reachOut: 6,
     showContours: true, showGrid: true, showField: false, showSections: true, showFolds: true, fillCells: false,
   };
   let terrain, field, grid, start, stats = {};
@@ -74,7 +75,7 @@
     const o = { i0, j0, sections: state.sections, cells: state.cells };
     grid =
       state.method === 'jumps'
-        ? M.snapGrid(field, Object.assign(o, { step: state.step, minSlope: state.minSlope, pull: state.pull, spread: state.spread, run: state.run, reach: state.reach }))
+        ? M.snapGrid(field, Object.assign(o, { step: state.step, minSlope: state.minSlope, pull: state.pull, spread: state.spread, run: state.run, reach: state.reach, coastRun: state.coastRun, coastReach: state.coastReach, reachOut: state.reachOut, passes: state.passes }))
         : M.buildGrid(field, Object.assign(o, { buffer: state.buffer, mode: state.mode, align: state.align, size: state.size, anchor: state.anchor, iters: state.iters }));
     document.body.dataset.method = state.method;
     measure();
@@ -473,6 +474,10 @@
   range('minSlope', 'minSlope', (v) => `${Math.round(Math.atan(v) * 57.3)}°`, rebuildGrid);
   range('pull', 'pull', (v) => v.toFixed(2), rebuildGrid);
   range('run', 'run', (v) => `${v} ruter`, rebuildGrid);
+  range('coastRun', 'coastRun', (v) => `${v} ruter`, rebuildGrid);
+  range('coastReach', 'coastReach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
+  range('reachOut', 'reachOut', (v) => `${v} ruter`, rebuildGrid);
+  range('passes', 'passes', (v) => `${v}`, rebuildGrid);
   range('reach', 'reach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
   range('spread', 'spread', (v) => v.toFixed(2), rebuildGrid);
   $('method').value = state.method;

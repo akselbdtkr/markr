@@ -96,15 +96,23 @@
     <input id="step" type="range" min="10" max="100" step="10">
     <label>Terskel: minste helning for å trekke <output id="minSlope-out"></output></label>
     <input id="minSlope" type="range" min="0.01" max="0.4" step="0.01">
-    <label>Strekk før hopp <output id="run-out"></output></label>
+    <label>Kyst: strekk før hopp <output id="coastRun-out"></output></label>
+    <input id="coastRun" type="range" min="2" max="16" step="2">
+    <label>Kyst: terskel <output id="coastReach-out"></output></label>
+    <input id="coastReach" type="range" min="0.3" max="1.6" step="0.05">
+    <label>Høydekurver: strekk før hopp <output id="run-out"></output></label>
     <input id="run" type="range" min="2" max="8" step="2">
-    <label>Terskel: lengste avvik før linja gir opp <output id="reach-out"></output></label>
+    <label>Høydekurver: terskel <output id="reach-out"></output></label>
     <input id="reach" type="range" min="0.3" max="1.4" step="0.05">
     <label>Dragning mot linjene <output id="pull-out"></output></label>
     <input id="pull" type="range" min="0" max="1" step="0.05">
-    <label>Naboene følger med <output id="spread-out"></output></label>
-    <input id="spread" type="range" min="0" max="1.5" step="0.05">
-    <p class="hint">Hver rad (eller kolonne) deles i strekk. I hvert strekk eier linja som ligger nærmest høydekurven midt i strekket, kurven hele veien, så lenge den ligger innenfor terskelen. Ved neste strekk kan kurven gå videre til en annen linje: et hopp.</p>
+    <label>Linjene bøyer radene ved siden av, inntil <output id="reachOut-out"></output></label>
+    <input id="reachOut" type="range" min="1" max="12" step="1">
+    <label>Glatting med de 8 naboene <output id="spread-out"></output></label>
+    <input id="spread" type="range" min="0" max="1" step="0.05">
+    <label>Glatteomganger <output id="passes-out"></output></label>
+    <input id="passes" type="range" min="0" max="10" step="1">
+    <p class="hint">Første gjennomgang følger linjene: i hvert strekk eier gitterlinja som ligger nærmest linja den hele veien, innenfor terskelen, og ved neste strekk kan den gå videre (et hopp). Andre gjennomgang flytter alle andre hjørner mellom de nærmeste linjene på hver side, så hele lia bøyer seg.</p>
     </div>
 
     <div class="least">

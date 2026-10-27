@@ -243,37 +243,35 @@
     return { X, Y, row, N, i0, j0, time: performance.now() - t0, seam };
   }
 
-  // Grid with jumps: every vertex is set by one local operation, so there are no
-  // seams at all; a vertex depends only on the terrain around it.
+  // Grid with jumps. Every vertex depends only on the terrain around it, so
+  // there are no seams at all.
   //
   // The lines that matter are the coast (0 m) and a set of contours, every
-  // `step` metres. Where those lie closer than two cells, every second (or
-  // fourth ...) is used instead, so the lines stay spread out.
+  // `step` metres; where those lie closer than two cells, every second (or
+  // fourth ...) is used, so the lines stay spread out. The coast is followed
+  // furthest, contours less, steep contours more than gentle ones.
   //
-  // 1. Snap. For each vertex, the distance to the nearest line, measured along
-  //    the slope, refined with one Newton step. Moving one vertex along the
-  //    grid changes that distance by `sigma` (the cell size times the larger
-  //    component of the slope direction), so exactly one vertex per row across
-  //    the line is within sigma / 2 of it: that vertex is snapped onto the line.
-  //    As the line drifts across the grid, the nearest vertex changes to the
-  //    next row, and the neighbouring grid line takes the line over: a jump. A
-  //    vertex never moves more than half a cell, so turning stays within
-  //    +-45 degrees and nothing adds up over distance.
-  // 2. Weight. A line only pulls where it is clear: the coast always, contours
-  //    where the slope is above `minSlope`. `pull` scales the snap.
-  // 3. Neighbours. A vertex that is not on a line takes a weighted mean of how
-  //    far its 8 neighbours moved (edge neighbours count twice the diagonal
-  //    ones), times `spread`, so rows bend round the snapped vertices and cells
-  //    turn with them.
+  // Pass 1 follows the lines: in strips of `run` cells the grid line nearest a
+  // line takes it, within `reach` cells; at the next strip it may pass to
+  // another grid line (a jump). Pass 2 moves every other vertex by
+  // interpolating between the nearest lines on either side, so whole slopes
+  // bend with their contours. Last, a soft mean with the 8 neighbours.
   function snapGrid(field, opts) {
     const t0 = performance.now();
     const { i0, j0, sections, cells } = opts;
     const N = sections * cells, row = N + 1;
-    // One extra ring of vertices round the map, for the neighbour step.
-    const R = N + 3, at = (a, b) => (b + 1) * R + (a + 1);
-    const SX = new Float64Array(R * R), SY = new Float64Array(R * R), lvl = new Float64Array(R * R).fill(NaN);
     const step = opts.step, minSlope = opts.minSlope, pull = opts.pull;
-    const RUN = opts.run, T = opts.reach;
+    const K = opts.reachOut; // how far (cells) a line bends the rows beside it
+    // Margin of vertices round the map, so every vertex sees the lines near it.
+    const MG = K + 1, R = N + 1 + 2 * MG, at = (a, b) => (b + MG) * R + (a + MG);
+    const SX = new Float64Array(R * R), SY = new Float64Array(R * R);
+    const lvl = new Float64Array(R * R).fill(NaN), fam = new Uint8Array(R * R); // 1 rows, 2 columns
+    // Thresholds by kind of line: the coast is followed longest and furthest,
+    // contours less, and steep contours more than gentle ones.
+    const kinds = {
+      coast: { run: opts.coastRun, reach: opts.coastReach },
+      contour: { run: opts.run, reach: opts.reach },
+    };
     // Where line L crosses the grid line through (x, y): along y with x fixed
     // (rows), or along x with y fixed (columns). Newton steps; null if it does
     // not converge within a few cells.
@@ -289,8 +287,13 @@
       }
       return null;
     };
-    for (let b = -1; b <= N + 1; b++) {
-      for (let a = -1; a <= N + 1; a++) {
+
+    // Pass 1: follow the lines. Each grid line runs in strips of `run` cells,
+    // fixed in index space; in a strip, the grid line nearest the line at the
+    // middle of the strip owns it all the way along, within `reach` cells. At
+    // the next strip the line may pass to another grid line: a jump.
+    for (let b = -MG; b <= N + MG; b++) {
+      for (let a = -MG; a <= N + MG; a++) {
         const x = (i0 + a) * C, y = (j0 + b) * C;
         const [h, gx, gy] = field.heightGrad(x, y);
         const g = Math.hypot(gx, gy);
@@ -298,32 +301,28 @@
         // Lines running mostly along the rows are taken by rows (moved up or
         // down), the others by columns (moved sideways).
         const rows = Math.abs(gy) >= Math.abs(gx);
-        // Candidate lines: the coast, and the two nearest contours of the set,
-        // spread to at least two cells apart.
-        const cands = [[0, 1]];
+        // Candidates: the coast, and the two nearest contours of the set, spread
+        // to at least two cells apart. [level, weight, run, reach]
+        const cands = [[0, 1, kinds.coast.run, kinds.coast.reach]];
         if (h > 0 && g > minSlope) {
           let s = step;
           while (s / g < 2 * C) s *= 2;
           const w = smoothstep(minSlope, minSlope * 2, g);
-          for (const Ln of [Math.floor(h / s) * s, Math.ceil(h / s) * s]) if (Ln > 0) cands.push([Ln, w]);
+          const steep = smoothstep(minSlope, 0.6, g);
+          const reach = kinds.contour.reach * (0.7 + 0.5 * steep);
+          for (const Ln of [Math.floor(h / s) * s, Math.ceil(h / s) * s]) if (Ln > 0) cands.push([Ln, w, kinds.contour.run, reach]);
         }
-        // This grid line runs in strips of RUN cells, fixed in index space. In
-        // each strip, the line that is nearest the contour at the middle of the
-        // strip owns it all the way along; at the next strip it may pass to
-        // another line: a jump.
         const along = rows ? a : b, own = rows ? b : a;
-        const mid = Math.floor(along / RUN) * RUN + RUN / 2;
         let best = null;
-        for (const [L, w] of cands) {
+        for (const [L, w, run, reach] of cands) {
+          const mid = Math.floor(along / run) * run + run / 2;
           const pm = rows ? crossing((i0 + mid) * C, y, L, true) : crossing(x, (j0 + mid) * C, L, false);
           if (pm === null) continue;
-          const owner = Math.round(pm / C - (rows ? j0 : i0));
-          if (owner !== own) continue;
+          if (Math.round(pm / C - (rows ? j0 : i0)) !== own) continue;
           const pv = rows ? crossing(x, y, L, true) : crossing(x, y, L, false);
           if (pv === null) continue;
           const d = pv / C - (rows ? j0 + b : i0 + a);
-          // Beyond `reach` cells the line gives up here.
-          if (Math.abs(d) > T) continue;
+          if (Math.abs(d) > reach) continue; // the line gives up here
           if (!best || L === 0 || Math.abs(d) < Math.abs(best[1])) best = [L, d, w];
           if (L === 0) break;
         }
@@ -333,38 +332,77 @@
         SX[k] = rows ? 0 : pull * w * d;
         SY[k] = rows ? pull * w * d : 0;
         lvl[k] = L;
+        fam[k] = rows ? 1 : 2;
       }
     }
-    const X = new Float64Array(row * row), Y = new Float64Array(row * row);
-    const snapped = new Float64Array(row * row).fill(NaN);
-    const spread = opts.spread;
-    for (let b = 0; b <= N; b++) {
-      for (let a = 0; a <= N; a++) {
-        const k = at(a, b), o = b * row + a;
-        let dx = SX[k], dy = SY[k];
-        if (Number.isNaN(lvl[k])) {
-          let sx = 0, sy = 0, sw = 0;
+
+    // Pass 2: everything else. Each vertex looks along its column for the
+    // nearest row line above and below (and along its row for column lines to
+    // each side), and takes their movement, linearly between the two, so all
+    // the rows between two lines bend with them. With a line on one side only,
+    // the movement fades out over K cells. Rows keep their order, so no cell
+    // folds.
+    const DX = new Float64Array(R * R), DY = new Float64Array(R * R);
+    const between = (k, dk, f, D) => {
+      let up = -1, dn = -1, du = 0, dd = 0;
+      for (let s = 1; s <= K; s++) {
+        if (up < 0 && fam[k - s * dk] === f) {
+          up = k - s * dk;
+          du = s;
+        }
+        if (dn < 0 && fam[k + s * dk] === f) {
+          dn = k + s * dk;
+          dd = s;
+        }
+        if (up >= 0 && dn >= 0) break;
+      }
+      if (up >= 0 && dn >= 0) return (D[up] * dd + D[dn] * du) / (du + dd);
+      if (up >= 0) return D[up] * Math.max(0, 1 - du / K);
+      if (dn >= 0) return D[dn] * Math.max(0, 1 - dd / K);
+      return 0;
+    };
+    for (let b = -1; b <= N + 1; b++) {
+      for (let a = -1; a <= N + 1; a++) {
+        const k = at(a, b);
+        DY[k] = fam[k] === 1 ? SY[k] : between(k, R, 1, SY);
+        DX[k] = fam[k] === 2 ? SX[k] : between(k, 1, 2, SX);
+      }
+    }
+
+    // Last: soften with the 8 neighbours (edge neighbours count twice the
+    // diagonal ones), `passes` times, leaving the lines themselves where they
+    // are. This turns the saw-tooth of the jumps into gentle bends.
+    const passes = opts.passes ?? 1, soft = opts.spread;
+    for (let ps = 0; ps < passes && soft > 0; ps++) {
+      const NX = Float64Array.from(DX), NY = Float64Array.from(DY);
+      for (let b = -K; b <= N + K; b++) {
+        for (let a = -K; a <= N + K; a++) {
+          const k = at(a, b);
+          if (fam[k]) continue;
+          let sx = 0, sy = 0;
           for (let db = -1; db <= 1; db++) {
             for (let da = -1; da <= 1; da++) {
               if (!da && !db) continue;
               const kn = at(a + da, b + db), wn = da && db ? 1 : 2;
-              if (Number.isNaN(lvl[kn])) continue;
-              sx += wn * SX[kn];
-              sy += wn * SY[kn];
-              sw += wn;
+              sx += wn * DX[kn];
+              sy += wn * DY[kn];
             }
           }
-          // Mean over the snapped neighbours, scaled by how many there are.
-          if (sw) {
-            const f = (spread * sw) / 12;
-            dx = (sx / sw) * f;
-            dy = (sy / sw) * f;
-          }
-        } else {
-          snapped[o] = lvl[k];
+          NX[k] = DX[k] + soft * (sx / 12 - DX[k]);
+          NY[k] = DY[k] + soft * (sy / 12 - DY[k]);
         }
-        X[o] = i0 + a + dx;
-        Y[o] = j0 + b + dy;
+      }
+      DX.set(NX);
+      DY.set(NY);
+    }
+    const X = new Float64Array(row * row), Y = new Float64Array(row * row);
+    const snapped = new Float64Array(row * row).fill(NaN);
+    for (let b = 0; b <= N; b++) {
+      for (let a = 0; a <= N; a++) {
+        const k = at(a, b), o = b * row + a;
+        if (fam[k]) snapped[o] = lvl[k];
+        X[o] = i0 + a + DX[k];
+        Y[o] = j0 + b + DY[k];
       }
     }
     return { X, Y, row, N, i0, j0, time: performance.now() - t0, seam: 0, snapped };
