@@ -11,9 +11,9 @@
     seed: 1848, region: -1, sections: 8, cells: 8, align: 1, size: 0.5, anchor: 0.02, smoothing: 1,
     mode: 'global', buffer: 16, iters: 300, contour: 10,
     method: 'jumps', step: 50, minSlope: 0.06, pull: 1, showSnaps: true, run: 4, reach: 0.9,
-    coastRun: 4, coastReach: 1.3, reachOut: 6,
+    coastRun: 4, coastReach: 1.3, reachOut: 6, run: 6, reach: 1.1,
     ridges: 1, ridgeRun: 6, ridgeReach: 1.1, curvature: 0.003, startKind: 'rugged', rough: 0.7,
-    slopeLines: 0.6, slopeSpacing: 3, slopeReach: 0.6, narrow: 0.4, gap: 0.3, sizeStrength: 1.5,
+    slopeLines: 0.6, slopeSpacing: 3, slopeReach: 0.6, narrow: 0.6, gap: 0.3, sizeStrength: 3, minRidge: 100,
     showContours: true, showGrid: true, showField: false, showSections: true, showFolds: true, fillCells: false,
   };
   let terrain, field, grid, start, stats = {};
@@ -87,7 +87,7 @@
     const { N, i0, j0 } = mapCells();
     const m = Math.max(state.buffer, 3 * state.cells + 8) + 6;
     const t0 = performance.now();
-    field = new M.TerrainField(terrain, (i0 - m) * C, (j0 - m) * C, (N + 2 * m) * C, (N + 2 * m) * C, 8, { smoothing: state.smoothing, coarse: state.cells * C });
+    field = new M.TerrainField(terrain, (i0 - m) * C, (j0 - m) * C, (N + 2 * m) * C, (N + 2 * m) * C, 8, { smoothing: state.smoothing, coarse: state.cells * C, curvature: state.curvature, minRidge: state.minRidge });
     stats.field = performance.now() - t0;
     bg = null;
     contours = null;
@@ -163,7 +163,9 @@
   function convex(p) {
     for (let k = 0; k < 4; k++) {
       const a = p[k], b = p[(k + 1) % 4], c = p[(k + 2) % 4];
-      if ((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) <= 0) return false;
+      // Strictly turned the wrong way; a corner joined to its neighbour
+      // (a collapsed cell) is not a fold.
+      if ((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) < -1e-9) return false;
     }
     return true;
   }
@@ -173,6 +175,7 @@
     const rows = [
       ['Avvik fra høydekurvene', `${r(stats.err)}° (rett rutenett: ${r(stats.base)}°)`],
       ['Brettede ruter', `${stats.folds}`],
+      ...(grid.collapsed !== undefined ? [['Sammenslått i hopp', `${grid.collapsed} ruter til linjer, ${grid.points} til punkter`]] : []),
       ...(state.method === 'jumps' ? [['Kanter på linjene', `${r(stats.onLine / 1000, 2)} km (kyst ${r(stats.onCoast / 1000, 2)} km)`]] : []),
       ['Største søm', state.method === 'jumps' ? '0 m (hvert hjørne regnes lokalt)' : state.mode === 'global' ? 'ingen (hele kartet samlet)' : `${r(stats.seam * C, 2)} m`],
       ['Tid', `felt ${Math.round(stats.field)} ms, rutenett ${Math.round(stats.grid)} ms`],
@@ -245,16 +248,14 @@
         }
       }
     }
-    // Ridge and valley lines: where F crosses zero and the curvature is clear.
+    // Ridge and valley lines that are kept (long enough): where F crosses zero.
     out.ridge = [];
     out.valley = [];
-    const F = field.F, RK = field.RK, k0 = state.curvature;
+    const F = field.F, RL = field.RL, kindR = field.ridgeKind;
     for (let y = 0; y < ny - 1; y++) {
       for (let x = 0; x < nx - 1; x++) {
         const k = y * nx + x;
-        const rk = (RK[k] + RK[k + 1] + RK[k + nx] + RK[k + nx + 1]) / 4;
-        const rr = (field.RR[k] + field.RR[k + 1] + field.RR[k + nx] + field.RR[k + nx + 1]) / 4;
-        if (Math.abs(rk) < k0 || Math.abs(rr) < 2 || Math.sign(rr) !== -Math.sign(rk)) continue;
+        if (!kindR[k] || RL[k] < 0.5) continue;
         const v = [F[k], F[k + 1], F[k + nx + 1], F[k + nx]];
         const P = [[0, 0], [1, 0], [1, 1], [0, 1]], pts = [];
         for (let e = 0; e < 4; e++) {
@@ -264,7 +265,7 @@
             pts.push([x0 + (x + p[0] + (q[0] - p[0]) * f) * res, y0 + (y + p[1] + (q[1] - p[1]) * f) * res]);
           }
         }
-        const list = rk < 0 ? out.ridge : out.valley;
+        const list = kindR[k] > 0 ? out.ridge : out.valley;
         if (pts.length >= 2) list.push(pts[0], pts[1]);
       }
     }
@@ -551,10 +552,8 @@
   range('ridges', 'ridges', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
   range('ridgeRun', 'ridgeRun', (v) => `${v} ruter`, rebuildGrid);
   range('ridgeReach', 'ridgeReach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
-  range('curvature', 'curvature', (v) => v.toFixed(4), () => {
-    contours = null;
-    rebuildGrid();
-  });
+  range('curvature', 'curvature', (v) => v.toFixed(4), rebuildField);
+  range('minRidge', 'minRidge', (v) => `${v} m`, rebuildField);
   range('slopeLines', 'slopeLines', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
   range('slopeSpacing', 'slopeSpacing', (v) => `${v} ruter`, rebuildGrid);
   range('narrow', 'narrow', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);

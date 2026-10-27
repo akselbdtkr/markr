@@ -125,6 +125,60 @@
           this.RK[k] = tx * tx * rxx + 2 * tx * ty * rxy + ty * ty * ryy;
         }
       }
+      this.ridgeMask(opts.curvature ?? 0.003, opts.minRidge ?? 100);
+    }
+
+    // Which raster cells hold a ridge or valley line worth following: F changes
+    // sign across the cell, the curvature along the contour is clear, and the
+    // relief stands out. Neighbouring such cells are joined into lines, and lines
+    // shorter than `minLength` metres (stubs) are dropped. RL is 1 on kept lines.
+    ridgeMask(k0, minLength) {
+      const { nx, ny, F, RK, RR, res } = this;
+      const kind = new Int8Array(nx * ny); // 1 ridge, -1 valley
+      for (let y = 0; y < ny - 1; y++) {
+        for (let x = 0; x < nx - 1; x++) {
+          const k = y * nx + x;
+          const v = [F[k], F[k + 1], F[k + nx], F[k + nx + 1]];
+          if (Math.min(...v) >= 0 || Math.max(...v) <= 0) continue;
+          const rk = (RK[k] + RK[k + 1] + RK[k + nx] + RK[k + nx + 1]) / 4;
+          const rr = (RR[k] + RR[k + 1] + RR[k + nx] + RR[k + nx + 1]) / 4;
+          if (Math.abs(rk) < k0 || Math.abs(rr) < 2 || Math.sign(rr) !== -Math.sign(rk)) continue;
+          kind[k] = rr > 0 ? 1 : -1;
+        }
+      }
+      // Join into lines (8 neighbours, same kind) and measure them.
+      const comp = new Int32Array(nx * ny).fill(-1), sizes = [];
+      for (let k0i = 0; k0i < kind.length; k0i++) {
+        if (!kind[k0i] || comp[k0i] >= 0) continue;
+        const id = sizes.length, stack = [k0i];
+        comp[k0i] = id;
+        let n = 0;
+        while (stack.length) {
+          const k = stack.pop();
+          n++;
+          const x = k % nx, y = (k - x) / nx;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const xx = x + dx, yy = y + dy;
+              if (xx < 0 || yy < 0 || xx >= nx || yy >= ny) continue;
+              const kn = yy * nx + xx;
+              if (kind[kn] === kind[k] && comp[kn] < 0) {
+                comp[kn] = id;
+                stack.push(kn);
+              }
+            }
+          }
+        }
+        sizes.push(n * res);
+      }
+      this.ridgeKind = kind;
+      this.RL = new Float32Array(nx * ny);
+      for (let k = 0; k < kind.length; k++) {
+        if (kind[k] && sizes[comp[k]] >= minLength) {
+          // Spread the mark to the cell's corners, so sampling near it finds it.
+          for (const q of [k, k + 1, k + nx, k + nx + 1]) if (q < this.RL.length) this.RL[q] = 1;
+        }
+      }
     }
 
     // Bilinear sample of one raster at world point (x, y).
@@ -371,7 +425,7 @@
     }
     const sz = opts.sizeStrength;
     if (sz > 0) {
-      const dens = (x, y) => Math.exp(sz * Math.min(1, field.samp(field.slopeC, x * C, y * C) / 0.4));
+      const dens = (x, y) => Math.exp(sz * Math.min(1.5, field.samp(field.slopeC, x * C, y * C) / 0.3));
       for (let it = 0; it < 200; it++) {
         for (let q = 1; q < ns; q++) {
           for (let p = 1; p < ns; p++) {
@@ -417,6 +471,7 @@
         levels: () => [0],
         // Ridges by their curvature; valleys only where they are also steep.
         weight: (x, y, g) => {
+          if (field.samp(field.RL, x, y) < 0.5) return 0; // not on a kept line
           const rk = field.samp(field.RK, x, y), rr = field.samp(field.RR, x, y);
           // Clear curvature, and a top (or bottom) that stands out in the relief.
           const w = smoothstep(k0, 2 * k0, Math.abs(rk)) * smoothstep(1.5, 4, Math.abs(rr)) * (Math.sign(rr) === -Math.sign(rk) ? 1 : 0);
@@ -429,10 +484,15 @@
     }
     fams.push({
       prio: 1, run: opts.run, reach: opts.reach, f: heightGrad,
-      levels: (v, g) => {
+      // Which contours count is chosen from the general slope of the section
+      // (the coarse height), which changes slowly, so a contour does not drop in
+      // and out as the local slope varies: the lines stay long.
+      levels: (v, g, x, y) => {
         if (v <= 0 || g <= minSlope) return [];
+        const [, cx, cy] = field.gradOf(field.hc, x, y);
+        const gc = Math.max(g * 0.5, Math.hypot(cx, cy));
         let s = step;
-        while (s / g < 2 * C) s *= 2;
+        while (s / gc < 2 * C) s *= 2;
         return [Math.floor(v / s) * s, Math.ceil(v / s) * s].filter((L) => L > 0);
       },
       // Steep contours are followed further than gentle ones.
@@ -512,7 +572,7 @@
           const along = rows ? a : b, own = rows ? b : a;
           const s0 = Math.floor(along / fm.run) * fm.run, mid = lim(s0 + fm.run / 2, -MG, N + MG - 1);
           const reach = fm.reachFor ? fm.reachFor(g) : fm.reach;
-          for (const L of fm.levels(v, g)) {
+          for (const L of fm.levels(v, g, x, y)) {
             if (ownerAt(fm, L, rows, mid, own) !== own) continue;
             ct.owned++;
             const pv = crossing(fm.f, x, y, L, rows);
@@ -530,7 +590,7 @@
             ct.within++;
             const cur = best[slot];
             if (!cur || fm.prio > cur.prio || Math.abs(d) < Math.abs(cur.dl)) {
-              best[slot] = { prio: fm.prio, L, dl: d, d: d * sp, w, rows, fm, along, own, s0 };
+              best[slot] = { prio: fm.prio, L, dl: d, d: d * sp, w, rows, fm, along, own, s0, reach };
             }
           }
         }
@@ -544,17 +604,18 @@
           ln.pri[k] = bs.prio;
           // Narrower cells at a jump: if the line belongs to another grid line in
           // the strip before (or after), move this vertex toward the jump.
-          if (narrow > 0 && fm.run >= 3) {
-            const u = along - s0;
-            let shift = 0;
-            if (u === 0) {
-              if (ownerAt(fm, L, rows, lim(s0 - fm.run / 2, -MG, N + MG - 1), own) !== own) shift = -narrow / 2;
-            } else if (u === fm.run - 1) {
-              if (ownerAt(fm, L, rows, lim(s0 + fm.run + fm.run / 2, -MG, N + MG - 1), own) !== own) shift = narrow / 2;
-            }
-            if (shift) {
+          // Cells get smaller toward a jump: the further the vertex has moved off
+          // its place to follow the line (its deviation), the more it is pushed
+          // along the line toward the jump at the near end of the strip, if the
+          // line does jump there. The smallest cells are at the jump.
+          if (narrow > 0 && fm.run >= 2) {
+            const u = along - s0, toEnd = u >= fm.run / 2 ? 1 : -1;
+            const nb = toEnd > 0 ? s0 + fm.run + fm.run / 2 : s0 - fm.run / 2;
+            if (ownerAt(fm, L, rows, lim(nb, -MG, N + MG - 1), own) !== own) {
               const kn = rows ? at(a + 1, b) : at(a, b + 1);
-              ln.A[k] = shift * (rows ? BX[kn] - BX[k] : BY[kn] - BY[k]);
+              const len = rows ? BX[kn] - BX[k] : BY[kn] - BY[k];
+              const dev = Math.min(1, Math.abs(bs.dl) / Math.max(0.1, bs.reach));
+              ln.A[k] = toEnd * narrow * 0.5 * dev * len;
             }
           }
         }
@@ -583,8 +644,8 @@
     // above and below are interpolated linearly (or, with a line on one side
     // only, faded out over K cells); this is done for the column and the two
     // next to it, weighted 1, 2, 1. Column lines likewise along rows.
-    const between = (k, dk, ln) => {
-      if (ln.on[k]) return ln.S[k];
+    const between = (k, dk, ln, D = ln.S) => {
+      if (ln.on[k]) return D[k];
       let up = -1, dn = -1, du = 0, dd = 0;
       for (let s = 1; s <= K; s++) {
         if (up < 0 && ln.on[k - s * dk]) {
@@ -597,9 +658,9 @@
         }
         if (up >= 0 && dn >= 0) break;
       }
-      if (up >= 0 && dn >= 0) return (ln.S[up] * dd + ln.S[dn] * du) / (du + dd);
-      if (up >= 0) return ln.S[up] * Math.max(0, 1 - du / K);
-      if (dn >= 0) return ln.S[dn] * Math.max(0, 1 - dd / K);
+      if (up >= 0 && dn >= 0) return (D[up] * dd + D[dn] * du) / (du + dd);
+      if (up >= 0) return D[up] * Math.max(0, 1 - du / K);
+      if (dn >= 0) return D[dn] * Math.max(0, 1 - dd / K);
       return 0;
     };
     const X = new Float64Array(row * row), Y = new Float64Array(row * row);
@@ -613,9 +674,82 @@
         snappedR[o] = RW.lvl[k];
         snappedC[o] = CL.lvl[k];
         if (RW.on[k] || CL.on[k]) snapped[o] = RW.on[k] ? RW.lvl[k] : CL.lvl[k];
-        X[o] = BX[k] + dx + RW.A[k];
-        Y[o] = BY[k] + dy + CL.A[k];
+        // Along-shifts (smaller cells at jumps) spread to the rows beside, too.
+        const ax = RW.on[k] ? RW.A[k] : between(k, R, RW, RW.A);
+        const ay = CL.on[k] ? CL.A[k] : between(k, 1, CL, CL.A);
+        X[o] = BX[k] + dx + ax;
+        Y[o] = BY[k] + dy + ay;
       }
+    }
+
+    // Hard limit on overlap. A cell that has turned inside out across its rows
+    // (top and bottom crossed) collapses to a line: its left corners join, and
+    // its right corners join. Inside out the other way, it collapses the other
+    // way; both ways, all four corners join in a point. Neighbouring cells share
+    // the corners, so they end on the line or the point. Repeated until no cell
+    // is inside out; one cell is lost each time, never an overlap.
+    const minH = opts.minCell ?? 0.04;
+    const P = (a, b) => b * row + a;
+    const join = (ks) => {
+      let sx = 0, sy = 0;
+      for (const q of ks) {
+        sx += X[q];
+        sy += Y[q];
+      }
+      for (const q of ks) {
+        X[q] = sx / ks.length;
+        Y[q] = sy / ks.length;
+      }
+    };
+    let collapsed = 0, points = 0;
+    for (let round = 0; round < 12; round++) {
+      let changed = false;
+      for (let b = 0; b < N; b++) {
+        for (let a = 0; a < N; a++) {
+          const p00 = P(a, b), p10 = P(a + 1, b), p11 = P(a + 1, b + 1), p01 = P(a, b + 1);
+          // Row direction (u) and column direction (v) of the cell.
+          const ux = (X[p10] - X[p00] + X[p11] - X[p01]) / 2, uy = (Y[p10] - Y[p00] + Y[p11] - Y[p01]) / 2;
+          const vx = (X[p01] - X[p00] + X[p11] - X[p10]) / 2, vy = (Y[p01] - Y[p00] + Y[p11] - Y[p10]) / 2;
+          const lu = Math.hypot(ux, uy) || 1, lv = Math.hypot(vx, vy) || 1;
+          // Height of each side across the other direction; at or below minH it
+          // has crossed (or nearly).
+          const hL = (ux * (Y[p01] - Y[p00]) - uy * (X[p01] - X[p00])) / lu;
+          const hR = (ux * (Y[p11] - Y[p10]) - uy * (X[p11] - X[p10])) / lu;
+          const wT = (vx * (Y[p10] - Y[p00]) - vy * (X[p10] - X[p00])) / -lv;
+          const wB = (vx * (Y[p11] - Y[p01]) - vy * (X[p11] - X[p01])) / -lv;
+          // A side already joined to nothing (length 0) is fine: that is a
+          // collapsed neighbour, not a crossing.
+          const bad = (h) => h < minH && Math.abs(h) > 1e-6;
+          let rowsBad = bad(hL) || bad(hR);
+          let colsBad = bad(wT) || bad(wB);
+          // A corner pushed inwards (the cell no longer convex) is also an
+          // overlap: such a cell becomes a point.
+          if (!rowsBad && !colsBad) {
+            const q = [p00, p10, p11, p01];
+            for (let c = 0; c < 4; c++) {
+              const A = q[c], B = q[(c + 1) % 4], D = q[(c + 2) % 4];
+              const turn = (X[B] - X[A]) * (Y[D] - Y[B]) - (Y[B] - Y[A]) * (X[D] - X[B]);
+              const lenA = Math.hypot(X[B] - X[A], Y[B] - Y[A]), lenB = Math.hypot(X[D] - X[B], Y[D] - Y[B]);
+              if (turn < -1e-9 && lenA > 1e-6 && lenB > 1e-6) rowsBad = colsBad = true;
+            }
+          }
+          if (!rowsBad && !colsBad) continue;
+          if (rowsBad && colsBad) {
+            join([p00, p10, p11, p01]);
+            points++;
+          } else if (rowsBad) {
+            join([p00, p01]);
+            join([p10, p11]);
+            collapsed++;
+          } else {
+            join([p00, p10]);
+            join([p01, p11]);
+            collapsed++;
+          }
+          changed = true;
+        }
+      }
+      if (!changed) break;
     }
     // Section corners in index units, and each section's rotation (degrees,
     // -45..45) from the coarse height at its middle.
@@ -629,7 +763,7 @@
         rotations.push({ cx, cy, angle: th - (Math.PI / 2) * Math.round(th / (Math.PI / 2)), slope: Math.hypot(gx, gy) });
       }
     }
-    return { X, Y, row, N, i0, j0, time: performance.now() - t0, seam: 0, snapped, snappedR, snappedC, rotations, counts };
+    return { X, Y, row, N, i0, j0, time: performance.now() - t0, seam: 0, snapped, snappedR, snappedC, rotations, counts, collapsed, points };
   }
 
   M.snapGrid = snapGrid;

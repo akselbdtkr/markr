@@ -116,16 +116,18 @@
     <input id="ridgeReach" type="range" min="0.3" max="1.6" step="0.05">
     <label>Rygger og daler: minste krumning <output id="curvature-out"></output></label>
     <input id="curvature" type="range" min="0.001" max="0.012" step="0.0005">
+    <label>Rygger og daler: korteste linje <output id="minRidge-out"></output></label>
+    <input id="minRidge" type="range" min="0" max="400" step="20">
     <label>Seksjonshelning <output id="slopeLines-out"></output></label>
     <input id="slopeLines" type="range" min="0" max="1" step="0.05">
     <label>Seksjonshelning: linjer hver <output id="slopeSpacing-out"></output></label>
     <input id="slopeSpacing" type="range" min="2" max="8" step="1">
-    <label>Smalere ruter ved hopp <output id="narrow-out"></output></label>
-    <input id="narrow" type="range" min="0" max="0.8" step="0.05">
+    <label>Mindre ruter mot hopp <output id="narrow-out"></output></label>
+    <input id="narrow" type="range" min="0" max="1.2" step="0.05">
     <label>Minste avstand mellom linjer <output id="gap-out"></output></label>
     <input id="gap" type="range" min="0" max="0.8" step="0.05">
     <label>Mindre seksjoner i bratt terreng <output id="sizeStrength-out"></output></label>
-    <input id="sizeStrength" type="range" min="0" max="3" step="0.1">
+    <input id="sizeStrength" type="range" min="0" max="6" step="0.1">
     <p class="hint">Første gjennomgang følger linjene: i hvert strekk eier gitterlinja som ligger nærmest linja den hele veien, innenfor terskelen, og ved neste strekk kan den gå videre (et hopp). Andre gjennomgang flytter alle andre hjørner mellom de nærmeste linjene på hver side, i én omgang, så hele lia bøyer seg. Kysten er sterkest, så rygger og daler, så høydekurver, så seksjonens generelle helning (de røde strekene).</p>
     </div>
 
