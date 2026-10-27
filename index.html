@@ -134,6 +134,8 @@
       <input id="strength" type="range" min="0" max="4" step="0.1">
       <label>Bølgete linjer <output id="warp-out"></output></label>
       <input id="warp" type="range" min="0" max="0.8" step="0.01">
+      <label>Følg høydekurver <output id="contour-out"></output></label>
+      <input id="contour" type="range" min="0" max="200" step="10">
       <label>Sømbuffer <output id="buffer-out"></output></label>
       <input id="buffer" type="range" min="2" max="12" step="1">
       <p class="hint">Seksjoner er 32 × 32 ruter (512 m). Hver søm løses for seg i en stripe med så mange ruter på hver side.</p>
@@ -164,11 +166,11 @@
     <div id="status" class="muted"></div>
   </aside>
 
-  <script>window.Markr = { VERSION: 8 };</script>
-  <script src="src/noise.js?v=8"></script>
-  <script src="src/terrain.js?v=8"></script>
-  <script src="src/world.js?v=8"></script>
-  <script src="src/render.js?v=8"></script>
-  <script src="src/main.js?v=8"></script>
+  <script>window.Markr = { VERSION: 9 };</script>
+  <script src="src/noise.js?v=9"></script>
+  <script src="src/terrain.js?v=9"></script>
+  <script src="src/world.js?v=9"></script>
+  <script src="src/render.js?v=9"></script>
+  <script src="src/main.js?v=9"></script>
 </body>
 </html>

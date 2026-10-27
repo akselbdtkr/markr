@@ -15,8 +15,10 @@ et kart som ser naturlig ut, med et enkelt rutenett i bunn.
    - **Landskap i lag.** Landskapet bygges av fire lag, alle sett gjennom en svak forvrengning
      (domain warp) så kyster og fjellkjeder bøyer seg naturlig. Bølgelengdene er korte, så
      noen få kilometer viser litt av hvert:
-     - *Kyst* (9 km): land der kontinentlaget ligger over kystnivået. Havbunnen faller av
-       fra kysten, og landet stiger sakte innover.
+     - *Kyst*: hav og kontinenter (80 km) avgjør hvor de store havene ligger. Et nett av
+       sund (ridged-støy, 150 km) senker landet langs sammenhengende linjer, så havene
+       knyttes sammen. Kystlinja (9 km) gir detaljene. Land er der verdien ligger over
+       kystnivået. Havbunnen faller av fra kysten, og landet stiger sakte innover.
      - *Slette eller åser* (2,5 km): glir mykt over i hverandre. Åser er litt høyere og mer
        kuperte.
      - *Platå* (10 km): et eget lag, så store områder kan ligge på et platå. Platået hever
@@ -51,9 +53,14 @@ et kart som ser naturlig ut, med et enkelt rutenett i bunn.
    - Seksjoner lages når de kommer i bildet, nærmest midten først. De som ikke er i bruk,
      slippes fra minnet og kommer tilbake identiske.
 5. **Bølgete linjer.** En svak, lavfrekvent støyforskyvning gjør linjene mindre rette.
-6. **Vannlinja.** Hver rute er enten land eller vann, så kysten går alltid langs rutesider.
-   Hjørnepunktene på grensen mellom land og vann flyttes inn på 0 m-koten (Newton-steg langs
-   gradienten, begrenset til halve korteste kant), så kysten blir glatt.
+6. **Vannlinja og høydekurver.** Hver rute legges i et høydebånd: vann er ett bånd, og land
+   deles i bånd for hver 100. meter (innstillingen *Følg høydekurver*). Et hjørnepunkt der
+   bånd møtes, flyttes mot høydekurven mellom dem (Newton-steg langs gradienten, høyst halve
+   korteste kant). Da snur rutene rundt seg, så en side følger kurven: rotasjonen kommer av at
+   hjørnene flyttes, og hver rute viser sin rotasjon i panelet. Ved kysten flyttes punktene
+   helt inn på 0 m-koten, så kysten går langs rutesider og blir glatt. Inne på land flyttes de
+   bare halvveis, og bare der det er bratt nok til at linja er tydelig. Der en kurve krysser
+   rutenettet på skrå, ville full flytting bøyd rutene til kiler.
 7. **Vassdrag.** Alle vassdrag ender i havet.
    - **Nett mellom seksjoner.** Hver seksjon får en grov høyde (terrenget midt i seksjonen),
      og er hav hvis den er under 0 m. Seksjonene grupperes i blokker på 4 × 4 seksjoner (2 km).
@@ -70,7 +77,14 @@ et kart som ser naturlig ut, med et enkelt rutenett i bunn.
      midterste halvdelen av kanten. Det laveste punktet alene lå nesten alltid i et hjørne,
      og da rant elvene langs seksjonskantene. Utløp mellom blokker velges på samme måte.
    - **Kilder.** Antallet kilder avhenger av landskapstypen: alpint og åser får flest,
-     sletter og platåer få, så vannet der samles i færre og større elver.
+     sletter og platåer få, og mange seksjoner får ingen kilde i det hele tatt. Vannet samles
+     i færre og større elver.
+   - **Vann renner ikke oppover.** Langs hvert løp holdes vannstanden på det laveste den har
+     vært. Rutene elva krysser etterpå, senkes til den høyden, som en kanal skåret gjennom
+     terrenget. Ved en seksjonsgrense starter løpet på den laveste siden av kryssingspunktet.
+   - **Synlighet.** Nærmest kilden ser man bare elvas spor i landskapet: brattere og våtere
+     terreng og mindre ruter. Fargen tones inn når bekken har rent et stykke (160–640 m)
+     eller fått tilsig fra en annen.
    - **Inne i seksjonen.** Vassdraget som kommer inn ovenfra, går først. Det bærer med seg
      nedbørfeltet sitt. Så kommer seksjonens egne kilder, de høyeste punktene holdt minst 8
      ruter fra hverandre. Alle passerer et vendepunkt før utløpet: litt til siden for den

@@ -21,6 +21,9 @@
   const S = M.SECTION; // cells per section side (512 m)
   // Slope (m per m) treated as fully steep when shaping cells: about 27 degrees.
   const STEEP_SLOPE = 0.5;
+  // Contours pull vertices this far (share of the way) onto them inland, fading
+  // in between these slopes (m per m): gentle land has no clear lines.
+  const CONTOUR_PULL = 0.5, CONTOUR_SLOPE = [0.2, 0.5];
   // Open water gets a fixed middling density so the coast does not pull it into strips.
   const WATER_SLOPE = 0.2;
   // Extra steepness from a stream (log of its size), across a band set by its scale.
@@ -45,9 +48,14 @@
   const PHI_MAX = 40000;
   // Share of the max source count by landscape type (tau): marine, plains, hills,
   // plateau, alpine.
-  const SOURCE_SHARE = [[0, 0.3], [0.25, 0.2], [0.5, 0.9], [0.75, 0.2], [1, 1]];
+  // Many sections get no source at all.
+  const SOURCE_SHARE = [[0, 0.08], [0.25, 0.12], [0.5, 0.45], [0.75, 0.12], [1, 0.75]];
   // Rivers at least this large split into a delta where they reach the sea.
   const DELTA_SIZE = 6;
+  // Stream colour fades in between these ages (steps from the source).
+  const VISIBLE_AGE = [10, 40];
+  // Age given to water coming in from upstream sections: always visible.
+  const ENTER_AGE = 1000;
   // Share of plains sections next to the sea where a delta already begins.
   const PLAINS_DELTA = 0.5;
   // Density samples per cell side. Samples are shared by all patches.
@@ -91,9 +99,9 @@
     }
 
     // Adds a piece of a stream from world point a to b (index units).
-    addStream(a, b, size, scale) {
+    addStream(a, b, size, scale, level, age) {
       const q = this.corners(1);
-      const piece = { a: invBilinear(q, a[0], a[1]), b: invBilinear(q, b[0], b[1]), size, scale, dir: [b[0] - a[0], b[1] - a[1]] };
+      const piece = { a: invBilinear(q, a[0], a[1]), b: invBilinear(q, b[0], b[1]), size, scale, level, age, dir: [b[0] - a[0], b[1] - a[1]] };
       (this.pieces = this.pieces || []).push(piece);
     }
 
@@ -174,6 +182,9 @@
       if (water && elevation >= 0) elevation = -0.5;
       if (!water && elevation < 0) elevation = 0.5;
       const stream = this.stream;
+      // A stream holds its cell down to its water level: it cuts through rises.
+      const carved = !water && stream && stream.level < elevation ? elevation - Math.max(0.5, stream.level) : 0;
+      elevation -= carved;
       const steepness = water ? 0 : clamp01(s.slope / STEEP_SLOPE + w.riverSteepAt(cx / C, cy / C));
       // Streams wet the land around them. A cell the channel fills is fully wet.
       let moisture = water ? 1 : Math.min(1, s.moisture + w.wetAt(cx / C, cy / C));
@@ -194,9 +205,18 @@
         steepness,
         landscape: s.landscape,
         streams: stream ? stream.size : 0,
+        carved,
+        // How far the cell is turned from the index grid, -45..45 degrees.
+        rotation: ((((Math.atan2(p[1][1] - p[0][1], p[1][0] - p[0][0]) * 180) / Math.PI + 45) % 90) + 90) % 90 - 45,
         // How much of the cell the stream's colour fills: a creek tints a big cell,
-        // a river fills it.
-        streamFill: stream && !water ? clamp01(0.35 + (0.65 * channelWidth(stream.size)) / (0.5 * Math.sqrt(area))) : 0,
+        // a river fills it. Near its source a stream is not seen yet, only its mark
+        // on the land (steeper, wetter, smaller cells); the colour comes in once it
+        // has run a while or been joined by another.
+        streamFill:
+          stream && !water
+            ? clamp01(0.35 + (0.65 * channelWidth(stream.size)) / (0.5 * Math.sqrt(area))) *
+              Math.max(smoothstep(VISIBLE_AGE[0], VISIBLE_AGE[1], stream.age), smoothstep(1.5, 3, stream.size))
+            : 0,
         streamScale: stream ? stream.scale : 0,
         streamDir: stream ? stream.dir : null,
         gx: s.gx,
@@ -300,32 +320,55 @@
       }
     }
 
-    // Final positions: warp every vertex, classify the cells as land or water, then
-    // move vertices on the land/water boundary onto the 0 m contour. known(a, b) can
-    // return a final position decided elsewhere (seams), which then wins.
+    // Final positions: warp every vertex, then turn cells so a side lies along the
+    // lines in the landscape. Each cell is put in a height band (water is its own
+    // band; land is banded every `contour` metres). A vertex where bands meet is
+    // moved onto the contour between them: the 0 m contour at the coast, the band
+    // edge elsewhere. The cells round it turn so their shared sides follow the
+    // contour, along coasts, slopes, edges and ridges. known(a, b) can return a
+    // final position decided elsewhere (seams), which then wins.
     finalize(known) {
       const w = this.world, n = this.x.length, row = this.na + 1;
       const fx = new Float64Array(n), fy = new Float64Array(n);
       for (let k = 0; k < n; k++) [fx[k], fy[k]] = w.warpPosition(this.x[k], this.y[k]);
       const water = new Uint8Array(this.na * this.nb);
+      const band = new Int16Array(this.na * this.nb);
+      const ci = w.contour;
       for (let b = 0; b < this.nb; b++) {
         for (let a = 0; a < this.na; a++) {
           const k = b * row + a;
           const cx = (fx[k] + fx[k + 1] + fx[k + row] + fx[k + row + 1]) / 4;
           const cy = (fy[k] + fy[k + 1] + fy[k + row] + fy[k + row + 1]) / 4;
-          water[b * this.na + a] = w.terrain.elevation(cx * C, cy * C) < 0 ? 1 : 0;
+          const h = w.terrain.elevation(cx * C, cy * C);
+          water[b * this.na + a] = h < 0 ? 1 : 0;
+          band[b * this.na + a] = h < 0 ? -1 : ci ? Math.floor(h / ci) : 0;
         }
       }
       const sx = Float64Array.from(fx), sy = Float64Array.from(fy);
       for (let b = 1; b < this.nb; b++) {
         for (let a = 1; a < this.na; a++) {
           const c = (b - 1) * this.na + (a - 1);
-          const sum = water[c] + water[c + 1] + water[c + this.na] + water[c + this.na + 1];
-          if (sum === 0 || sum === 4) continue;
+          const bs = [band[c], band[c + 1], band[c + this.na], band[c + this.na + 1]];
+          const lo = Math.min(...bs), hi = Math.max(...bs);
+          if (lo === hi) continue;
           const k = b * row + a;
+          // The coast wins; elsewhere the band edge nearest the vertex's height.
+          let level = 0, pull = 1;
+          if (lo >= 0) {
+            // Inland only where the line is clear (steep enough), and only part of
+            // the way: where a contour crosses the grid on the slant, pulling
+            // every corner of the staircase onto it folds cells into wedges.
+            const wx = fx[k] * C, wy = fy[k] * C, h = w.terrain.elevation(wx, wy);
+            const slope = w.terrain.slope(wx, wy);
+            pull = CONTOUR_PULL * smoothstep(CONTOUR_SLOPE[0], CONTOUR_SLOPE[1], slope);
+            if (pull < 0.02) continue;
+            level = Math.max(lo + 1, Math.min(hi, Math.round(h / ci))) * ci;
+          }
           let minEdge = Infinity;
           for (const kn of [k - 1, k + 1, k - row, k + row]) minEdge = Math.min(minEdge, Math.hypot(fx[kn] - fx[k], fy[kn] - fy[k]));
-          [sx[k], sy[k]] = w.snapToCoast(fx[k], fy[k], 0.5 * minEdge);
+          const [tx, ty] = w.snapToLevel(fx[k], fy[k], 0.5 * minEdge, level);
+          sx[k] = fx[k] + (tx - fx[k]) * pull;
+          sy[k] = fy[k] + (ty - fy[k]) * pull;
         }
       }
       if (known) {
@@ -441,7 +484,7 @@
             const line = smoothLine(path.pts);
             let cur = null;
             const finish = () => {
-              if (cur) cur.cell.addStream(cur.a, cur.b, cur.size, cur.scale);
+              if (cur) cur.cell.addStream(cur.a, cur.b, cur.size, cur.scale, cur.level, cur.age);
               cur = null;
             };
             for (let k = 1; k < line.length; k++) {
@@ -460,14 +503,16 @@
                 }
                 hint = c;
                 const [pi, pj] = path.pts[n0];
-                const size = w.flow(pi, pj), scale = path.scales[n0];
+                const size = w.flow(pi, pj), scale = path.scales[n0], lvl = path.levels[n0], ag = w.streamAge(pi, pj);
                 if (cur && cur.cell === c) {
                   cur.b = [x, y];
                   cur.size = Math.max(cur.size, size);
                   cur.scale = Math.max(cur.scale, scale);
+                  cur.level = Math.min(cur.level, lvl);
+                  cur.age = Math.max(cur.age, ag);
                 } else {
                   finish();
-                  cur = { cell: c, a: [x, y], b: [x, y], size, scale };
+                  cur = { cell: c, a: [x, y], b: [x, y], size, scale, level: lvl, age: ag };
                 }
               }
             }
@@ -549,7 +594,9 @@
       this.strength = opts.strength ?? 2.5; // how strongly steepness shrinks cells
       this.warpAmount = opts.warp ?? 0.35; // waviness of grid lines, in cell units
       this.buffer = opts.buffer ?? 6; // seam strip half-width, in cells
-      this.sourceCount = opts.sources ?? 3; // max stream sources per section
+      // Height interval (m) of the contours cells line up along; 0 = only the coast.
+      this.contour = opts.contour ?? 100;
+      this.sourceCount = opts.sources ?? 2; // max stream sources per section
       this.autoSplit = opts.autoSplit ?? 0;
       this.edits = opts.edits ?? new Map(); // the player's split/merge edits, by section
       this.elev = opts.elevCache ?? new Map();
@@ -1148,7 +1195,7 @@
     // A stream inside one section, from start to target (then across the edge to
     // `out`, if the section drains on). In a sea section it ends at the first
     // water; elsewhere it runs on through lakes and bays to its outlet.
-    walk(sx, sy, start, target, out, weight) {
+    walk(sx, sy, start, target, out, weight, startLevel, startAge = 0) {
       const pts = [start];
       const sea = this.isSea(sx, sy);
       let cur = start;
@@ -1163,7 +1210,12 @@
         pts.push(nx);
         cur = nx;
       }
-      return { pts, scales: pts.map(([pi, pj]) => this.scaleOf(pi, pj)), weight };
+      // Water never climbs: once a stream has been down to a level, the points after
+      // it are held at that level or lower (a channel cut through any rise).
+      let lvl = startLevel ?? Infinity;
+      const levels = pts.map(([pi, pj]) => (lvl = Math.min(lvl, this.cellElevation(pi, pj))));
+      // Age: steps run since the source.
+      return { pts, scales: pts.map(([pi, pj]) => this.scaleOf(pi, pj)), levels, ages: pts.map((p, k) => startAge + k), weight };
     }
 
     // The streams of one section: water coming in from upstream sections at their
@@ -1199,7 +1251,9 @@
       };
       const starts = [];
       for (const [ux, uy] of this.upstream(sx, sy)) {
-        starts.push([this.crossing(ux, uy, sx - ux, sy - uy).outside, this.catchment(ux, uy)]);
+        // Coming in across an edge the stream starts at the lower side of the crossing.
+        const c = this.crossing(ux, uy, sx - ux, sy - uy);
+        starts.push([c.outside, this.catchment(ux, uy), Math.min(this.cellElevation(...c.inside), this.cellElevation(...c.outside)), ENTER_AGE]);
       }
       for (const [i, j] of this.sources(sx, sy)) starts.push([[i, j], 1]);
       const size = new Float32Array(S * S), scale = new Uint8Array(S * S);
@@ -1217,26 +1271,37 @@
           braid = [-0.3, 0, 0.3].map((f) => this.waypoint(sx, sy, main[0], target, f * S)).filter(Boolean);
         }
       }
-      for (const [start, w0] of starts) {
+      const level = new Float32Array(S * S).fill(Infinity);
+      const age = new Float32Array(S * S);
+      for (const [start, w0, startLevel, startAge = 0] of starts) {
         const branches = braid && w0 >= DELTA_SIZE ? braid : [wp];
         for (const [goal, w1] of goals(start, w0)) for (const via of branches) {
           const weight = w1 / branches.length;
-          let path = this.walk(sx, sy, start, goal, out, weight);
+          let path = this.walk(sx, sy, start, goal, out, weight, startLevel, startAge);
           if (via && !water) {
-            const first = this.walk(sx, sy, start, via, null, weight);
-            const rest = this.walk(sx, sy, via, goal, out, weight);
-            path = { pts: first.pts.concat(rest.pts.slice(1)), scales: first.scales.concat(rest.scales.slice(1)), weight };
+            const first = this.walk(sx, sy, start, via, null, weight, startLevel, startAge);
+            const last = first.pts.length - 1;
+            const rest = this.walk(sx, sy, via, goal, out, weight, first.levels[last], first.ages[last]);
+            path = {
+              pts: first.pts.concat(rest.pts.slice(1)),
+              scales: first.scales.concat(rest.scales.slice(1)),
+              levels: first.levels.concat(rest.levels.slice(1)),
+              ages: first.ages.concat(rest.ages.slice(1)),
+              weight,
+            };
           }
           path.pts.forEach(([pi, pj], k) => {
             const a = pi - sx * S, b = pj - sy * S;
             if (a < 0 || b < 0 || a >= S || b >= S) return;
             size[b * S + a] += weight;
             scale[b * S + a] = Math.max(scale[b * S + a], path.scales[k]);
+            level[b * S + a] = Math.min(level[b * S + a], path.levels[k]);
+            age[b * S + a] = Math.max(age[b * S + a], path.ages[k]);
           });
           paths.push(path);
         }
       }
-      d = { size, scale, paths, drain, target };
+      d = { size, scale, level, age, paths, drain, target };
       this.flows.set(id, d);
       cap(this.flows, 3000);
       return d;
@@ -1259,6 +1324,19 @@
     flow(i, j) {
       const sx = fdiv(i, S), sy = fdiv(j, S);
       return this.flowData(sx, sy).size[(j - sy * S) * S + (i - sx * S)];
+    }
+
+    // Steps a stream has run at lattice point (i, j) since its source (largest).
+    streamAge(i, j) {
+      const sx = fdiv(i, S), sy = fdiv(j, S);
+      return this.flowData(sx, sy).age[(j - sy * S) * S + (i - sx * S)];
+    }
+
+    // Water level of the stream at lattice point (i, j): never above where it has
+    // already been. Infinity where no stream runs.
+    streamLevel(i, j) {
+      const sx = fdiv(i, S), sy = fdiv(j, S);
+      return this.flowData(sx, sy).level[(j - sy * S) * S + (i - sx * S)];
     }
 
     // What streams do to the land around them, on the lattice of a section:
@@ -1330,26 +1408,32 @@
     // Terrain density at sample point (u, v) = index-space (u / DR, v / DR): high where
     // steep or near streams. Cached in blocks matching the sections.
     densitySample(u, v) {
-      const n = S * DR;
-      const bx = fdiv(u, n), by = fdiv(v, n);
+      const n = S * DR, bx = fdiv(u, n), by = fdiv(v, n);
+      return this.densityBlock(bx, by).dens[(v - by * n) * n + (u - bx * n)];
+    }
+
+    // The density samples of one block.
+    densityBlock(bx, by) {
       const id = key(bx, by);
       let d = this.dens.get(id);
-      if (!d) {
-        d = new Float32Array(n * n);
-        for (let y = 0; y < n; y++) {
-          for (let x = 0; x < n; x++) {
-            const ix = (bx * n + x) / DR, iy = (by * n + y) / DR;
-            const wx = ix * C, wy = iy * C;
-            let s;
-            if (this.terrain.elevation(wx, wy) < 0) s = WATER_SLOPE / STEEP_SLOPE;
-            else s = clamp01(this.terrain.slope(wx, wy) / STEEP_SLOPE) + this.riverSteepAt(ix, iy);
-            d[y * n + x] = Math.exp(this.strength * Math.min(s, 1.5));
-          }
+      if (d) return d;
+      const n = S * DR;
+      d = { dens: new Float32Array(n * n) };
+      for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+          const ix = (bx * n + x) / DR, iy = (by * n + y) / DR;
+          const wx = ix * C, wy = iy * C;
+          const h = this.terrain.elevation(wx, wy);
+          const [gx, gy] = this.terrain.gradient(wx, wy, 4);
+          const g = Math.hypot(gx, gy);
+          const s = h < 0 ? WATER_SLOPE / STEEP_SLOPE : clamp01(g / STEEP_SLOPE) + this.riverSteepAt(ix, iy);
+          const k = y * n + x;
+          d.dens[k] = Math.exp(this.strength * Math.min(s, 1.5));
         }
-        this.dens.set(id, d);
-        cap(this.dens, 3000);
       }
-      return d[(v - by * n) * n + (u - bx * n)];
+      this.dens.set(id, d);
+      cap(this.dens, 3000);
+      return d;
     }
 
     // Density at any index-space point, bilinear between samples.
@@ -1370,12 +1454,13 @@
       return [x + dx * sc, y + dy * sc];
     }
 
-    // Newton steps toward the 0 m contour, moving at most maxD (cell units).
-    snapToCoast(x, y, maxD) {
+    // Newton steps toward the contour at `level` metres (0 m = the coast), moving at
+    // most maxD (cell units).
+    snapToLevel(x, y, maxD, level = 0) {
       let px = x * C, py = y * C;
       const step = maxD * C;
       for (let it = 0; it < 5; it++) {
-        const h = this.terrain.elevation(px, py);
+        const h = this.terrain.elevation(px, py) - level;
         const [gx, gy] = this.terrain.gradient(px, py, 2);
         const g2 = gx * gx + gy * gy;
         if (g2 < 1e-10) break;

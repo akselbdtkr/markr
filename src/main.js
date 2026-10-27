@@ -8,7 +8,7 @@
   const renderer = new M.Renderer(canvas);
   const C = M.CELL_SIZE, S = M.SECTION;
 
-  const state = { b0: M.BOUNDS[0], b1: M.BOUNDS[1], b2: M.BOUNDS[2], b3: M.BOUNDS[3], lscale: 1, seed: 1848, strength: 2.5, warp: 0.35, buffer: 6, sources: 3, autoSplit: 28, overview: 15000 };
+  const state = { b0: M.BOUNDS[0], b1: M.BOUNDS[1], b2: M.BOUNDS[2], b3: M.BOUNDS[3], lscale: 1, seed: 1848, strength: 2.5, warp: 0.35, contour: 100, buffer: 6, sources: 2, autoSplit: 28, overview: 15000 };
   let terrain, world;
   const edits = new Map(); // the player's split/merge edits; the only state worth saving
 
@@ -53,6 +53,7 @@
       strength: state.strength,
       warp: state.warp,
       buffer: state.buffer,
+      contour: state.contour,
       sources: state.sources,
       autoSplit: splitSide(),
       edits,
@@ -214,6 +215,7 @@
 
   bindRange('strength', 'strength', (v) => v.toFixed(1), rebuildSoon);
   bindRange('warp', 'warp', (v) => v.toFixed(2), rebuildSoon);
+  bindRange('contour', 'contour', (v) => (v ? `hver ${v} m` : 'bare kysten'), rebuildSoon);
   bindRange('buffer', 'buffer', (v) => `${v} ruter`, rebuildSoon);
   for (let k = 0; k < 4; k++) bindRange('b' + k, 'b' + k, (v) => v.toFixed(2), rebuildSoon);
   bindRange('lscale', 'lscale', (v) => `× ${v.toFixed(2)}`, rebuildSoon);
@@ -317,8 +319,9 @@
       ['Fuktighet', pct(v.moisture)],
       ['Ulendthet', pct(v.ruggedness)],
       ['Helning', pct(v.steepness)],
+      ['Rotasjon', `${Math.round(v.rotation)}°`],
       ['Landskap', `${M.landscapeName(v.landscape)} (${v.landscape.toFixed(2)})`],
-      ['Vassdrag', v.streams ? `størrelse ${v.streams.toFixed(1)}, ${compass(v.streamDir)}, skala ${v.streamScale}` : '–'],
+      ['Vassdrag', v.streams ? `størrelse ${v.streams.toFixed(1)}, ${compass(v.streamDir)}, skala ${v.streamScale}${v.carved > 0.5 ? `, skåret ${Math.round(v.carved)} m ned` : ''}` : '–'],
       ['Jordbruk', pct(v.farmland)],
       ['Byggegrunn', pct(v.building)],
       ['Ressurser', pct(v.resource)],

@@ -37,10 +37,12 @@
 
   // Wavelengths (m) of the landscape layers at landscape scale 1. Short enough
   // that a few kilometres hold a bit of everything.
+  const L_OCEAN = 80000, OCEAN_WEIGHT = 3.5;
+  const L_STRAIT = 150000, STRAIT_DEPTH = 1.4;
   const L_COAST = 9000, L_HILLS = 2500, L_PLATEAU = 10000, L_EDGE = 2500, L_MOUNT = 4500, L_WARP = 6000;
   // Defaults for the four controls in the UI: coast level, plains|hills, plateau
   // level and mountain level (higher gives less plateau and fewer mountains).
-  const BOUNDS = [-0.5, 0.1, 1.0, 0.77];
+  const BOUNDS = [-0.75, 0.1, 1.0, 0.77];
 
   // Interpolates between knots. With smooth = true the curve eases in and out of
   // every knot, so there are no kinks (which showed as sharp bands on the land).
@@ -81,11 +83,14 @@
       this.nPlateau = P(16);
       this.nEdge = P(17);
       this.nPlateauH = P(18);
+      this.nOcean = P(19);
+      this.nStrait = P(20);
     }
 
     // The landscape at a point, as separate layers, all seen through a gentle
     // domain warp so coasts and ranges bend naturally:
-    // - coast: continents (9 km). Land where the value is above the coast level.
+    // - coast: oceans and continents (80 km), straits joining the seas (150 km),
+    //   and the coastline (9 km). Land where the value is above the coast level.
     // - hills: plains or hills (2.5 km), blending softly.
     // - plateau: its own layer (10 km), so large areas can lie on a plateau. How
     //   sharp its edge is varies (2.5 km noise): steep like an old coastline in
@@ -97,7 +102,14 @@
       const [b0, b1, b2, b3] = this.bounds;
       const qx = x + 1500 * s * fbm(this.nWarpL, x / (L_WARP * s), y / (L_WARP * s), 2);
       const qy = y + 1500 * s * fbm(this.nWarpL2, x / (L_WARP * s), y / (L_WARP * s), 2);
-      const u = fbm(this.nType, qx / (L_COAST * s), qy / (L_COAST * s), 5) / FBM_STD[5] - b0;
+      // Oceans and continents (80 km) decide where the large connected seas are;
+      // the coast layer (9 km) gives the coastline its shape.
+      const ocean = fbm(this.nOcean, x / (L_OCEAN * s), y / (L_OCEAN * s), 4) / FBM_STD[4];
+      const coast = fbm(this.nType, qx / (L_COAST * s), qy / (L_COAST * s), 5) / FBM_STD[5];
+      // Straits: a network of connected lines (ridged noise, 150 km) lowers the land
+      // along it, so the large seas join up instead of lying as separate basins.
+      const strait = smoothstep(0.72, 0.92, ridged(this.nStrait, x / (L_STRAIT * s), y / (L_STRAIT * s), 3));
+      const u = (OCEAN_WEIGHT * ocean + coast) / Math.hypot(OCEAN_WEIGHT, 1) - STRAIT_DEPTH * strait - b0;
       const land = smoothstep(-0.05, 0.05, u);
       const hv = fbm(this.nTypeLocal, qx / (L_HILLS * s), qy / (L_HILLS * s), 3) / FBM_STD[3];
       const hills = smoothstep(b1 - 0.8, b1 + 0.8, hv);
