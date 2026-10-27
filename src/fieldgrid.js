@@ -99,6 +99,15 @@
       return [b(this.vx), b(this.vy), b(this.slope), b(this.h)];
     }
 
+    // Height and its gradient (m per m) at world point (x, y).
+    heightGrad(x, y) {
+      const r = this.res;
+      const h = this.sample(x, y)[3];
+      const gx = (this.sample(x + r, y)[3] - this.sample(x - r, y)[3]) / (2 * r);
+      const gy = (this.sample(x, y + r)[3] - this.sample(x, y - r)[3]) / (2 * r);
+      return [h, gx, gy];
+    }
+
     // Line direction (radians, -45..45 degrees) and how clear it is (0..1).
     direction(x, y) {
       const [vx, vy] = this.sample(x, y);
@@ -234,6 +243,134 @@
     return { X, Y, row, N, i0, j0, time: performance.now() - t0, seam };
   }
 
+  // Grid with jumps: every vertex is set by one local operation, so there are no
+  // seams at all; a vertex depends only on the terrain around it.
+  //
+  // The lines that matter are the coast (0 m) and a set of contours, every
+  // `step` metres. Where those lie closer than two cells, every second (or
+  // fourth ...) is used instead, so the lines stay spread out.
+  //
+  // 1. Snap. For each vertex, the distance to the nearest line, measured along
+  //    the slope, refined with one Newton step. Moving one vertex along the
+  //    grid changes that distance by `sigma` (the cell size times the larger
+  //    component of the slope direction), so exactly one vertex per row across
+  //    the line is within sigma / 2 of it: that vertex is snapped onto the line.
+  //    As the line drifts across the grid, the nearest vertex changes to the
+  //    next row, and the neighbouring grid line takes the line over: a jump. A
+  //    vertex never moves more than half a cell, so turning stays within
+  //    +-45 degrees and nothing adds up over distance.
+  // 2. Weight. A line only pulls where it is clear: the coast always, contours
+  //    where the slope is above `minSlope`. `pull` scales the snap.
+  // 3. Neighbours. A vertex that is not on a line takes a weighted mean of how
+  //    far its 8 neighbours moved (edge neighbours count twice the diagonal
+  //    ones), times `spread`, so rows bend round the snapped vertices and cells
+  //    turn with them.
+  function snapGrid(field, opts) {
+    const t0 = performance.now();
+    const { i0, j0, sections, cells } = opts;
+    const N = sections * cells, row = N + 1;
+    // One extra ring of vertices round the map, for the neighbour step.
+    const R = N + 3, at = (a, b) => (b + 1) * R + (a + 1);
+    const SX = new Float64Array(R * R), SY = new Float64Array(R * R), lvl = new Float64Array(R * R).fill(NaN);
+    const step = opts.step, minSlope = opts.minSlope, pull = opts.pull;
+    const RUN = opts.run, T = opts.reach;
+    // Where line L crosses the grid line through (x, y): along y with x fixed
+    // (rows), or along x with y fixed (columns). Newton steps; null if it does
+    // not converge within a few cells.
+    const crossing = (x, y, L, alongY) => {
+      let p = alongY ? y : x;
+      for (let it = 0; it < 6; it++) {
+        const [h, gx, gy] = alongY ? field.heightGrad(x, p) : field.heightGrad(p, y);
+        const d = alongY ? gy : gx;
+        if (Math.abs(d) < 1e-4) return null;
+        const dp = Math.max(-2 * C, Math.min(2 * C, -(h - L) / d));
+        p += dp;
+        if (Math.abs(dp) < 0.05) return Math.abs(p - (alongY ? y : x)) < 3 * C ? p : null;
+      }
+      return null;
+    };
+    for (let b = -1; b <= N + 1; b++) {
+      for (let a = -1; a <= N + 1; a++) {
+        const x = (i0 + a) * C, y = (j0 + b) * C;
+        const [h, gx, gy] = field.heightGrad(x, y);
+        const g = Math.hypot(gx, gy);
+        if (g < 1e-4) continue;
+        // Lines running mostly along the rows are taken by rows (moved up or
+        // down), the others by columns (moved sideways).
+        const rows = Math.abs(gy) >= Math.abs(gx);
+        // Candidate lines: the coast, and the two nearest contours of the set,
+        // spread to at least two cells apart.
+        const cands = [[0, 1]];
+        if (h > 0 && g > minSlope) {
+          let s = step;
+          while (s / g < 2 * C) s *= 2;
+          const w = smoothstep(minSlope, minSlope * 2, g);
+          for (const Ln of [Math.floor(h / s) * s, Math.ceil(h / s) * s]) if (Ln > 0) cands.push([Ln, w]);
+        }
+        // This grid line runs in strips of RUN cells, fixed in index space. In
+        // each strip, the line that is nearest the contour at the middle of the
+        // strip owns it all the way along; at the next strip it may pass to
+        // another line: a jump.
+        const along = rows ? a : b, own = rows ? b : a;
+        const mid = Math.floor(along / RUN) * RUN + RUN / 2;
+        let best = null;
+        for (const [L, w] of cands) {
+          const pm = rows ? crossing((i0 + mid) * C, y, L, true) : crossing(x, (j0 + mid) * C, L, false);
+          if (pm === null) continue;
+          const owner = Math.round(pm / C - (rows ? j0 : i0));
+          if (owner !== own) continue;
+          const pv = rows ? crossing(x, y, L, true) : crossing(x, y, L, false);
+          if (pv === null) continue;
+          const d = pv / C - (rows ? j0 + b : i0 + a);
+          // Beyond `reach` cells the line gives up here.
+          if (Math.abs(d) > T) continue;
+          if (!best || L === 0 || Math.abs(d) < Math.abs(best[1])) best = [L, d, w];
+          if (L === 0) break;
+        }
+        if (!best) continue;
+        const k = at(a, b);
+        const [L, d, w] = best;
+        SX[k] = rows ? 0 : pull * w * d;
+        SY[k] = rows ? pull * w * d : 0;
+        lvl[k] = L;
+      }
+    }
+    const X = new Float64Array(row * row), Y = new Float64Array(row * row);
+    const snapped = new Float64Array(row * row).fill(NaN);
+    const spread = opts.spread;
+    for (let b = 0; b <= N; b++) {
+      for (let a = 0; a <= N; a++) {
+        const k = at(a, b), o = b * row + a;
+        let dx = SX[k], dy = SY[k];
+        if (Number.isNaN(lvl[k])) {
+          let sx = 0, sy = 0, sw = 0;
+          for (let db = -1; db <= 1; db++) {
+            for (let da = -1; da <= 1; da++) {
+              if (!da && !db) continue;
+              const kn = at(a + da, b + db), wn = da && db ? 1 : 2;
+              if (Number.isNaN(lvl[kn])) continue;
+              sx += wn * SX[kn];
+              sy += wn * SY[kn];
+              sw += wn;
+            }
+          }
+          // Mean over the snapped neighbours, scaled by how many there are.
+          if (sw) {
+            const f = (spread * sw) / 12;
+            dx = (sx / sw) * f;
+            dy = (sy / sw) * f;
+          }
+        } else {
+          snapped[o] = lvl[k];
+        }
+        X[o] = i0 + a + dx;
+        Y[o] = j0 + b + dy;
+      }
+    }
+    return { X, Y, row, N, i0, j0, time: performance.now() - t0, seam: 0, snapped };
+  }
+
+  M.snapGrid = snapGrid;
   M.TerrainField = TerrainField;
   M.solveGrid = solveGrid;
   M.buildGrid = buildGrid;

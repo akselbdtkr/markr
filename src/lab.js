@@ -10,6 +10,7 @@
   const state = {
     seed: 1848, region: -1, sections: 8, cells: 8, align: 1, size: 0.5, anchor: 0.02, smoothing: 1,
     mode: 'global', buffer: 16, iters: 300, contour: 10,
+    method: 'jumps', step: 50, minSlope: 0.06, pull: 1, spread: 0.8, showSnaps: true, run: 4, reach: 0.9,
     showContours: true, showGrid: true, showField: false, showSections: true, showFolds: true, fillCells: false,
   };
   let terrain, field, grid, start, stats = {};
@@ -70,7 +71,12 @@
 
   function rebuildGrid() {
     const { i0, j0 } = mapCells();
-    grid = M.buildGrid(field, { i0, j0, sections: state.sections, cells: state.cells, buffer: state.buffer, mode: state.mode, align: state.align, size: state.size, anchor: state.anchor, iters: state.iters });
+    const o = { i0, j0, sections: state.sections, cells: state.cells };
+    grid =
+      state.method === 'jumps'
+        ? M.snapGrid(field, Object.assign(o, { step: state.step, minSlope: state.minSlope, pull: state.pull, spread: state.spread, run: state.run, reach: state.reach }))
+        : M.buildGrid(field, Object.assign(o, { buffer: state.buffer, mode: state.mode, align: state.align, size: state.size, anchor: state.anchor, iters: state.iters }));
+    document.body.dataset.method = state.method;
     measure();
     draw();
   }
@@ -95,6 +101,26 @@
         wsum += s;
       }
     }
+    // Edges between two vertices on the same line: grid edges that lie on it.
+    let onLine = 0, onCoast = 0;
+    if (grid.snapped) {
+      const S = grid.snapped, row = grid.row;
+      for (let b = 0; b <= grid.N; b++) {
+        for (let a = 0; a <= grid.N; a++) {
+          const k = b * row + a;
+          if (Number.isNaN(S[k])) continue;
+          for (const kn of [a < grid.N ? k + 1 : -1, b < grid.N ? k + row : -1]) {
+            if (kn < 0 || S[kn] !== S[k]) continue;
+            const [x0, y0] = vtx(a, b), [x1, y1] = kn === k + 1 ? vtx(a + 1, b) : vtx(a, b + 1);
+            const l = Math.hypot(x1 - x0, y1 - y0);
+            onLine += l;
+            if (S[k] === 0) onCoast += l;
+          }
+        }
+      }
+    }
+    stats.onLine = onLine;
+    stats.onCoast = onCoast;
     stats.err = wsum ? deg(err / wsum) : 0;
     stats.base = wsum ? deg(base / wsum) : 0;
     stats.folds = folds;
@@ -116,7 +142,8 @@
     const rows = [
       ['Avvik fra høydekurvene', `${r(stats.err)}° (rett rutenett: ${r(stats.base)}°)`],
       ['Brettede ruter', `${stats.folds}`],
-      ['Største søm', state.mode === 'global' ? 'ingen (hele kartet samlet)' : `${r(stats.seam * C, 2)} m`],
+      ...(state.method === 'jumps' ? [['Kanter på linjene', `${r(stats.onLine / 1000, 2)} km (kyst ${r(stats.onCoast / 1000, 2)} km)`]] : []),
+      ['Største søm', state.method === 'jumps' ? '0 m (hvert hjørne regnes lokalt)' : state.mode === 'global' ? 'ingen (hele kartet samlet)' : `${r(stats.seam * C, 2)} m`],
       ['Tid', `felt ${Math.round(stats.field)} ms, rutenett ${Math.round(stats.grid)} ms`],
     ];
     $('stats').innerHTML = '<dl>' + rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('') + '</dl>';
@@ -181,7 +208,7 @@
               pts.push([x0 + (x + p[0] + (q[0] - p[0]) * f) * res, y0 + (y + p[1] + (q[1] - p[1]) * f) * res]);
             }
           }
-          const list = L === 0 ? out.coast : L % (5 * I) === 0 ? out.major : out.minor;
+          const list = L === 0 ? out.coast : L % state.step === 0 ? out.major : out.minor;
           if (pts.length >= 2) list.push(pts[0], pts[1]);
           if (pts.length === 4) list.push(pts[2], pts[3]);
         }
@@ -288,6 +315,20 @@
         }
       }
       ctx.stroke();
+    }
+    // Vertices snapped onto a line
+    if (state.showSnaps && grid.snapped) {
+      ctx.fillStyle = 'rgba(200,60,20,0.9)';
+      const rr = Math.max(1.5, Math.min(3.5, view.scale * C * 0.12));
+      for (let b = 0; b <= grid.N; b++) {
+        for (let a = 0; a <= grid.N; a++) {
+          if (Number.isNaN(grid.snapped[b * grid.row + a])) continue;
+          const [x, y] = toScreen(...vtx(a, b));
+          ctx.beginPath();
+          ctx.arc(x, y, rr, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
     }
     // Hover
     if (hover) {
@@ -425,11 +466,25 @@
     fit();
     draw();
   });
+  range('step', 'step', (v) => `${v} m`, () => {
+    contours = null;
+    rebuildGrid();
+  });
+  range('minSlope', 'minSlope', (v) => `${Math.round(Math.atan(v) * 57.3)}°`, rebuildGrid);
+  range('pull', 'pull', (v) => v.toFixed(2), rebuildGrid);
+  range('run', 'run', (v) => `${v} ruter`, rebuildGrid);
+  range('reach', 'reach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
+  range('spread', 'spread', (v) => v.toFixed(2), rebuildGrid);
+  $('method').value = state.method;
+  $('method').addEventListener('change', (e) => {
+    state.method = e.target.value;
+    rebuildGrid();
+  });
   range('contour', 'contour', (v) => `${v} m`, () => {
     contours = null;
     draw();
   });
-  for (const [id, key] of [['showContours', 'showContours'], ['showGrid', 'showGrid'], ['showField', 'showField'], ['showSections', 'showSections'], ['showFolds', 'showFolds'], ['fillCells', 'fillCells']]) {
+  for (const [id, key] of [['showContours', 'showContours'], ['showGrid', 'showGrid'], ['showField', 'showField'], ['showSections', 'showSections'], ['showFolds', 'showFolds'], ['fillCells', 'fillCells'], ['showSnaps', 'showSnaps']]) {
     $(id).checked = state[key];
     $(id).addEventListener('change', (e) => {
       state[key] = e.target.checked;

@@ -49,6 +49,7 @@
     dt { color: var(--muted); }
     dd { margin: 0; text-align: right; }
     .hint { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+    body[data-method="jumps"] .least, body[data-method="least"] .jumps { display: none; }
     .zoom { position: absolute; left: 12px; top: 12px; }
     .zoom button { background: var(--panel); }
     @media (max-width: 720px) {
@@ -79,9 +80,34 @@
     <div class="check"><input id="showFolds" type="checkbox"><label for="showFolds">Brettede ruter (rødt)</label></div>
     <div class="check"><input id="showField" type="checkbox"><label for="showField">Retningsfelt</label></div>
     <div class="check"><input id="fillCells" type="checkbox"><label for="fillCells">Fyll ruter med terrengfarge</label></div>
+    <div class="check"><input id="showSnaps" type="checkbox"><label for="showSnaps">Hjørner på linjene (prikker)</label></div>
     <label>Høydekurver hver <output id="contour-out"></output></label>
     <input id="contour" type="range" min="2" max="50" step="1">
 
+    <h2>Metode</h2>
+    <select id="method" aria-label="Metode">
+      <option value="jumps">Hopp: hvert hjørne regnes lokalt</option>
+      <option value="least">Minste kvadrater over hele kartet</option>
+    </select>
+
+    <div class="jumps">
+    <h2>Linjer og hopp</h2>
+    <label>Viktige høydekurver hver <output id="step-out"></output></label>
+    <input id="step" type="range" min="10" max="100" step="10">
+    <label>Terskel: minste helning for å trekke <output id="minSlope-out"></output></label>
+    <input id="minSlope" type="range" min="0.01" max="0.4" step="0.01">
+    <label>Strekk før hopp <output id="run-out"></output></label>
+    <input id="run" type="range" min="2" max="8" step="2">
+    <label>Terskel: lengste avvik før linja gir opp <output id="reach-out"></output></label>
+    <input id="reach" type="range" min="0.3" max="1.4" step="0.05">
+    <label>Dragning mot linjene <output id="pull-out"></output></label>
+    <input id="pull" type="range" min="0" max="1" step="0.05">
+    <label>Naboene følger med <output id="spread-out"></output></label>
+    <input id="spread" type="range" min="0" max="1.5" step="0.05">
+    <p class="hint">Hver rad (eller kolonne) deles i strekk. I hvert strekk eier linja som ligger nærmest høydekurven midt i strekket, kurven hele veien, så lenge den ligger innenfor terskelen. Ved neste strekk kan kurven gå videre til en annen linje: et hopp.</p>
+    </div>
+
+    <div class="least">
     <h2>Rutenett</h2>
     <label>Følg høydekurvene <output id="align-out"></output></label>
     <input id="align" type="range" min="0" max="1.5" step="0.05">
@@ -99,11 +125,15 @@
       <option value="global">Hele kartet samlet</option>
       <option value="sections">Hver seksjon for seg (tregere)</option>
     </select>
+    </div>
+    <h2>Kart</h2>
     <label>Seksjonsstørrelse <output id="cells-out"></output></label>
     <input id="cells" type="range" min="4" max="16" step="2">
+    <div class="least">
     <label>Buffer rundt hver seksjon <output id="buffer-out"></output></label>
     <input id="buffer" type="range" min="0" max="32" step="1">
     <p class="hint">Kartet er 8 × 8 seksjoner. Hver seksjon løses med bufferen rundt seg, uten faste sømmer. «Største søm» måler hvor langt to seksjoner er uenige om et felles hjørne.</p>
+    </div>
 
     <h2>Terreng</h2>
     <label for="seed">Frø</label>
