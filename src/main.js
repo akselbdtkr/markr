@@ -1,5 +1,5 @@
-// UI wiring: controls, endless pan/zoom, generation of sections on demand, hover
-// info, split/merge on click and the overview map.
+// UI wiring: the map area, its generation in background workers, the camera
+// (bounded, with a speed limit), controls, hover info, split/merge and overview.
 (function (M) {
   'use strict';
 
@@ -8,11 +8,15 @@
   const renderer = new M.Renderer(canvas);
   const C = M.CELL_SIZE, S = M.SECTION;
 
-  const state = { b0: M.BOUNDS[0], b1: M.BOUNDS[1], b2: M.BOUNDS[2], b3: M.BOUNDS[3], lscale: 1, region: -1, seed: 1848, strength: 2.5, warp: 0.35, contour: 100, buffer: 6, sources: 2, autoSplit: 28, overview: 15000 };
+  const state = { b0: M.BOUNDS[0], b1: M.BOUNDS[1], b2: M.BOUNDS[2], b3: M.BOUNDS[3], lscale: 1, region: -1, seed: 1848, strength: 2.5, warp: 0.35, contour: 100, buffer: 6, sources: 2, autoSplit: 28, overview: 15000, mapSize: 20, speed: 500 };
   let terrain, world;
   const edits = new Map(); // the player's split/merge edits; the only state worth saving
 
   const km = (m) => (m / 1000).toLocaleString('nb-NO', { maximumFractionDigits: 1 });
+  // The widest view the player gets, in metres.
+  const MAX_VIEW = 10000;
+  // The map: mapSize x mapSize sections from section (sx0, sy0).
+  const area = { sx0: 0, sy0: 0, n: 20 };
   const splitSide = () => (state.autoSplit >= 8 ? state.autoSplit : 0);
 
   // Picks a start point where a small area holds a bit of everything: as many
@@ -49,19 +53,110 @@
       terrain = new M.Terrain(state.seed, { bounds, scale: state.lscale, region: state.region });
       showShares();
     }
-    world = new M.World(terrain, {
+    const opts = {
       strength: state.strength,
       warp: state.warp,
       buffer: state.buffer,
       contour: state.contour,
       sources: state.sources,
+    };
+    world = new M.World(terrain, Object.assign({}, opts, {
       autoSplit: splitSide(),
       edits,
       elevCache: keep,
-    });
+      client: loader.workers,
+      maxSections: area.n * area.n + 50,
+    }));
     renderer.hover = null;
     lastBuild = [];
+    loader.reset({ seed: state.seed, terrain: { bounds, scale: state.lscale, region: state.region }, world: opts });
   }
+
+  // --- generation -------------------------------------------------------------
+  // All sections of the map are generated once, nearest the view first, in
+  // background workers so the page stays responsive. Without workers (a page
+  // opened from disk) they are made here, one per frame.
+  const loader = {
+    workers: false,
+    pool: [],
+    pending: new Map(), // section key -> worker
+    gen: 0,
+    settings: null,
+    init() {
+      const n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
+      try {
+        for (let k = 0; k < n; k++) {
+          const w = new Worker('src/worker.js?v=' + M.VERSION);
+          w.onmessage = (e) => this.done(w, e.data);
+          w.onerror = () => this.fail();
+          w.busy = false;
+          this.pool.push(w);
+        }
+        this.workers = true;
+      } catch (err) {
+        this.workers = false;
+        this.pool = [];
+      }
+    },
+    // Workers can't run here after all: make the sections on the page instead.
+    fail() {
+      if (!this.workers) return;
+      for (const w of this.pool) w.terminate();
+      this.pool = [];
+      this.workers = false;
+      makeWorld();
+      draw();
+    },
+    reset(settings) {
+      this.gen++;
+      this.settings = settings;
+      this.pending.clear();
+      for (const w of this.pool) {
+        w.busy = false;
+        w.postMessage(Object.assign({ type: 'init' }, settings));
+      }
+      this.next();
+    },
+    // Map sections not loaded or under way, nearest the view centre first.
+    missing() {
+      const [cx, cy] = renderer.centre;
+      const out = [];
+      for (let sy = area.sy0; sy < area.sy0 + area.n; sy++) {
+        for (let sx = area.sx0; sx < area.sx0 + area.n; sx++) {
+          if (world.loaded(sx, sy) || this.pending.has(sx + ',' + sy)) continue;
+          out.push([sx, sy, Math.hypot((sx + 0.5) * S - cx, (sy + 0.5) * S - cy)]);
+        }
+      }
+      return out.sort((p, q) => p[2] - q[2]);
+    },
+    next() {
+      if (!this.workers) return;
+      const todo = this.missing();
+      for (const w of this.pool) {
+        if (w.busy || !todo.length) continue;
+        const [sx, sy] = todo.shift();
+        w.busy = true;
+        this.pending.set(sx + ',' + sy, w);
+        w.postMessage({ type: 'build', sx, sy, gen: this.gen });
+      }
+    },
+    done(w, m) {
+      w.busy = false;
+      if (m.gen === this.gen) {
+        this.pending.delete(m.data.sx + ',' + m.data.sy);
+        const s = world.addSection(m.data);
+        lastBuild.push(s.buildTime);
+        if (lastBuild.length > 30) lastBuild.shift();
+        draw();
+      }
+      this.next();
+    },
+    get remaining() {
+      return area.n * area.n - [...world.sections.values()].filter((s) => inArea(s.sx, s.sy)).length;
+    },
+  };
+  const inArea = (sx, sy) => sx >= area.sx0 && sy >= area.sy0 && sx < area.sx0 + area.n && sy < area.sy0 + area.n;
+  loader.init();
 
   // Share of each landscape type with the current transitions.
   const SHARE_COLOURS = ['#4677aa', '#9fbf70', '#6a9450', '#b89a62', '#8f8a94'];
@@ -72,46 +167,73 @@
       .join('');
   }
 
-  // --- generation loop --------------------------------------------------------
-  // Missing sections are generated nearest-first, a few per frame, so the view
-  // stays responsive when the player jumps somewhere new.
+  // --- frame loop: camera, fallback generation, redraw -------------------------
   let lastBuild = [];
-  let pumping = false;
-  function pump() {
-    if (pumping) return;
-    pumping = true;
-    requestAnimationFrame(function step() {
-      const t0 = performance.now();
-      let missing = 0;
-      for (const [sx, sy] of renderer.visibleSections()) {
-        if (world.loaded(sx, sy)) continue;
-        if (performance.now() - t0 > 40) {
-          missing++;
-          continue;
-        }
-        const s = world.section(sx, sy);
+  let dirty = true;
+  let lastFrame = performance.now();
+  // Where the camera is heading (index units); it moves there at most `speed`.
+  let target = null;
+  const draw = () => {
+    dirty = true;
+  };
+
+  function frame(now) {
+    const dt = Math.min(0.1, (now - lastFrame) / 1000);
+    lastFrame = now;
+    // Camera: toward the target, no faster than the speed limit.
+    if (target) {
+      const [cx, cy] = renderer.centre;
+      const dx = target[0] - cx, dy = target[1] - cy, d = Math.hypot(dx, dy);
+      const step = ((state.speed / 3.6) * dt) / C; // index units this frame
+      if (d < 1e-3) target = null;
+      else {
+        const f = Math.min(1, step / d);
+        renderer.centreOn(cx + dx * f, cy + dy * f);
+        dirty = true;
+        if (f === 1) target = null;
+        if (loader.workers) loader.next();
+      }
+    }
+    // Without workers: one missing section per frame.
+    if (!loader.workers) {
+      const todo = loader.missing();
+      if (todo.length) {
+        const s = world.section(todo[0][0], todo[0][1]);
         lastBuild.push(s.buildTime);
         if (lastBuild.length > 30) lastBuild.shift();
+        dirty = true;
       }
+    }
+    if (dirty) {
+      dirty = false;
       renderer.draw(world);
-      updateStatus(missing);
-      if (missing) requestAnimationFrame(step);
-      else pumping = false;
-    });
+      updateStatus();
+    }
+    requestAnimationFrame(frame);
   }
 
-  let drawPending = false;
-  function draw() {
-    pump();
-    if (drawPending || pumping) return;
-    drawPending = true;
-    requestAnimationFrame(() => {
-      drawPending = false;
-      renderer.draw(world);
-    });
+  // Sends the camera toward a point, kept inside the map.
+  function goTo(x, y) {
+    const x0 = area.sx0 * S, y0 = area.sy0 * S, x1 = (area.sx0 + area.n) * S, y1 = (area.sy0 + area.n) * S;
+    target = [Math.max(x0, Math.min(x1, x)), Math.max(y0, Math.min(y1, y))];
   }
 
-  function updateStatus(missing) {
+  // Keeps the view inside the map and no wider than MAX_VIEW.
+  function clampView() {
+    const v = renderer.view;
+    const minScale = (Math.max(renderer.cssW, renderer.cssH) * C) / MAX_VIEW;
+    if (v.scale < minScale) {
+      const [cx, cy] = renderer.centre;
+      v.scale = minScale;
+      renderer.centreOn(cx, cy);
+    }
+    const [cx, cy] = renderer.centre;
+    const x0 = area.sx0 * S, y0 = area.sy0 * S, x1 = (area.sx0 + area.n) * S, y1 = (area.sy0 + area.n) * S;
+    renderer.centreOn(Math.max(x0, Math.min(x1, cx)), Math.max(y0, Math.min(y1, cy)));
+  }
+
+  function updateStatus() {
+    const missing = loader.remaining;
     const vis = renderer.visibleSections().map(([sx, sy]) => world.loaded(sx, sy)).filter(Boolean);
     const nonConvex = vis.reduce((n, s) => n + s.nonConvex, 0);
     const outside = vis.reduce((n, s) => n + s.outside, 0);
@@ -119,7 +241,7 @@
     const [cx, cy] = renderer.centre;
     $('status').textContent =
       `Midt i bildet: x ${km(cx * C)} km, y ${km(cy * C)} km. ` +
-      `${vis.length} seksjoner synlige${missing ? `, ${missing} genereres` : ''}, ${world.sections.size} i minnet. ` +
+      `Kart ${area.n} × ${area.n} seksjoner (${km(area.n * S * C)} km)${missing ? `, ${missing} genereres${loader.workers ? ` i ${loader.pool.length} tråder` : ''}` : ', ferdig'}. ` +
       `Snitt ${avg} ms per seksjon. Ikke-konvekse ruter i bildet: ${nonConvex}. ` +
       `Punkter utenfor egen seksjon: ${outside}. Versjon ${M.VERSION}.`;
     drawOverview();
@@ -144,8 +266,7 @@
     const r = overview.getBoundingClientRect();
     const { W, H, mpp, cx, cy } = overviewInfo;
     const x = cx + (e.clientX - r.left - W / 2) * mpp, y = cy + (e.clientY - r.top - H / 2) * mpp;
-    renderer.centreOn(x / C, y / C);
-    draw();
+    goTo(x / C, y / C);
   });
   const extentSel = $('extent');
   extentSel.value = state.overview;
@@ -154,9 +275,8 @@
     drawOverview(true);
   });
   const move = (fx, fy) => {
-    renderer.view.ox -= fx * renderer.cssW;
-    renderer.view.oy -= fy * renderer.cssH;
-    draw();
+    const [cx, cy] = target || renderer.centre;
+    goTo(cx + (fx * renderer.cssW) / renderer.view.scale, cy + (fy * renderer.cssH) / renderer.view.scale);
   };
   $('go-n').addEventListener('click', () => move(0, -0.5));
   $('go-s').addEventListener('click', () => move(0, 0.5));
@@ -230,10 +350,18 @@
     rebuildSoon();
   });
   bindRange('lscale', 'lscale', (v) => `× ${v.toFixed(2)}`, rebuildSoon);
+  bindRange('speed', 'speed', (v) => `${v} km/t`, () => {});
+  bindRange('mapsize', 'mapSize', (v) => `${v} × ${v} (${km(v * S * C)} km)`, () => {
+    clearTimeout(rebuildTimer);
+    rebuildTimer = setTimeout(() => newSeed(state.seed), 300);
+  });
   bindRange('sources', 'sources', (v) => `${v}`, rebuildSoon);
   bindRange('autosplit', 'autoSplit', (v) => (v >= 8 ? `side > ${v} m` : 'av'), () => {
     world.autoSplit = splitSide();
-    for (const s of world.sections.values()) s.autoSplit(world.autoSplit);
+    for (const s of world.sections.values()) {
+      s.autoSplit(world.autoSplit);
+      s.image = null;
+    }
     renderer.hover = null;
     draw();
   });
@@ -251,9 +379,16 @@
     state.seed = seed;
     seedInput.value = seed;
     edits.clear();
-    makeWorld();
-    const [x, y] = findStart(terrain);
+    if (!terrain || terrain.seed !== seed) terrain = null;
+    const t = new M.Terrain(seed, { bounds: [state.b0, state.b1, state.b2, state.b3], scale: state.lscale, region: state.region });
+    const [x, y] = findStart(t);
+    area.n = state.mapSize;
+    area.sx0 = Math.floor(x / (S * C)) - (area.n >> 1);
+    area.sy0 = Math.floor(y / (S * C)) - (area.n >> 1);
+    target = null;
     renderer.centreOn(x / C, y / C);
+    clampView();
+    makeWorld();
     overviewKey = '';
     drawOverview(true);
     draw();
@@ -271,19 +406,24 @@
 
   const zoomBy = (f, sx = renderer.cssW / 2, sy = renderer.cssH / 2) => {
     const v = renderer.view;
-    const ns = Math.max(4, Math.min(400, v.scale * f));
+    const before = renderer.centre;
+    const ns = Math.max(1, Math.min(400, v.scale * f));
     v.ox = sx - ((sx - v.ox) * ns) / v.scale;
     v.oy = sy - ((sy - v.oy) * ns) / v.scale;
     v.scale = ns;
+    clampView();
+    // Zooming toward the cursor shifts the centre; shift the target with it.
+    if (target) {
+      const after = renderer.centre;
+      target = [target[0] + after[0] - before[0], target[1] + after[1] - before[1]];
+    }
     draw();
   };
   $('zoom-in').addEventListener('click', () => zoomBy(1.4));
   $('zoom-out').addEventListener('click', () => zoomBy(1 / 1.4));
   $('home').addEventListener('click', () => {
     const [x, y] = findStart(terrain);
-    renderer.view.scale = 16;
-    renderer.centreOn(x / C, y / C);
-    draw();
+    goTo(x / C, y / C);
   });
 
   // --- hover info -----------------------------------------------------------
@@ -351,7 +491,8 @@
   let drag = null;
   canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture(e.pointerId);
-    drag = { x: e.clientX, y: e.clientY, ox: renderer.view.ox, oy: renderer.view.oy, moved: false, button: e.button };
+    const [cx, cy] = renderer.centre;
+    drag = { x: e.clientX, y: e.clientY, cx, cy, moved: false, button: e.button };
   });
   canvas.addEventListener('pointermove', (e) => {
     const r = canvas.getBoundingClientRect();
@@ -359,9 +500,8 @@
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
       if (drag.moved) {
-        renderer.view.ox = drag.ox + dx;
-        renderer.view.oy = drag.oy + dy;
-        draw();
+        // Dragging says where to go; the camera follows at its speed limit.
+        goTo(drag.cx - dx / renderer.view.scale, drag.cy - dy / renderer.view.scale);
         return;
       }
     }
@@ -370,7 +510,7 @@
     if (c !== renderer.hover) {
       renderer.hover = c;
       showInfo(c);
-      if (!pumping) renderer.compose(world);
+      renderer.compose(world);
     }
   });
   canvas.addEventListener('pointerup', (e) => {
@@ -381,6 +521,7 @@
       const merge = drag.button === 2 || document.querySelector('input[name=click]:checked').value === 'merge';
       if (c) {
         if (merge) {
+          c.section.image = null;
           if (c.parent) {
             c.parent.merge();
             world.recordEdit(c.parent, 'merge');
@@ -388,6 +529,7 @@
           renderer.hover = c.parent || c;
         } else {
           const kids = c.split();
+          c.section.image = null;
           if (kids) {
             world.recordEdit(c, 'split');
             renderer.hover = kids[0];
@@ -403,7 +545,7 @@
   canvas.addEventListener('pointerleave', () => {
     renderer.hover = null;
     showInfo(null);
-    if (!pumping) renderer.compose(world);
+    renderer.compose(world);
   });
   canvas.addEventListener(
     'wheel',
@@ -424,7 +566,7 @@
   // Waves: redraw about 15 times a second while there is coast in view and the
   // page is visible. Skipped while sections are still being generated.
   function waveTick() {
-    if (renderer.waves && renderer.hasShore && !pumping && !document.hidden && world.sections.size) {
+    if (renderer.waves && renderer.hasShore && !document.hidden && world.sections.size) {
       renderer.compose(world);
     }
     setTimeout(() => requestAnimationFrame(waveTick), 100);
@@ -435,6 +577,7 @@
   newSeed(state.seed);
   showInfo(null);
   waveTick();
+  requestAnimationFrame(frame);
 
   M.app = { get world() { return world; }, renderer, state, edits };
 })(window.Markr = window.Markr || {});

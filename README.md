@@ -133,12 +133,21 @@ Hver rute har et `values`-objekt med areal (m²), høyde (moh.), fuktighet, ulen
 antall bekker som krysser ruta, og avledede verdier: jordbruk (stor rute, middels fuktig, under tregrensen), byggegrunn
 (middels stor, tørrere) og ressurser (små, ulendte ruter).
 
+## Kartet
+
+Kartet er 20 × 20 seksjoner (10,24 km), lagt rundt startpunktet. Alle seksjonene genereres
+én gang, nærmest midten av bildet først, i Web Workers i bakgrunnen, så siden svarer mens
+kartet fylles inn. Åpnes siden rett fra disk, der nettleseren ikke tillater workers, lages
+seksjonene på siden, én per bilde. Langt ute tegnes hver seksjon fra et bilde som lages én
+gang. Utsnittet er høyst 10 km bredt og holder seg innenfor kartet, og kameraet beveger
+seg høyst 500 km/t. Kartstørrelse og fart stilles under *Generering → Kart*.
+
 ## Bruk
 
 - Glideren **Indeks ↔ verden** morfer mellom matrisen og det deformerte kartet.
 - **Visning** bytter mellom terreng, høyde, fuktighet, ulendthet, helning, rutestørrelse,
   jordbruk, byggegrunn og ressurser.
-- Dra i kartet for å bevege deg. Kartet fortsetter i alle retninger.
+- Dra i kartet for å reise. Kameraet følger etter med fartsgrensen.
 - **Oversikt** tegner terrenget rundt det du ser (3–300 km). Klikk der for å hoppe, eller flytt
   med V/N/S/Ø.
 - **Vis seksjonsgrenser** viser sømmene mellom seksjonene.

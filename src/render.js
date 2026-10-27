@@ -314,6 +314,21 @@
       }
       const color = MODES[this.mode].color;
       const t = this.morph;
+
+      // Zoomed far out, each section is drawn from a picture of it made once:
+      // hundreds of thousands of cells are too many to draw one by one.
+      if (this.view.scale < LOD_SCALE) {
+        this.shoreCells = [];
+        this.hasShore = false;
+        for (const s of sections) {
+          const img = this.sectionImage(s, color, t);
+          const [x, y] = this.toScreen(img.x0, img.y0);
+          ctx.drawImage(img.canvas, x, y, img.w * this.view.scale, img.h * this.view.scale);
+        }
+        if (this.showSections) this.drawSectionEdges(sections, t);
+        return;
+      }
+
       const leaves = [];
       for (const s of sections) for (const c of s.leaves()) leaves.push(c);
 
@@ -388,6 +403,45 @@
       if (this.showSections) this.drawSectionEdges(sections, t);
 
       if (this.showLabels && this.view.scale > 42) this.drawLabels(sections, t);
+    }
+
+    // A picture of a section's cells at LOD_PX pixels per cell, made once per mode
+    // and morph (and again after the section's cells change).
+    sectionImage(s, color, t) {
+      const k = `${this.mode}|${t}|${SHOW.streams}`;
+      if (s.image && s.image.key === k) return s.image;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (let b = 0; b <= M.SECTION; b++) {
+        for (let a = 0; a <= M.SECTION; a++) {
+          const [x, y] = s.vertex(s.a0 + a, s.b0 + b, t);
+          x0 = Math.min(x0, x);
+          y0 = Math.min(y0, y);
+          x1 = Math.max(x1, x);
+          y1 = Math.max(y1, y);
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil((x1 - x0) * LOD_PX);
+      canvas.height = Math.ceil((y1 - y0) * LOD_PX);
+      const g = canvas.getContext('2d');
+      // A thick stroke in each cell's own colour lets pictures overlap a little at the
+      // edges, so no seams show between sections.
+      g.lineWidth = 2;
+      for (const c of s.leaves()) {
+        let col = color(c.values);
+        if (SHOW.streams && this.mode === 'terrain' && c.values.streamFill) col = mix(col, STREAM, c.values.streamFill);
+        const css = rgb(col);
+        const q = c.corners(t);
+        g.beginPath();
+        q.forEach(([x, y], n) => (n ? g.lineTo : g.moveTo).call(g, (x - x0) * LOD_PX, (y - y0) * LOD_PX));
+        g.closePath();
+        g.fillStyle = css;
+        g.strokeStyle = css;
+        g.fill();
+        g.stroke();
+      }
+      s.image = { key: k, canvas, x0, y0, w: x1 - x0, h: y1 - y0 };
+      return s.image;
     }
 
     // Screen segments of every stream piece in view, per base cell:
@@ -511,6 +565,10 @@
       }
     }
   }
+
+  // Below this many pixels per cell, sections are drawn from pictures.
+  const LOD_SCALE = 5;
+  const LOD_PX = 4;
 
   // Blend a cell when a corner differs from it by more than this (sum of RGB).
   const BLEND_CONTRAST = 54;

@@ -123,10 +123,17 @@
       <button id="go-s" title="Flytt utsnittet mot sør">S</button>
       <button id="go-e" title="Flytt utsnittet mot øst">Ø</button>
     </div>
-    <p class="hint">Kartet fortsetter i alle retninger. Dra i kartet, eller klikk i oversikten for å hoppe.</p>
+    <p class="hint">Dra i kartet eller klikk i oversikten for å reise. Kameraet holder fartsgrensen og blir innenfor kartet.</p>
 
     <details id="generation">
       <summary>Generering</summary>
+      <h2>Kart</h2>
+      <label>Kartstørrelse <output id="mapsize-out"></output></label>
+      <input id="mapsize" type="range" min="4" max="30" step="2">
+      <label>Maks fart for kameraet <output id="speed-out"></output></label>
+      <input id="speed" type="range" min="50" max="5000" step="50">
+      <p class="hint">Utsnittet er høyst 10 km bredt og holder seg innenfor kartet.</p>
+
       <h2>Terreng</h2>
       <label for="seed">Frø</label>
       <div class="row"><input id="seed" type="number"><button id="reseed">Nytt</button></div>
@@ -168,11 +175,11 @@
     <div id="status" class="muted"></div>
   </aside>
 
-  <script>window.Markr = { VERSION: 11 };</script>
-  <script src="src/noise.js?v=11"></script>
-  <script src="src/terrain.js?v=11"></script>
-  <script src="src/world.js?v=11"></script>
-  <script src="src/render.js?v=11"></script>
-  <script src="src/main.js?v=11"></script>
+  <script>window.Markr = { VERSION: 12 };</script>
+  <script src="src/noise.js?v=12"></script>
+  <script src="src/terrain.js?v=12"></script>
+  <script src="src/world.js?v=12"></script>
+  <script src="src/render.js?v=12"></script>
+  <script src="src/main.js?v=12"></script>
 </body>
 </html>

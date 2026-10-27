@@ -398,7 +398,9 @@
   // Section: S x S base cells with fixed seams on all four sides.
 
   class Section {
-    constructor(world, sx, sy) {
+    // With `data` (from Section.serialize, made in a worker) the section is rebuilt
+    // from it instead of being generated.
+    constructor(world, sx, sy, data) {
       const t0 = performance.now();
       this.world = world;
       this.sx = sx;
@@ -406,6 +408,10 @@
       const a0 = sx * S, b0 = sy * S;
       this.a0 = a0;
       this.b0 = b0;
+      if (data) {
+        this.restore(data);
+        return;
+      }
       const seams = [
         [world.seamV(sx, sy), (k) => [a0, b0 + k]],
         [world.seamV(sx + 1, sy), (k) => [a0 + S, b0 + k]],
@@ -442,6 +448,48 @@
       for (const c of this.baseCells()) c.evaluate();
       this.autoSplit(world.autoSplit);
       this.buildTime = performance.now() - t0;
+    }
+
+    // Everything a worker sends back to the page: vertex positions, cells (water,
+    // values, stream pieces), checks, and the river fields of this section.
+    serialize() {
+      const cells = [];
+      for (const c of this.baseCells()) cells.push({ water: c.water, values: c.values, pieces: c.pieces });
+      const f = this.world.riverField(this.sx, this.sy);
+      return {
+        sx: this.sx,
+        sy: this.sy,
+        fx: this.patch.fx,
+        fy: this.patch.fy,
+        cells,
+        nonConvex: this.nonConvex,
+        outside: this.outside,
+        buildTime: this.buildTime,
+        fields: { steep: f.steep, wet: f.wet },
+      };
+    }
+
+    restore(d) {
+      this.patch = { a0: this.a0, b0: this.b0, na: S, nb: S, fx: d.fx, fy: d.fy, k: Patch.prototype.k };
+      this.world.fields.set(key(this.sx, this.sy), d.fields);
+      this.cells = [];
+      let n = 0;
+      for (let b = 0; b < S; b++) {
+        const rowCells = [];
+        for (let a = 0; a < S; a++) {
+          const c = new Cell(this, this.a0 + a, this.b0 + b, 0, null, [0, 0, 1, 1]);
+          const cd = d.cells[n++];
+          c.water = cd.water;
+          c.values = cd.values;
+          c.pieces = cd.pieces;
+          rowCells.push(c);
+        }
+        this.cells.push(rowCells);
+      }
+      this.nonConvex = d.nonConvex;
+      this.outside = d.outside;
+      this.buildTime = d.buildTime;
+      this.autoSplit(this.world.autoSplit);
     }
 
     // Inner vertices that ended up outside the section's own boundary. Such a
@@ -625,6 +673,18 @@
       this.seamCacheV = new Map();
       this.seamCacheH = new Map();
       this.sections = new Map();
+      // On the page, with sections made in workers: river fields come with the
+      // sections, and missing ones count as 0 instead of being worked out here.
+      this.client = opts.client ?? false;
+      this.maxSections = opts.maxSections ?? 160;
+    }
+
+    // Adds a section made elsewhere (Section.serialize).
+    addSection(data) {
+      const s = new Section(this, data.sx, data.sy, data);
+      this.sections.set(key(data.sx, data.sy), s);
+      cap(this.sections, this.maxSections);
+      return s;
     }
 
     static get SECTION() {
@@ -1398,7 +1458,8 @@
       const tx = fx - i, ty = fy - j;
       const v = (ii, jj) => {
         const sx = fdiv(ii, S), sy = fdiv(jj, S);
-        return this.riverField(sx, sy)[name][(jj - sy * S) * S + (ii - sx * S)];
+        const f = this.client ? this.fields.get(key(sx, sy)) : this.riverField(sx, sy);
+        return f ? f[name][(jj - sy * S) * S + (ii - sx * S)] : 0;
       };
       const top = v(i, j) * (1 - tx) + v(i + 1, j) * tx;
       const bot = v(i, j + 1) * (1 - tx) + v(i + 1, j + 1) * tx;
@@ -1560,7 +1621,7 @@
         s = new Section(this, sx, sy);
       }
       this.sections.set(id, s);
-      cap(this.sections, 160);
+      cap(this.sections, this.maxSections);
       return s;
     }
 
