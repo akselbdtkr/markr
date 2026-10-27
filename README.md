@@ -55,15 +55,16 @@ et kart som ser naturlig ut, med et enkelt rutenett i bunn.
    Hjørnepunktene på grensen mellom land og vann flyttes inn på 0 m-koten (Newton-steg langs
    gradienten, begrenset til halve korteste kant), så kysten blir glatt.
 7. **Vassdrag.** Alle vassdrag ender i havet.
-   - **Nett mellom seksjoner, i nivåer.** Hver seksjon får en grov høyde (terrenget midt i
-     seksjonen), og er hav hvis den er under 0 m. Seksjonene grupperes i blokker på 2, 4, 8 og
-     16 seksjoner. En blokk på øverste nivå drenerer til den laveste nabo-blokken som ligger
-     nærmere havet. Inne i en blokk drenerer hver delblokk mot blokkens utløp, og så videre
-     ned til enkeltseksjoner. Slik samles vannet fra en hel blokk i ett utløp, og bekker blir
-     til elver i stedet for å renne side om side. Blokker med hav i drenerer til nærmeste hav.
-     Hvert steg kommer nærmere målet på sitt nivå, så alle løp ender i havet. Nettet bygger
-     bare på grove verdier, så hver seksjon kan regne det ut selv, uavhengig av rekkefølgen
-     spilleren utforsker i.
+   - **Nett mellom seksjoner.** Hver seksjon får en grov høyde (terrenget midt i seksjonen),
+     og er hav hvis den er under 0 m. Seksjonene grupperes i blokker på 4 × 4 seksjoner (2 km).
+     Et steg mellom to blokker koster 1, pluss et tillegg for stigning og for høyt terreng.
+     Hver blokk finner den billigste veien til en blokk med hav (Dijkstra fra blokken selv,
+     så svaret er eksakt og det samme for alle som spør), og drenerer til naboen med lavest
+     stegkostnad pluss videre kostnad. Inne i blokken går hver seksjon til naboen med den
+     billigste veien videre til blokkens utløp, eller til havet. Kostnaden synker for hvert
+     steg, så nettet har ingen løkker. Vannet fra en blokk samles i ett utløp, og elvene går
+     rundt fjell når det er billigere enn å gå over dem. Nettet bygger bare på grove verdier,
+     så hver seksjon kan regne det ut selv, uavhengig av rekkefølgen spilleren utforsker i.
    - **Kryssingspunkt.** Vannet går over til nabo-seksjonen der en dal krysser den felles
      kanten: den dypeste forsenkningen under den rette linja mellom endene, innenfor den
      midterste halvdelen av kanten. Det laveste punktet alene lå nesten alltid i et hjørne,
@@ -85,8 +86,13 @@ et kart som ser naturlig ut, med et enkelt rutenett i bunn.
      tvers av løpet like bredt som skalaen.
    - **Rutene eier vassdraget.** Hver grunnrute som bekkelinja krysser, lagrer biten av
      bekken som går gjennom den: hvor den går inn og ut (i rutas egne u,v-koordinater),
-     størrelse, skala og retning. Bekken tegnes som en tekstur på ruta. Er kanalen bred nok
-     i forhold til ruta, får ruta 100 % fuktighet og blir blå.
+     størrelse, skala og retning. Vassdraget vises som en farge i rutene: en bekk farger en
+     stor rute svakt, en elv fyller den.
+   - **Blanding og bølger.** Der naboruter har stor fargeforskjell (kyst, elv, overgang mellom
+     soner), får hvert hjørne snittfargen av rutene rundt seg, og ruta tegnes i små biter som
+     glir fra sin egen farge mot hjørnenes. Det gir en myk kystlinje. I vannet nær land går en
+     svak, animert puls inn mot kysten, som bølger. Rutene tegnes i et fast lag som bare
+     tegnes på nytt når utsnittet endres; bølgene og musmarkøren legges oppå.
 8. **Underruter (kvadtre).** En grunnrute på 16 m kan deles i fire ruter på 8 m, og videre til
    4, 2 og 1 m (`cell.split()`). Den kan slås sammen igjen (`cell.merge()`). Underrutene får
    indeksene `(2i..2i+1, 2j..2j+1)` på neste nivå og eier sine egne verdier. Grunnrutene er den

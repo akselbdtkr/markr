@@ -28,6 +28,10 @@
   // Streams and fully wet land take the colour of shallow water, so a river or
   // delta meets the sea without a seam.
   const STREAM = ramp(RAMPS.sea, Math.log1p(2) / Math.log1p(5000));
+  // Light crest of the waves that pulse in along the coast.
+  const FOAM = [214, 232, 240];
+  // Drawing switches the colour functions read.
+  const SHOW = { streams: true };
   const LANDSCAPE = [[70, 120, 170], [170, 200, 120], [110, 150, 80], [190, 165, 110], [150, 145, 150]];
 
   // Depth below 0 m mapped to [0, 1] on a log scale, so shallow water still varies.
@@ -60,6 +64,8 @@
     if (h < 1.5) c = mix(c, WATER_SHALLOW, 0.35); // wet shoreline
     c = shade(c, v);
     if (v.moisture > 0.92) c = mix(c, STREAM, (v.moisture - 0.92) / 0.08);
+    // Streams are a colour in the cells they run through.
+    if (SHOW.streams && v.streamFill) c = mix(c, STREAM, v.streamFill);
     return c;
   }
 
@@ -163,8 +169,18 @@
       this.showLines = true;
       this.showLabels = true;
       this.showSections = false;
-      this.showStreams = true;
+      this.blend = true;
+      this.waves = !window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      this.hasShore = false;
       this.hover = null;
+    }
+
+    get showStreams() {
+      return SHOW.streams;
+    }
+
+    set showStreams(v) {
+      SHOW.streams = v;
     }
 
     toScreen(x, y) {
@@ -225,7 +241,55 @@
       return this.toScreen((p[0][0] + p[1][0] + p[2][0] + p[3][0]) / 4, (p[0][1] + p[1][1] + p[2][1] + p[3][1]) / 4);
     }
 
+    // Full redraw: the cells, lines and labels go to an offscreen layer, then the
+    // light top layer (waves, hover) is composed over it.
     draw(world) {
+      if (!this.layer || this.layer.width !== this.canvas.width || this.layer.height !== this.canvas.height) {
+        this.layer = document.createElement('canvas');
+        this.layer.width = this.canvas.width;
+        this.layer.height = this.canvas.height;
+      }
+      const screen = this.ctx;
+      this.ctx = this.layer.getContext('2d');
+      try {
+        this.drawStatic(world);
+      } finally {
+        this.ctx = screen;
+      }
+      this.compose(world);
+    }
+
+    // Top layer only: the cached cells, the wave pulse on water near the coast
+    // (crests run in toward the shore) and the hover outline. Cheap enough to
+    // run many times a second.
+    compose(world) {
+      const ctx = this.ctx;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      if (this.layer) ctx.drawImage(this.layer, 0, 0);
+      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      const t = this.morph;
+      if (this.shoreCells && this.shoreCells.length) {
+        const time = performance.now() / 1000;
+        ctx.fillStyle = rgb(FOAM);
+        for (const [c, d] of this.shoreCells) {
+          const k = Math.max(0, Math.sin(time * 1.8 + d * 1.1 + (c.base.i + c.base.j) * 0.05));
+          const a = 0.28 * k * k * (1 - (d - 1) / SHORE_REACH);
+          if (a < 0.01) continue;
+          ctx.globalAlpha = a;
+          this.path(c.corners(t));
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+      if (this.hover && world.loaded(this.hover.section.sx, this.hover.section.sy)) {
+        this.path(this.hover.corners(t));
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    drawStatic(world) {
       const ctx = this.ctx;
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--canvas-bg') || '#1d2024';
@@ -241,18 +305,48 @@
       const leaves = [];
       for (const s of sections) for (const c of s.leaves()) leaves.push(c);
 
-      // Fill cells; stroke with the same colour to hide anti-aliasing seams.
+      // Colour of every cell, and the water cells near the coast for the waves.
+      const waves = this.waves && this.mode === 'terrain' && this.view.scale > 2;
+      this.shoreCells = [];
+      for (const s of sections) {
+        const shore = waves ? shoreDistance(world, s) : null;
+        for (const c of s.leaves()) {
+          c.drawColor = color(c.values);
+          if (shore && c.water) {
+            const d = shore[(c.base.j - s.b0) * M.SECTION + (c.base.i - s.a0)];
+            if (d) this.shoreCells.push([c, d]);
+          }
+        }
+      }
+      this.hasShore = this.shoreCells.length > 0;
+
+      // Where neighbouring cells differ a lot (coast, river, a change of zone),
+      // blend: each corner takes the mean colour of the cells around it, and the
+      // cell is drawn in small pieces fading from its own colour to its corners'.
+      const blend = this.blend && this.view.scale > 6;
+      const vertex = blend ? vertexColours(sections) : null;
+
       ctx.lineWidth = 1;
       for (const c of leaves) {
-        const col = rgb(color(c.values));
-        this.path(c.corners(t));
+        const q = c.corners(t);
+        const own = c.drawColor;
+        if (blend && c.level === 0) {
+          const corner = [vkey(c.i, c.j), vkey(c.i + 1, c.j), vkey(c.i + 1, c.j + 1), vkey(c.i, c.j + 1)].map((k) => {
+            const a = vertex.get(k);
+            return a ? [a[0] / a[3], a[1] / a[3], a[2] / a[3]] : own;
+          });
+          if (corner.some((k) => Math.abs(k[0] - own[0]) + Math.abs(k[1] - own[1]) + Math.abs(k[2] - own[2]) > BLEND_CONTRAST)) {
+            this.drawBlended(q, own, corner);
+            continue;
+          }
+        }
+        const col = rgb(own);
+        this.path(q);
         ctx.fillStyle = col;
         ctx.strokeStyle = col;
         ctx.fill();
         ctx.stroke();
       }
-
-      if (this.showStreams) this.drawStreams(sections, t);
 
       if (this.showLines && this.view.scale > 3) {
         const s = this.view.scale;
@@ -267,57 +361,27 @@
 
       if (this.showSections) this.drawSectionEdges(sections, t);
 
-      if (this.hover && world.loaded(this.hover.section.sx, this.hover.section.sy)) {
-        this.path(this.hover.corners(t));
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
-
       if (this.showLabels && this.view.scale > 42) this.drawLabels(sections, t);
     }
 
-    // Streams are a texture on the cells that own them: each piece is drawn from
-    // where it enters the cell to where it leaves, clipped to the cell, in the
-    // cell's own (u, v) space, so it follows the cell through the morph.
-    drawStreams(sections, t) {
-      const ctx = this.ctx;
-      ctx.save();
-      ctx.lineCap = 'round';
-      ctx.strokeStyle = rgb(STREAM);
-      for (const s of sections) {
-        for (const c of s.baseCells()) {
-          if (!c.pieces) continue;
-          const q = c.corners(t);
-          ctx.save();
-          this.path(q);
-          ctx.clip();
-          for (const p of c.pieces) {
-            const [ax, ay] = this.toScreen(...M.bilinear(q, p.a[0], p.a[1]));
-            const [bx, by] = this.toScreen(...M.bilinear(q, p.b[0], p.b[1]));
-            const w = Math.max(1, (M.channelWidth(p.size) / M.CELL_SIZE) * this.view.scale);
-            // Reach a little past both ends so pieces in neighbouring cells join.
-            let dx = bx - ax, dy = by - ay;
-            const len = Math.hypot(dx, dy);
-            if (len > 0.01) {
-              dx /= len;
-              dy /= len;
-            } else {
-              const [ux, uy] = p.dir, l = Math.hypot(ux, uy) || 1;
-              dx = ux / l;
-              dy = uy / l;
-            }
-            const ext = this.view.scale * 0.25;
-            ctx.lineWidth = w;
-            ctx.beginPath();
-            ctx.moveTo(ax - dx * ext, ay - dy * ext);
-            ctx.lineTo(bx + dx * ext, by + dy * ext);
-            ctx.stroke();
-          }
-          ctx.restore();
+    // A cell in N x N pieces, each coloured between the cell's own colour (at its
+    // centre) and its corners' blended colours (at its corners).
+    drawBlended(q, own, corner) {
+      const ctx = this.ctx, N = 3;
+      for (let b = 0; b < N; b++) {
+        for (let a = 0; a < N; a++) {
+          const u0 = a / N, v0 = b / N, u1 = (a + 1) / N, v1 = (b + 1) / N;
+          const um = (u0 + u1) / 2, vm = (v0 + v1) / 2;
+          const top = mix(corner[0], corner[1], um), bot = mix(corner[3], corner[2], um);
+          const w = (1 - Math.abs(2 * um - 1)) * (1 - Math.abs(2 * vm - 1));
+          const col = rgb(mix(mix(top, bot, vm), own, w));
+          this.path([M.bilinear(q, u0, v0), M.bilinear(q, u1, v0), M.bilinear(q, u1, v1), M.bilinear(q, u0, v1)]);
+          ctx.fillStyle = col;
+          ctx.strokeStyle = col;
+          ctx.fill();
+          ctx.stroke();
         }
       }
-      ctx.restore();
     }
 
     drawSectionEdges(sections, t) {
@@ -359,6 +423,74 @@
         }
       }
     }
+  }
+
+  // Blend a cell when a corner differs from it by more than this (sum of RGB).
+  const BLEND_CONTRAST = 54;
+  // How far out from the coast the waves reach, in cells.
+  const SHORE_REACH = 4;
+
+  // Numeric key of vertex (i, j).
+  const vkey = (i, j) => (i + 524288) * 1048576 + (j + 524288);
+
+  // Mean colour around every vertex of the base cells in view: [r, g, b, count].
+  function vertexColours(sections) {
+    const map = new Map();
+    const add = (k, col) => {
+      let a = map.get(k);
+      if (!a) map.set(k, (a = [0, 0, 0, 0]));
+      a[0] += col[0];
+      a[1] += col[1];
+      a[2] += col[2];
+      a[3]++;
+    };
+    for (const s of sections) {
+      for (const c of s.baseCells()) {
+        const col = c.isLeaf ? c.drawColor : c.children[0].drawColor;
+        if (!col) continue;
+        add(vkey(c.i, c.j), col);
+        add(vkey(c.i + 1, c.j), col);
+        add(vkey(c.i + 1, c.j + 1), col);
+        add(vkey(c.i, c.j + 1), col);
+      }
+    }
+    return map;
+  }
+
+  // For the water cells of a section: steps to the nearest land (1 = next to it),
+  // up to SHORE_REACH; 0 for land and open water. Computed once per section.
+  function shoreDistance(world, s) {
+    if (s.shore) return s.shore;
+    const S = M.SECTION, d = new Uint8Array(S * S);
+    const waterAt = (i, j) => {
+      const sec = world.loaded(Math.floor(i / S), Math.floor(j / S));
+      const c = sec && sec.cell(i, j);
+      return c ? c.water : world.cellElevation(i, j) < 0;
+    };
+    let front = [];
+    for (const c of s.baseCells()) {
+      if (!c.water) continue;
+      if (!waterAt(c.i + 1, c.j) || !waterAt(c.i - 1, c.j) || !waterAt(c.i, c.j + 1) || !waterAt(c.i, c.j - 1)) {
+        d[(c.j - s.b0) * S + (c.i - s.a0)] = 1;
+        front.push(c);
+      }
+    }
+    for (let step = 2; step <= SHORE_REACH && front.length; step++) {
+      const next = [];
+      for (const c of front) {
+        for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const n = s.cell(c.i + di, c.j + dj);
+          if (!n || !n.water) continue;
+          const k = (n.j - s.b0) * S + (n.i - s.a0);
+          if (d[k]) continue;
+          d[k] = step;
+          next.push(n);
+        }
+      }
+      front = next;
+    }
+    s.shore = d;
+    return d;
   }
 
   M.Renderer = Renderer;

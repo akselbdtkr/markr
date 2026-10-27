@@ -35,8 +35,14 @@
   const MEANDER = 0.6;
   // How far (in sections) to look for the sea from a section.
   const SEA_SEARCH = 80;
-  // Levels of section blocks in the drainage network: 2, 4, 8, 16 sections.
-  const NET_LEVELS = 4;
+  // Levels of section blocks in the drainage network: 2 and 4 sections. The top
+  // level (4 x 4 sections, 2 km) is routed by cost to the sea.
+  const NET_LEVELS = 2;
+  // Cost of a step between top-level blocks: 1, plus CLIMB per 100 m of climb,
+  // plus LOWLAND per 500 m of height. Going round a mountain is cheaper than over.
+  const CLIMB = 6, LOWLAND = 1;
+  // Most blocks a cost search may visit before giving up.
+  const PHI_MAX = 40000;
   // Share of the max source count by landscape type (tau): marine, plains, hills,
   // plateau, alpine.
   const SOURCE_SHARE = [[0, 0.3], [0.25, 0.2], [0.5, 0.9], [0.75, 0.2], [1, 1]];
@@ -188,6 +194,9 @@
         steepness,
         landscape: s.landscape,
         streams: stream ? stream.size : 0,
+        // How much of the cell the stream's colour fills: a creek tints a big cell,
+        // a river fills it.
+        streamFill: stream && !water ? clamp01(0.35 + (0.65 * channelWidth(stream.size)) / (0.5 * Math.sqrt(area))) : 0,
         streamScale: stream ? stream.scale : 0,
         streamDir: stream ? stream.dir : null,
         gx: s.gx,
@@ -553,6 +562,10 @@
       this.secBlocks = new Map();
       this.quota = new Map();
       this.secRoute = new Map();
+      this.secPhi = new Map();
+      this.secGoals = new Map();
+      this.secGoalCost = new Map();
+      this.secDrain = new Map();
       this.secCatch = new Map();
       this.crossCache = new Map();
       this.dens = new Map();
@@ -788,6 +801,44 @@
       return best;
     }
 
+    // Cost of a step between neighbouring top-level blocks.
+    stepCost(ax, ay, bx, by) {
+      const ha = this.blockInfo(NET_LEVELS, ax, ay).mean, hb = this.blockInfo(NET_LEVELS, bx, by).mean;
+      return 1 + (CLIMB * Math.max(0, hb - ha)) / 100 + (LOWLAND * Math.max(0, hb)) / 500;
+    }
+
+    // Cheapest cost from a top-level block to any block with sea, by Dijkstra from
+    // the block itself, so it is exact and the same whoever asks. Each block
+    // drains to the neighbour with the lowest step cost + cost to sea; that
+    // neighbour's cost is always lower, so the network has no loops.
+    costToSea(bx, by) {
+      const id = key(bx, by);
+      let phi = this.secPhi.get(id);
+      if (phi !== undefined) return phi;
+      phi = Infinity;
+      const dist = new Map([[id, 0]]);
+      const heap = new MinHeap();
+      heap.push(0, [bx, by]);
+      for (let pops = 0; heap.size && pops < PHI_MAX; pops++) {
+        const [c, [x, y]] = heap.pop();
+        if (c > dist.get(key(x, y))) continue;
+        if (this.blockInfo(NET_LEVELS, x, y).sea) {
+          phi = c;
+          break;
+        }
+        for (const [dx, dy] of N4) {
+          const nk = key(x + dx, y + dy), nc = c + this.stepCost(x, y, x + dx, y + dy);
+          if (nc < (dist.get(nk) ?? Infinity)) {
+            dist.set(nk, nc);
+            heap.push(nc, [x + dx, y + dy]);
+          }
+        }
+      }
+      this.secPhi.set(id, phi);
+      cap(this.secPhi, 100000);
+      return phi;
+    }
+
     // How block (k, bx, by) drains: {o: [sx, sy], d: [dx, dy]} — its outlet section
     // and the direction water leaves it in — or null if the water ends inside
     // (the block holds sea). Level 0 is a single section.
@@ -801,7 +852,18 @@
         const mean = (x, y) => (k === 0 ? this.sectionHeight(x, y) : this.blockInfo(k, x, y).mean);
         let d = null, inherited = null;
         if (k === NET_LEVELS) {
-          // Top level: to the lowest neighbour block nearer the sea.
+          // Top level: the neighbour with the cheapest way on to the sea.
+          let bc = Infinity;
+          for (const [dx, dy] of N4) {
+            const cost = this.stepCost(bx, by, bx + dx, by + dy) + this.costToSea(bx + dx, by + dy);
+            if (cost < bc) {
+              bc = cost;
+              d = [dx, dy];
+            }
+          }
+        }
+        if (k === NET_LEVELS && !d) {
+          // No sea within the search: to the lowest neighbour block nearer the sea.
           const c = n >> 1;
           const d0 = this.seaDist(bx * n + c, by * n + c);
           let bh = Infinity;
@@ -816,42 +878,6 @@
             const [, tx, ty] = this.nearestSea(bx * n + c, by * n + c);
             const ox = fdiv(tx, n) - bx, oy = fdiv(ty, n) - by;
             d = Math.abs(ox) >= Math.abs(oy) ? [Math.sign(ox), 0] : [0, Math.sign(oy)];
-          }
-        } else {
-          const px = bx >> 1, py = by >> 1, pn = n * 2;
-          const pr = this.route(k + 1, px, py);
-          if (pr && fdiv(pr.o[0], n) === bx && fdiv(pr.o[1], n) === by) {
-            inherited = pr; // this block holds the parent's outlet
-          } else {
-            // Toward the parent's outlet, or, if the parent holds sea, its nearest sea.
-            let gx, gy;
-            if (pr) {
-              [gx, gy] = pr.o;
-            } else {
-              const cx = bx * n + n / 2, cy = by * n + n / 2;
-              let bd = Infinity;
-              for (let y = py * pn; y < (py + 1) * pn; y++) {
-                for (let x = px * pn; x < (px + 1) * pn; x++) {
-                  const dd = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
-                  if (dd < bd && this.isSea(x, y)) {
-                    bd = dd;
-                    gx = x;
-                    gy = y;
-                  }
-                }
-              }
-            }
-            const gbx = fdiv(gx, n), gby = fdiv(gy, n);
-            const d0 = Math.hypot(gbx - bx, gby - by);
-            let bh = Infinity;
-            for (const [dx, dy] of N4) {
-              const nx = bx + dx, ny = by + dy;
-              if (nx >> 1 !== px || ny >> 1 !== py) continue;
-              if (Math.hypot(gbx - nx, gby - ny) < d0 && mean(nx, ny) < bh) {
-                bh = mean(nx, ny);
-                d = [dx, dy];
-              }
-            }
           }
         }
         if (inherited) {
@@ -875,10 +901,92 @@
       return res;
     }
 
+    // Cost of a step between neighbouring sections, like stepCost.
+    sectionStepCost(ax, ay, bx, by) {
+      const ha = this.sectionHeight(ax, ay), hb = this.sectionHeight(bx, by);
+      return 1 + (CLIMB * Math.max(0, hb - ha)) / 100 + (LOWLAND * Math.max(0, hb)) / 500;
+    }
+
+    // Inside a top-level block, where the water from a section should go: the
+    // block's outlet, or, in a block with sea, any of its sea sections.
+    blockGoals(bx, by) {
+      const id = key(bx, by);
+      let g = this.secGoals.get(id);
+      if (g) return g;
+      const pr = this.route(NET_LEVELS, bx, by), n = 1 << NET_LEVELS;
+      g = new Set();
+      if (pr) g.add(key(pr.o[0], pr.o[1]));
+      else {
+        for (let y = by * n; y < (by + 1) * n; y++) for (let x = bx * n; x < (bx + 1) * n; x++) if (this.isSea(x, y)) g.add(key(x, y));
+      }
+      this.secGoals.set(id, g);
+      cap(this.secGoals, 50000);
+      return g;
+    }
+
+    // Cheapest cost from a section to its block's goals, staying inside the block
+    // (Dijkstra over at most 16 sections).
+    costToGoal(sx, sy) {
+      const id = key(sx, sy);
+      let c0 = this.secGoalCost.get(id);
+      if (c0 !== undefined) return c0;
+      const n = 1 << NET_LEVELS, bx = fdiv(sx, n), by = fdiv(sy, n);
+      const goals = this.blockGoals(bx, by);
+      c0 = Infinity;
+      const dist = new Map([[id, 0]]);
+      const heap = new MinHeap();
+      heap.push(0, [sx, sy]);
+      while (heap.size) {
+        const [c, [x, y]] = heap.pop();
+        if (c > dist.get(key(x, y))) continue;
+        if (goals.has(key(x, y))) {
+          c0 = c;
+          break;
+        }
+        for (const [dx, dy] of N4) {
+          const nx = x + dx, ny = y + dy;
+          if (fdiv(nx, n) !== bx || fdiv(ny, n) !== by) continue;
+          const nk = key(nx, ny), nc = c + this.sectionStepCost(x, y, nx, ny);
+          if (nc < (dist.get(nk) ?? Infinity)) {
+            dist.set(nk, nc);
+            heap.push(nc, [nx, ny]);
+          }
+        }
+      }
+      this.secGoalCost.set(id, c0);
+      cap(this.secGoalCost, 200000);
+      return c0;
+    }
+
     // The neighbour a section drains to, or null where the water ends (sea).
+    // The block's outlet section leaves the block in the block's direction; every
+    // other section steps to the neighbour in the block with the cheapest way on
+    // to the outlet (or to the sea). Each step lowers that cost, so no loops.
     drainTo(sx, sy) {
-      const r = this.route(0, sx, sy);
-      return r ? [sx + r.d[0], sy + r.d[1]] : null;
+      const id = key(sx, sy);
+      if (this.secDrain.has(id)) return this.secDrain.get(id);
+      let res = null;
+      if (!this.isSea(sx, sy)) {
+        const n = 1 << NET_LEVELS, bx = fdiv(sx, n), by = fdiv(sy, n);
+        const pr = this.route(NET_LEVELS, bx, by);
+        if (pr && pr.o[0] === sx && pr.o[1] === sy) {
+          res = [sx + pr.d[0], sy + pr.d[1]];
+        } else {
+          let bc = Infinity;
+          for (const [dx, dy] of N4) {
+            const nx = sx + dx, ny = sy + dy;
+            if (fdiv(nx, n) !== bx || fdiv(ny, n) !== by) continue;
+            const c = this.sectionStepCost(sx, sy, nx, ny) + this.costToGoal(nx, ny);
+            if (c < bc) {
+              bc = c;
+              res = [nx, ny];
+            }
+          }
+        }
+      }
+      this.secDrain.set(id, res);
+      cap(this.secDrain, 200000);
+      return res;
     }
 
     // Neighbours that drain into this section.
@@ -1426,6 +1534,50 @@
       }
     }
     return knots[knots.length - 1][1];
+  }
+
+  class MinHeap {
+    constructor() {
+      this.h = [];
+      this.v = [];
+    }
+    get size() {
+      return this.h.length;
+    }
+    push(p, val) {
+      const h = this.h, v = this.v;
+      let n = h.length;
+      h.push(p);
+      v.push(val);
+      while (n > 0) {
+        const up = (n - 1) >> 1;
+        if (h[up] <= h[n]) break;
+        [h[up], h[n]] = [h[n], h[up]];
+        [v[up], v[n]] = [v[n], v[up]];
+        n = up;
+      }
+    }
+    pop() {
+      const h = this.h, v = this.v;
+      const top = [h[0], v[0]];
+      const lp = h.pop(), lv = v.pop();
+      if (h.length) {
+        h[0] = lp;
+        v[0] = lv;
+        let n = 0;
+        for (;;) {
+          const l = 2 * n + 1, r = l + 1;
+          let m = n;
+          if (l < h.length && h[l] < h[m]) m = l;
+          if (r < h.length && h[r] < h[m]) m = r;
+          if (m === n) break;
+          [h[m], h[n]] = [h[n], h[m]];
+          [v[m], v[n]] = [v[n], v[m]];
+          n = m;
+        }
+      }
+      return top;
+    }
   }
 
   // Deterministic pseudo-random value in [0, 1) for a lattice point.

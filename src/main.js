@@ -248,7 +248,7 @@
   seedInput.addEventListener('change', () => newSeed(parseInt(seedInput.value, 10) || 0));
   $('reseed').addEventListener('click', () => newSeed(Math.floor(Math.random() * 100000)));
 
-  for (const [id, prop] of [['lines', 'showLines'], ['labels', 'showLabels'], ['sections', 'showSections'], ['streams', 'showStreams']]) {
+  for (const [id, prop] of [['lines', 'showLines'], ['labels', 'showLabels'], ['sections', 'showSections'], ['streams', 'showStreams'], ['blend', 'blend'], ['waves', 'waves']]) {
     $(id).checked = renderer[prop];
     $(id).addEventListener('change', (e) => {
       renderer[prop] = e.target.checked;
@@ -349,7 +349,7 @@
     if (c !== renderer.hover) {
       renderer.hover = c;
       showInfo(c);
-      draw();
+      if (!pumping) renderer.compose(world);
     }
   });
   canvas.addEventListener('pointerup', (e) => {
@@ -382,7 +382,7 @@
   canvas.addEventListener('pointerleave', () => {
     renderer.hover = null;
     showInfo(null);
-    draw();
+    if (!pumping) renderer.compose(world);
   });
   canvas.addEventListener(
     'wheel',
@@ -400,10 +400,20 @@
     draw();
   });
 
+  // Waves: redraw about 15 times a second while there is coast in view and the
+  // page is visible. Skipped while sections are still being generated.
+  function waveTick() {
+    if (renderer.waves && renderer.hasShore && !pumping && !document.hidden && world.sections.size) {
+      renderer.compose(world);
+    }
+    setTimeout(() => requestAnimationFrame(waveTick), 66);
+  }
+
   renderer.resize();
   updateLegend();
   newSeed(state.seed);
   showInfo(null);
+  waveTick();
 
   M.app = { get world() { return world; }, renderer, state, edits };
 })(window.Markr = window.Markr || {});
