@@ -10,8 +10,10 @@
   const state = {
     seed: 1848, region: -1, sections: 8, cells: 8, align: 1, size: 0.5, anchor: 0.02, smoothing: 1,
     mode: 'global', buffer: 16, iters: 300, contour: 10,
-    method: 'jumps', step: 50, minSlope: 0.06, pull: 1, spread: 0.7, passes: 3, showSnaps: true, run: 4, reach: 0.9,
-    coastRun: 8, coastReach: 1.3, reachOut: 6,
+    method: 'jumps', step: 50, minSlope: 0.06, pull: 1, showSnaps: true, run: 4, reach: 0.9,
+    coastRun: 4, coastReach: 1.3, reachOut: 6,
+    ridges: 1, ridgeRun: 6, ridgeReach: 1.1, curvature: 0.002,
+    slopeLines: 0.6, slopeSpacing: 3, slopeReach: 0.6, narrow: 0.4, gap: 0.3, sizeStrength: 1.5,
     showContours: true, showGrid: true, showField: false, showSections: true, showFolds: true, fillCells: false,
   };
   let terrain, field, grid, start, stats = {};
@@ -61,9 +63,9 @@
 
   function rebuildField() {
     const { N, i0, j0 } = mapCells();
-    const m = state.buffer + 6;
+    const m = Math.max(state.buffer, 3 * state.cells + 8) + 6;
     const t0 = performance.now();
-    field = new M.TerrainField(terrain, (i0 - m) * C, (j0 - m) * C, (N + 2 * m) * C, (N + 2 * m) * C, 8, { smoothing: state.smoothing });
+    field = new M.TerrainField(terrain, (i0 - m) * C, (j0 - m) * C, (N + 2 * m) * C, (N + 2 * m) * C, 8, { smoothing: state.smoothing, coarse: state.cells * C });
     stats.field = performance.now() - t0;
     bg = null;
     contours = null;
@@ -75,7 +77,13 @@
     const o = { i0, j0, sections: state.sections, cells: state.cells };
     grid =
       state.method === 'jumps'
-        ? M.snapGrid(field, Object.assign(o, { step: state.step, minSlope: state.minSlope, pull: state.pull, spread: state.spread, run: state.run, reach: state.reach, coastRun: state.coastRun, coastReach: state.coastReach, reachOut: state.reachOut, passes: state.passes }))
+        ? M.snapGrid(field, Object.assign(o, {
+            step: state.step, minSlope: state.minSlope, pull: state.pull, run: state.run, reach: state.reach,
+            coastRun: state.coastRun, coastReach: state.coastReach, reachOut: state.reachOut,
+            ridges: state.ridges, ridgeRun: state.ridgeRun, ridgeReach: state.ridgeReach, curvature: state.curvature,
+            slopeLines: state.slopeLines, slopeSpacing: state.slopeSpacing, slopeReach: state.slopeReach,
+            narrow: state.narrow, gap: state.gap, sizeStrength: state.sizeStrength,
+          }))
         : M.buildGrid(field, Object.assign(o, { buffer: state.buffer, mode: state.mode, align: state.align, size: state.size, anchor: state.anchor, iters: state.iters }));
     document.body.dataset.method = state.method;
     measure();
@@ -115,7 +123,7 @@
             const [x0, y0] = vtx(a, b), [x1, y1] = kn === k + 1 ? vtx(a + 1, b) : vtx(a, b + 1);
             const l = Math.hypot(x1 - x0, y1 - y0);
             onLine += l;
-            if (S[k] === 0) onCoast += l;
+            if (S[k] === 300000) onCoast += l;
           }
         }
       }
@@ -215,6 +223,28 @@
         }
       }
     }
+    // Ridge and valley lines: where F crosses zero and the curvature is clear.
+    out.ridge = [];
+    out.valley = [];
+    const F = field.F, RK = field.RK, k0 = state.curvature;
+    for (let y = 0; y < ny - 1; y++) {
+      for (let x = 0; x < nx - 1; x++) {
+        const k = y * nx + x;
+        const rk = (RK[k] + RK[k + 1] + RK[k + nx] + RK[k + nx + 1]) / 4;
+        if (Math.abs(rk) < k0) continue;
+        const v = [F[k], F[k + 1], F[k + nx + 1], F[k + nx]];
+        const P = [[0, 0], [1, 0], [1, 1], [0, 1]], pts = [];
+        for (let e = 0; e < 4; e++) {
+          const a = v[e], b = v[(e + 1) % 4];
+          if ((a < 0) !== (b < 0)) {
+            const f = a / (a - b), p = P[e], q = P[(e + 1) % 4];
+            pts.push([x0 + (x + p[0] + (q[0] - p[0]) * f) * res, y0 + (y + p[1] + (q[1] - p[1]) * f) * res]);
+          }
+        }
+        const list = rk < 0 ? out.ridge : out.valley;
+        if (pts.length >= 2) list.push(pts[0], pts[1]);
+      }
+    }
     contours = out;
     return out;
   }
@@ -264,6 +294,8 @@
       segs(L.minor, 'rgba(110,80,40,0.45)', 0.8);
       segs(L.major, 'rgba(110,80,40,0.8)', 1.4);
       segs(L.coast, 'rgba(30,80,150,0.95)', 2);
+      segs(L.ridge, 'rgba(150,40,120,0.85)', 1.6);
+      segs(L.valley, 'rgba(20,130,140,0.85)', 1.6);
     }
     // Folded cells
     if (state.showFolds) {
@@ -296,6 +328,20 @@
       for (let a = 0; a <= grid.N; a += state.cells) line((k) => vtx(a, k));
       ctx.stroke();
       ctx.setLineDash([]);
+    }
+    // Each section's rotation: a stroke along the general slope's contours.
+    if (state.showSections && grid.rotations) {
+      ctx.strokeStyle = 'rgba(200,50,50,0.9)';
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (const r of grid.rotations) {
+        const [sx, sy] = toScreen(r.cx * C, r.cy * C);
+        const l = state.cells * C * view.scale * 0.3 * Math.min(1, r.slope / 0.05);
+        ctx.moveTo(sx - Math.cos(r.angle) * l, sy - Math.sin(r.angle) * l);
+        ctx.lineTo(sx + Math.cos(r.angle) * l, sy + Math.sin(r.angle) * l);
+      }
+      ctx.stroke();
     }
     // Cross field
     if (state.showField) {
@@ -477,9 +523,20 @@
   range('coastRun', 'coastRun', (v) => `${v} ruter`, rebuildGrid);
   range('coastReach', 'coastReach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
   range('reachOut', 'reachOut', (v) => `${v} ruter`, rebuildGrid);
-  range('passes', 'passes', (v) => `${v}`, rebuildGrid);
+
   range('reach', 'reach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
-  range('spread', 'spread', (v) => v.toFixed(2), rebuildGrid);
+  range('ridges', 'ridges', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
+  range('ridgeRun', 'ridgeRun', (v) => `${v} ruter`, rebuildGrid);
+  range('ridgeReach', 'ridgeReach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
+  range('curvature', 'curvature', (v) => v.toFixed(4), () => {
+    contours = null;
+    rebuildGrid();
+  });
+  range('slopeLines', 'slopeLines', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
+  range('slopeSpacing', 'slopeSpacing', (v) => `${v} ruter`, rebuildGrid);
+  range('narrow', 'narrow', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
+  range('gap', 'gap', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
+  range('sizeStrength', 'sizeStrength', (v) => (v ? v.toFixed(1) : 'av'), rebuildGrid);
   $('method').value = state.method;
   $('method').addEventListener('change', (e) => {
     state.method = e.target.value;
