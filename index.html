@@ -66,6 +66,9 @@
     #info, #section-info { min-height: 2.6em; }
     .shares { display: flex; height: 22px; border-radius: 4px; overflow: hidden; margin-top: 8px; font-size: 11px; }
     .shares span { display: flex; align-items: center; justify-content: center; color: #fff; text-shadow: 0 0 2px rgba(0,0,0,0.6); white-space: nowrap; overflow: hidden; }
+    .layers { position: absolute; right: 12px; top: 12px; width: 220px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+    .layers #legend { margin-top: 6px; }
+    #settings, #generation { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 10px; }
     .zoom { position: absolute; left: 12px; top: 12px; display: flex; gap: 4px; }
     .zoom button { background: var(--panel); min-width: 34px; }
     main { position: relative; min-width: 0; }
@@ -83,6 +86,10 @@
       <button id="zoom-out" title="Zoom ut">−</button>
       <button id="home" title="Tilbake til startpunktet">Start</button>
     </div>
+    <div class="layers">
+      <select id="mode" aria-label="Lag"></select>
+      <div id="legend"><div class="bar"></div><div class="ends"><span class="lo"></span><span class="hi"></span></div></div>
+    </div>
   </main>
   <aside>
     <h1>Markr</h1>
@@ -93,21 +100,6 @@
 
     <h2>Seksjon</h2>
     <div id="section-info"></div>
-
-    <h2>Visning</h2>
-    <select id="mode" aria-label="Visning"></select>
-    <div id="legend"><div class="bar"></div><div class="ends"><span class="lo"></span><span class="hi"></span></div></div>
-    <label>Indeks ↔ verden <output id="morph-out">verden</output></label>
-    <input id="morph" type="range" min="0" max="1" step="0.01" value="1">
-    <div class="check"><input id="lines" type="checkbox" checked><label for="lines" style="margin:0">Vis rutenett</label></div>
-    <div class="check"><input id="labels" type="checkbox" checked><label for="labels" style="margin:0">Vis indekser (når zoomet inn)</label></div>
-    <div class="check"><input id="streams" type="checkbox" checked><label for="streams" style="margin:0">Vis vassdrag</label></div>
-    <div class="check"><input id="blend" type="checkbox" checked><label for="blend" style="margin:0">Bland farger i skarpe overganger</label></div>
-    <div class="check"><input id="waves" type="checkbox" checked><label for="waves" style="margin:0">Bølger langs kysten</label></div>
-    <div class="check"><input id="sections" type="checkbox"><label for="sections" style="margin:0">Vis seksjonsgrenser (sømmer)</label></div>
-    <div class="check"><input type="radio" name="click" value="split" id="c-split" checked><label for="c-split" style="margin:0">Klikk deler rute i fire</label></div>
-    <div class="check"><input type="radio" name="click" value="merge" id="c-merge"><label for="c-merge" style="margin:0">Klikk slår sammen igjen</label></div>
-    <p class="hint">Høyreklikk slår også sammen. Dra for å panorere, hjul for zoom.</p>
 
     <h2>Oversikt</h2>
     <canvas id="overview" title="Klikk for å flytte utsnittet hit"></canvas>
@@ -123,17 +115,31 @@
       <button id="go-s" title="Flytt utsnittet mot sør">S</button>
       <button id="go-e" title="Flytt utsnittet mot øst">Ø</button>
     </div>
-    <p class="hint">Dra i kartet eller klikk i oversikten for å reise. Kameraet holder fartsgrensen og blir innenfor kartet.</p>
+    <p class="hint">Klikk i oversikten for å reise dit.</p>
+
+    <details id="settings">
+      <summary>Innstillinger</summary>
+      <h2>Visning</h2>
+      <label>Indeks ↔ verden <output id="morph-out">verden</output></label>
+      <input id="morph" type="range" min="0" max="1" step="0.01" value="1">
+      <div class="check"><input id="lines" type="checkbox"><label for="lines" style="margin:0">Vis rutenett</label></div>
+      <div class="check"><input id="labels" type="checkbox"><label for="labels" style="margin:0">Vis indekser (når zoomet inn)</label></div>
+      <div class="check"><input id="streams" type="checkbox" checked><label for="streams" style="margin:0">Vis vassdrag</label></div>
+      <div class="check"><input id="blend" type="checkbox" checked><label for="blend" style="margin:0">Bland farger i skarpe overganger</label></div>
+      <div class="check"><input id="waves" type="checkbox" checked><label for="waves" style="margin:0">Bølger langs kysten</label></div>
+      <div class="check"><input id="sections" type="checkbox"><label for="sections" style="margin:0">Vis seksjonsgrenser (sømmer)</label></div>
+      <h2>Klikk</h2>
+      <div class="check"><input type="radio" name="click" value="split" id="c-split" checked><label for="c-split" style="margin:0">Klikk deler rute i fire</label></div>
+      <div class="check"><input type="radio" name="click" value="merge" id="c-merge"><label for="c-merge" style="margin:0">Klikk slår sammen igjen</label></div>
+      <p class="hint">Høyreklikk slår også sammen. Hjulet zoomer.</p>
+      <h2>Kamera</h2>
+      <label>Maks fart <output id="speed-out"></output></label>
+      <input id="speed" type="range" min="50" max="2000" step="50">
+      <p class="hint">Før musepekeren inn mot kanten av kartet for å bevege deg. Jo nærmere kanten, jo fortere. Utsnittet er 100 m til 10 km bredt.</p>
+    </details>
 
     <details id="generation">
       <summary>Generering</summary>
-      <h2>Kart</h2>
-      <label>Kartstørrelse <output id="mapsize-out"></output></label>
-      <input id="mapsize" type="range" min="4" max="30" step="2">
-      <label>Maks fart for kameraet <output id="speed-out"></output></label>
-      <input id="speed" type="range" min="50" max="5000" step="50">
-      <p class="hint">Utsnittet er høyst 10 km bredt og holder seg innenfor kartet.</p>
-
       <h2>Terreng</h2>
       <label for="seed">Frø</label>
       <div class="row"><input id="seed" type="number"><button id="reseed">Nytt</button></div>
@@ -175,11 +181,11 @@
     <div id="status" class="muted"></div>
   </aside>
 
-  <script>window.Markr = { VERSION: 12 };</script>
-  <script src="src/noise.js?v=12"></script>
-  <script src="src/terrain.js?v=12"></script>
-  <script src="src/world.js?v=12"></script>
-  <script src="src/render.js?v=12"></script>
-  <script src="src/main.js?v=12"></script>
+  <script>window.Markr = { VERSION: 13 };</script>
+  <script src="src/noise.js?v=13"></script>
+  <script src="src/terrain.js?v=13"></script>
+  <script src="src/world.js?v=13"></script>
+  <script src="src/render.js?v=13"></script>
+  <script src="src/main.js?v=13"></script>
 </body>
 </html>

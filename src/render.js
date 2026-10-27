@@ -73,8 +73,12 @@
     return v.elevation < 0 ? ramp(RAMPS.sea, depthT(v.elevation)) : ramp(RAMPS.land, heightT(v.elevation));
   }
 
+  // The map faded toward a light paper colour, for the grid view.
+  const PAPER = [236, 233, 224];
+
   const MODES = {
     terrain: { label: 'Terreng', color: terrainColor },
+    grid: { label: 'Rutenett', color: (v) => mix(terrainColor(v), PAPER, 0.7) },
     region: {
       label: 'Landskapsområde',
       color: (v) => {
@@ -178,9 +182,12 @@
       this.view = { scale: 16, ox: 0, oy: 0 }; // pixels per index unit, offset
       this.mode = 'terrain';
       this.morph = 1;
-      this.showLines = true;
-      this.showLabels = true;
+      this.showLines = false;
+      this.showLabels = false;
       this.showSections = false;
+      // Edge scrolling: the mouse position and speed (0..1) when it is in the band
+      // along the edge, drawn as a vector from the centre.
+      this.edge = null;
       this.blend = true;
       this.waves = !window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       this.hasShore = false;
@@ -268,7 +275,16 @@
       } finally {
         this.ctx = screen;
       }
+      this.layerView = { ...this.view };
       this.compose(world);
+    }
+
+    // How far (CSS px) the view has moved since the layer was drawn, or null if
+    // the zoom changed and the layer no longer fits.
+    get layerOffset() {
+      const l = this.layerView;
+      if (!l || l.scale !== this.view.scale) return null;
+      return [this.view.ox - l.ox, this.view.oy - l.oy];
     }
 
     // Top layer only: the cached cells, the wave pulse on water near the coast
@@ -277,7 +293,13 @@
     compose(world) {
       const ctx = this.ctx;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      if (this.layer) ctx.drawImage(this.layer, 0, 0);
+      // While the camera moves, the last drawn layer is shifted along with it.
+      const off = this.layerOffset || [0, 0];
+      if (off[0] || off[1]) {
+        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--canvas-bg') || '#1d2024';
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      }
+      if (this.layer) ctx.drawImage(this.layer, Math.round(off[0] * this.dpr), Math.round(off[1] * this.dpr));
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       const t = this.morph;
       if (this.shoreCells && this.shoreCells.length) {
@@ -299,6 +321,39 @@
         ctx.lineWidth = 2;
         ctx.stroke();
       }
+      if (this.edge) this.drawEdgeVector();
+    }
+
+    // The camera's vector: from the centre toward the mouse, stronger with speed.
+    drawEdgeVector() {
+      const ctx = this.ctx, { x, y, f } = this.edge;
+      const cx = this.cssW / 2, cy = this.cssH / 2;
+      const dx = x - cx, dy = y - cy, len = Math.hypot(dx, dy);
+      if (len < 1) return;
+      const ux = dx / len, uy = dy / len;
+      const L = Math.min(len - 20, 60 + 140 * f);
+      const ex = cx + ux * L, ey = cy + uy * L;
+      ctx.save();
+      ctx.globalAlpha = 0.35 + 0.5 * f;
+      ctx.strokeStyle = '#fff';
+      ctx.fillStyle = '#fff';
+      ctx.lineWidth = 2 + 2 * f;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(cx + ux * 12, cy + uy * 12);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+      const h = 10 + 6 * f;
+      ctx.beginPath();
+      ctx.moveTo(ex + ux * h, ey + uy * h);
+      ctx.lineTo(ex - uy * h * 0.6, ey + ux * h * 0.6);
+      ctx.lineTo(ex + uy * h * 0.6, ey - ux * h * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     }
 
     drawStatic(world) {
@@ -389,11 +444,12 @@
         ctx.stroke();
       }
 
-      if (this.showLines && this.view.scale > 3) {
+      const gridMode = this.mode === 'grid';
+      if ((this.showLines || gridMode) && this.view.scale > 3) {
         const s = this.view.scale;
         for (const c of leaves) {
           this.path(c.corners(t));
-          const a = c.level === 0 ? 0.42 : 0.24;
+          const a = gridMode ? (c.level === 0 ? 0.75 : 0.5) : c.level === 0 ? 0.42 : 0.24;
           ctx.strokeStyle = `rgba(20,24,28,${a})`;
           ctx.lineWidth = Math.max(0.4, Math.min(1.2, s / 30)) * (c.level === 0 ? 1 : 0.7);
           ctx.stroke();

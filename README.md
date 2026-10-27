@@ -135,19 +135,28 @@ antall bekker som krysser ruta, og avledede verdier: jordbruk (stor rute, middel
 
 ## Kartet
 
-Kartet er 20 × 20 seksjoner (10,24 km), lagt rundt startpunktet. Alle seksjonene genereres
-én gang, nærmest midten av bildet først, i Web Workers i bakgrunnen, så siden svarer mens
-kartet fylles inn. Åpnes siden rett fra disk, der nettleseren ikke tillater workers, lages
-seksjonene på siden, én per bilde. Langt ute tegnes hver seksjon fra et bilde som lages én
-gang. Utsnittet er høyst 10 km bredt og holder seg innenfor kartet, og kameraet beveger
-seg høyst 500 km/t. Kartstørrelse og fart stilles under *Generering → Kart*.
+Kartet vokser rundt spilleren: seksjonene i og rett rundt utsnittet genereres, nærmest
+midten først, i Web Workers i bakgrunnen, så siden svarer mens kartet fylles inn. Åpnes
+siden rett fra disk, der nettleseren ikke tillater workers, lages seksjonene på siden, én
+per bilde. Utsnittet er fra 100 m til 10 km bredt (20 × 20 seksjoner), og starter på 2 km.
+I minnet holdes det videste utsnittet og en margin; seksjoner som slippes, kommer tilbake
+identiske. Langt ute tegnes hver seksjon fra et bilde som lages én gang.
+
+## Kamera
+
+Kameraet styres med musepekeren. I et tynt bånd langs kanten av kartet (en tiendedel av
+avstanden fra midten, målt i utsnittets egne proporsjoner) tegnes en pil fra midten mot
+pekeren, og kameraet beveger seg den veien. Jo nærmere kanten, jo fortere. Farten følger
+zoomen, omtrent en utsnittsbredde på 1,5 sekunder, men aldri over maksfarten (500 km/t).
+På berøringsskjerm drar man i stedet.
 
 ## Bruk
 
 - Glideren **Indeks ↔ verden** morfer mellom matrisen og det deformerte kartet.
 - **Visning** bytter mellom terreng, høyde, fuktighet, ulendthet, helning, rutestørrelse,
   jordbruk, byggegrunn og ressurser.
-- Dra i kartet for å reise. Kameraet følger etter med fartsgrensen.
+- Lagvisningene velges i menyen øverst til høyre, blant annet *Rutenett*, som viser rutene
+  over et dempet kart. Øvrige visningsvalg ligger under *Innstillinger*.
 - **Oversikt** tegner terrenget rundt det du ser (3–300 km). Klikk der for å hoppe, eller flytt
   med V/N/S/Ø.
 - **Vis seksjonsgrenser** viser sømmene mellom seksjonene.

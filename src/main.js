@@ -1,5 +1,6 @@
-// UI wiring: the map area, its generation in background workers, the camera
-// (bounded, with a speed limit), controls, hover info, split/merge and overview.
+// UI wiring: the map, which grows around the camera as sections are generated in
+// background workers; the camera, steered from the edge of the view with a speed
+// limit; controls, hover info, split/merge and the overview.
 (function (M) {
   'use strict';
 
@@ -8,15 +9,18 @@
   const renderer = new M.Renderer(canvas);
   const C = M.CELL_SIZE, S = M.SECTION;
 
-  const state = { b0: M.BOUNDS[0], b1: M.BOUNDS[1], b2: M.BOUNDS[2], b3: M.BOUNDS[3], lscale: 1, region: -1, seed: 1848, strength: 2.5, warp: 0.35, contour: 100, buffer: 6, sources: 2, autoSplit: 28, overview: 15000, mapSize: 20, speed: 500 };
+  const state = { b0: M.BOUNDS[0], b1: M.BOUNDS[1], b2: M.BOUNDS[2], b3: M.BOUNDS[3], lscale: 1, region: -1, seed: 1848, strength: 2.5, warp: 0.35, contour: 100, buffer: 6, sources: 2, autoSplit: 28, overview: 15000, speed: 500 };
   let terrain, world;
   const edits = new Map(); // the player's split/merge edits; the only state worth saving
 
   const km = (m) => (m / 1000).toLocaleString('nb-NO', { maximumFractionDigits: 1 });
-  // The widest view the player gets, in metres.
-  const MAX_VIEW = 10000;
-  // The map: mapSize x mapSize sections from section (sx0, sy0).
-  const area = { sx0: 0, sy0: 0, n: 20 };
+  // The widest and the narrowest view the player gets, and the start, in metres.
+  const MAX_VIEW = 10000, MIN_VIEW = 100, START_VIEW = 2000;
+  // Sections kept in memory: the widest view (20 x 20 sections) and a margin.
+  const MAX_SECTIONS = 20 * 20 + 120;
+  // Edge scrolling: the band along the edge, as a share of the half-width and
+  // half-height of the view.
+  const EDGE_BAND = 0.1;
   const splitSide = () => (state.autoSplit >= 8 ? state.autoSplit : 0);
 
   // Picks a start point where a small area holds a bit of everything: as many
@@ -65,7 +69,7 @@
       edits,
       elevCache: keep,
       client: loader.workers,
-      maxSections: area.n * area.n + 50,
+      maxSections: MAX_SECTIONS,
     }));
     renderer.hover = null;
     lastBuild = [];
@@ -73,9 +77,10 @@
   }
 
   // --- generation -------------------------------------------------------------
-  // All sections of the map are generated once, nearest the view first, in
-  // background workers so the page stays responsive. Without workers (a page
-  // opened from disk) they are made here, one per frame.
+  // The map grows around the view: sections in and just around it are generated
+  // nearest the centre first, in background workers so the page stays
+  // responsive. Without workers (a page opened from disk) they are made here,
+  // one per frame.
   const loader = {
     workers: false,
     pool: [],
@@ -117,12 +122,13 @@
       }
       this.next();
     },
-    // Map sections not loaded or under way, nearest the view centre first.
+    // Sections in or next to the view, not loaded or under way, nearest first.
     missing() {
       const [cx, cy] = renderer.centre;
+      const [x0, y0] = renderer.toWorld(0, 0), [x1, y1] = renderer.toWorld(renderer.cssW, renderer.cssH);
       const out = [];
-      for (let sy = area.sy0; sy < area.sy0 + area.n; sy++) {
-        for (let sx = area.sx0; sx < area.sx0 + area.n; sx++) {
+      for (let sy = Math.floor(y0 / S) - 1; sy <= Math.floor(y1 / S) + 1; sy++) {
+        for (let sx = Math.floor(x0 / S) - 1; sx <= Math.floor(x1 / S) + 1; sx++) {
           if (world.loaded(sx, sy) || this.pending.has(sx + ',' + sy)) continue;
           out.push([sx, sy, Math.hypot((sx + 0.5) * S - cx, (sy + 0.5) * S - cy)]);
         }
@@ -152,10 +158,9 @@
       this.next();
     },
     get remaining() {
-      return area.n * area.n - [...world.sections.values()].filter((s) => inArea(s.sx, s.sy)).length;
+      return this.missing().length + this.pending.size;
     },
   };
-  const inArea = (sx, sy) => sx >= area.sx0 && sy >= area.sy0 && sx < area.sx0 + area.n && sy < area.sy0 + area.n;
   loader.init();
 
   // Share of each landscape type with the current transitions.
@@ -173,6 +178,9 @@
   let lastFrame = performance.now();
   // Where the camera is heading (index units); it moves there at most `speed`.
   let target = null;
+  // The mouse in the edge band: {x, y, f} in CSS px, f the speed share 0..1.
+  let edge = null;
+  let lastStatic = 0;
   const draw = () => {
     dirty = true;
   };
@@ -180,6 +188,25 @@
   function frame(now) {
     const dt = Math.min(0.1, (now - lastFrame) / 1000);
     lastFrame = now;
+    let moving = false;
+    // Camera: pushed by the mouse at the edge. The vector from the centre to the
+    // mouse is taken in the view's own proportions (a corner points along the
+    // diagonal), and the speed grows across the band. The speed also follows the
+    // zoom: about a view width in 1.5 s, but never above the limit.
+    if (edge) {
+      const hw = renderer.cssW / 2, hh = renderer.cssH / 2;
+      let ux = (edge.x - hw) / hw, uy = (edge.y - hh) / hh;
+      const l = Math.hypot(ux, uy) || 1;
+      ux /= l;
+      uy /= l;
+      const viewM = (Math.max(renderer.cssW, renderer.cssH) / renderer.view.scale) * C;
+      const speed = Math.min(state.speed / 3.6, viewM / 1.5) * edge.f; // m/s
+      const step = (speed * dt) / C;
+      const [cx, cy] = renderer.centre;
+      renderer.centreOn(cx + ux * step, cy + uy * step);
+      target = null;
+      moving = true;
+    }
     // Camera: toward the target, no faster than the speed limit.
     if (target) {
       const [cx, cy] = renderer.centre;
@@ -189,11 +216,11 @@
       else {
         const f = Math.min(1, step / d);
         renderer.centreOn(cx + dx * f, cy + dy * f);
-        dirty = true;
+        moving = true;
         if (f === 1) target = null;
-        if (loader.workers) loader.next();
       }
     }
+    if (moving && loader.workers) loader.next();
     // Without workers: one missing section per frame.
     if (!loader.workers) {
       const todo = loader.missing();
@@ -204,32 +231,38 @@
         dirty = true;
       }
     }
-    if (dirty) {
+    // While moving, the last drawn picture slides along; it is drawn again now and
+    // then, or when it has slid far.
+    const off = renderer.layerOffset;
+    const far = !off || Math.hypot(off[0], off[1]) > 0.12 * renderer.cssW;
+    if (dirty || (moving && (far || now - lastStatic > 250))) {
       dirty = false;
+      lastStatic = now;
       renderer.draw(world);
       updateStatus();
+    } else if (moving || edge) {
+      renderer.compose(world);
     }
     requestAnimationFrame(frame);
   }
 
-  // Sends the camera toward a point, kept inside the map.
+  // Sends the camera toward a point.
   function goTo(x, y) {
-    const x0 = area.sx0 * S, y0 = area.sy0 * S, x1 = (area.sx0 + area.n) * S, y1 = (area.sy0 + area.n) * S;
-    target = [Math.max(x0, Math.min(x1, x)), Math.max(y0, Math.min(y1, y))];
+    target = [x, y];
   }
 
-  // Keeps the view inside the map and no wider than MAX_VIEW.
+  // Pixels per cell for a view `m` metres across (the longer side).
+  const scaleFor = (m) => (Math.max(renderer.cssW, renderer.cssH) * C) / m;
+
+  // Keeps the view between MIN_VIEW and MAX_VIEW across.
   function clampView() {
     const v = renderer.view;
-    const minScale = (Math.max(renderer.cssW, renderer.cssH) * C) / MAX_VIEW;
-    if (v.scale < minScale) {
+    const lo = scaleFor(MAX_VIEW), hi = scaleFor(MIN_VIEW);
+    if (v.scale < lo || v.scale > hi) {
       const [cx, cy] = renderer.centre;
-      v.scale = minScale;
+      v.scale = Math.max(lo, Math.min(hi, v.scale));
       renderer.centreOn(cx, cy);
     }
-    const [cx, cy] = renderer.centre;
-    const x0 = area.sx0 * S, y0 = area.sy0 * S, x1 = (area.sx0 + area.n) * S, y1 = (area.sy0 + area.n) * S;
-    renderer.centreOn(Math.max(x0, Math.min(x1, cx)), Math.max(y0, Math.min(y1, cy)));
   }
 
   function updateStatus() {
@@ -241,7 +274,7 @@
     const [cx, cy] = renderer.centre;
     $('status').textContent =
       `Midt i bildet: x ${km(cx * C)} km, y ${km(cy * C)} km. ` +
-      `Kart ${area.n} × ${area.n} seksjoner (${km(area.n * S * C)} km)${missing ? `, ${missing} genereres${loader.workers ? ` i ${loader.pool.length} tråder` : ''}` : ', ferdig'}. ` +
+      `Utsnitt ${km((Math.max(renderer.cssW, renderer.cssH) / renderer.view.scale) * C)} km. ${world.sections.size} seksjoner lastet${missing ? `, ${missing} genereres${loader.workers ? ` i ${loader.pool.length} tråder` : ''}` : ''}. ` +
       `Snitt ${avg} ms per seksjon. Ikke-konvekse ruter i bildet: ${nonConvex}. ` +
       `Punkter utenfor egen seksjon: ${outside}. Versjon ${M.VERSION}.`;
     drawOverview();
@@ -351,10 +384,6 @@
   });
   bindRange('lscale', 'lscale', (v) => `× ${v.toFixed(2)}`, rebuildSoon);
   bindRange('speed', 'speed', (v) => `${v} km/t`, () => {});
-  bindRange('mapsize', 'mapSize', (v) => `${v} × ${v} (${km(v * S * C)} km)`, () => {
-    clearTimeout(rebuildTimer);
-    rebuildTimer = setTimeout(() => newSeed(state.seed), 300);
-  });
   bindRange('sources', 'sources', (v) => `${v}`, rebuildSoon);
   bindRange('autosplit', 'autoSplit', (v) => (v >= 8 ? `side > ${v} m` : 'av'), () => {
     world.autoSplit = splitSide();
@@ -382,10 +411,8 @@
     if (!terrain || terrain.seed !== seed) terrain = null;
     const t = new M.Terrain(seed, { bounds: [state.b0, state.b1, state.b2, state.b3], scale: state.lscale, region: state.region });
     const [x, y] = findStart(t);
-    area.n = state.mapSize;
-    area.sx0 = Math.floor(x / (S * C)) - (area.n >> 1);
-    area.sy0 = Math.floor(y / (S * C)) - (area.n >> 1);
     target = null;
+    renderer.view.scale = scaleFor(START_VIEW);
     renderer.centreOn(x / C, y / C);
     clampView();
     makeWorld();
@@ -423,6 +450,7 @@
   $('zoom-out').addEventListener('click', () => zoomBy(1 / 1.4));
   $('home').addEventListener('click', () => {
     const [x, y] = findStart(terrain);
+    renderer.view.scale = scaleFor(START_VIEW);
     goTo(x / C, y / C);
   });
 
@@ -492,15 +520,26 @@
   canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture(e.pointerId);
     const [cx, cy] = renderer.centre;
-    drag = { x: e.clientX, y: e.clientY, cx, cy, moved: false, button: e.button };
+    drag = { x: e.clientX, y: e.clientY, cx, cy, moved: false, button: e.button, touch: e.pointerType !== 'mouse' };
   });
   canvas.addEventListener('pointermove', (e) => {
     const r = canvas.getBoundingClientRect();
+    // Edge band: distance from the centre measured against the view's half-width
+    // and half-height, so the band follows the shape of the view.
+    if (e.pointerType === 'mouse') {
+      const px = e.clientX - r.left, py = e.clientY - r.top;
+      const d = Math.max(Math.abs(px - r.width / 2) / (r.width / 2), Math.abs(py - r.height / 2) / (r.height / 2));
+      const was = edge;
+      edge = d > 1 - EDGE_BAND ? { x: px, y: py, f: Math.min(1, (d - (1 - EDGE_BAND)) / EDGE_BAND) } : null;
+      renderer.edge = edge;
+      if (was && !edge) renderer.compose(world); // take the vector away
+    }
     if (drag) {
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
-      if (drag.moved) {
-        // Dragging says where to go; the camera follows at its speed limit.
+      if (drag.moved && drag.touch) {
+        // On a touch screen, dragging says where to go; the camera follows at its
+        // speed limit.
         goTo(drag.cx - dx / renderer.view.scale, drag.cy - dy / renderer.view.scale);
         return;
       }
@@ -543,6 +582,8 @@
   });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('pointerleave', () => {
+    edge = null;
+    renderer.edge = null;
     renderer.hover = null;
     showInfo(null);
     renderer.compose(world);
