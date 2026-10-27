@@ -115,7 +115,7 @@
     <label>Rygger og daler: terskel <output id="ridgeReach-out"></output></label>
     <input id="ridgeReach" type="range" min="0.3" max="1.6" step="0.05">
     <label>Rygger og daler: minste krumning <output id="curvature-out"></output></label>
-    <input id="curvature" type="range" min="0.0005" max="0.006" step="0.0005">
+    <input id="curvature" type="range" min="0.001" max="0.012" step="0.0005">
     <label>Seksjonshelning <output id="slopeLines-out"></output></label>
     <input id="slopeLines" type="range" min="0" max="1" step="0.05">
     <label>Seksjonshelning: linjer hver <output id="slopeSpacing-out"></output></label>
@@ -160,6 +160,13 @@
     <h2>Terreng</h2>
     <label for="seed">Frø</label>
     <div class="row"><input id="seed" type="number"><button id="reseed">Nytt</button></div>
+    <label>Ekstra ulendthet <output id="rough-out"></output></label>
+    <input id="rough" type="range" min="0" max="1.5" step="0.05">
+    <label for="startKind">Startsted</label>
+    <select id="startKind">
+      <option value="rugged">Ulendt, med litt kyst</option>
+      <option value="varied">Variert: hav og lier</option>
+    </select>
     <label for="region">Landskapsområde</label>
     <select id="region"><option value="-1">Alle, styrt av områdelaget</option></select>
   </aside>

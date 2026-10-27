@@ -12,7 +12,7 @@
     mode: 'global', buffer: 16, iters: 300, contour: 10,
     method: 'jumps', step: 50, minSlope: 0.06, pull: 1, showSnaps: true, run: 4, reach: 0.9,
     coastRun: 4, coastReach: 1.3, reachOut: 6,
-    ridges: 1, ridgeRun: 6, ridgeReach: 1.1, curvature: 0.002,
+    ridges: 1, ridgeRun: 6, ridgeReach: 1.1, curvature: 0.003, startKind: 'rugged', rough: 0.7,
     slopeLines: 0.6, slopeSpacing: 3, slopeReach: 0.6, narrow: 0.4, gap: 0.3, sizeStrength: 1.5,
     showContours: true, showGrid: true, showField: false, showSections: true, showFolds: true, fillCells: false,
   };
@@ -32,14 +32,20 @@
     for (let gy = -12; gy <= 12; gy++) {
       for (let gx = -12; gx <= 12; gx++) {
         const x = gx * 3000, y = gy * 3000;
-        let water = 0, lo = Infinity, hi = -Infinity;
+        let water = 0, lo = Infinity, hi = -Infinity, steep = 0;
         for (let k = 0; k < 25; k++) {
-          const h = t.elevation(x + ((k % 5) / 4 - 0.5) * span, y + (Math.floor(k / 5) / 4 - 0.5) * span, 50);
+          const px = x + ((k % 5) / 4 - 0.5) * span, py = y + (Math.floor(k / 5) / 4 - 0.5) * span;
+          const h = t.elevation(px, py, 50);
           if (h < 0) water++;
           lo = Math.min(lo, h);
           hi = Math.max(hi, h);
+          if (state.startKind === 'rugged' && h > 0) steep += Math.abs(t.elevation(px + 30, py) - t.elevation(px - 30, py)) / 60;
         }
-        const score = (water >= 3 && water <= 10 ? 200 : 0) + Math.min(hi, 200) - Math.hypot(gx, gy);
+        // Rugged: the most relief, with a little coast. Varied: sea and slopes.
+        const score =
+          state.startKind === 'rugged'
+            ? (water >= 2 && water <= 8 ? 150 : 0) + Math.min(hi - lo, 700) + 40 * steep - Math.hypot(gx, gy)
+            : (water >= 3 && water <= 10 ? 200 : 0) + Math.min(hi, 200) - Math.hypot(gx, gy);
         if (score > bs) {
           bs = score;
           best = [x, y];
@@ -49,8 +55,24 @@
     return best;
   }
 
+  // The terrain, with optional extra ruggedness on land: branching ridges and
+  // gullies about 400 m apart, in patches. The coast stays where it is.
   function newTerrain() {
-    terrain = new M.Terrain(state.seed, { region: state.region });
+    const base = new M.Terrain(state.seed, { region: state.region });
+    const { createPerlin, fbm, ridged } = M.noise;
+    const nR = createPerlin(state.seed * 31 + 5), nP = createPerlin(state.seed * 31 + 6);
+    const extra = state.rough;
+    terrain = {
+      seed: state.seed,
+      elevation(x, y, mw = 0) {
+        const h = base.elevation(x, y, mw);
+        if (!extra || h <= 0 || mw > 400) return h;
+        const patch = M.util.smoothstep(-0.1, 0.6, fbm(nP, x / 1800, y / 1800, 2) / 0.2);
+        const r = ridged(nR, x / 420, y / 420, 4) - 0.55;
+        const hn = h + extra * patch * Math.min(1, h / 30) * 260 * r;
+        return Math.max(hn, Math.min(h, 2));
+      },
+    };
     start = findStart(terrain);
     rebuildField();
   }
@@ -112,14 +134,14 @@
     }
     // Edges between two vertices on the same line: grid edges that lie on it.
     let onLine = 0, onCoast = 0;
-    if (grid.snapped) {
-      const S = grid.snapped, row = grid.row;
+    if (grid.snappedR) {
+      const row = grid.row;
       for (let b = 0; b <= grid.N; b++) {
         for (let a = 0; a <= grid.N; a++) {
           const k = b * row + a;
-          if (Number.isNaN(S[k])) continue;
-          for (const kn of [a < grid.N ? k + 1 : -1, b < grid.N ? k + row : -1]) {
-            if (kn < 0 || S[kn] !== S[k]) continue;
+          // Row lines run along rows, column lines along columns.
+          for (const [S, kn] of [[grid.snappedR, a < grid.N ? k + 1 : -1], [grid.snappedC, b < grid.N ? k + row : -1]]) {
+            if (kn < 0 || Number.isNaN(S[k]) || S[kn] !== S[k]) continue;
             const [x0, y0] = vtx(a, b), [x1, y1] = kn === k + 1 ? vtx(a + 1, b) : vtx(a, b + 1);
             const l = Math.hypot(x1 - x0, y1 - y0);
             onLine += l;
@@ -231,7 +253,8 @@
       for (let x = 0; x < nx - 1; x++) {
         const k = y * nx + x;
         const rk = (RK[k] + RK[k + 1] + RK[k + nx] + RK[k + nx + 1]) / 4;
-        if (Math.abs(rk) < k0) continue;
+        const rr = (field.RR[k] + field.RR[k + 1] + field.RR[k + nx] + field.RR[k + nx + 1]) / 4;
+        if (Math.abs(rk) < k0 || Math.abs(rr) < 2 || Math.sign(rr) !== -Math.sign(rk)) continue;
         const v = [F[k], F[k + 1], F[k + nx + 1], F[k + nx]];
         const P = [[0, 0], [1, 0], [1, 1], [0, 1]], pts = [];
         for (let e = 0; e < 4; e++) {
@@ -567,6 +590,18 @@
   });
   regionSel.addEventListener('change', () => {
     state.region = parseInt(regionSel.value, 10);
+    newTerrain();
+    fit();
+    draw();
+  });
+  range('rough', 'rough', (v) => (v ? v.toFixed(2) : 'av'), () => {
+    newTerrain();
+    fit();
+    draw();
+  });
+  $('startKind').value = state.startKind;
+  $('startKind').addEventListener('change', (e) => {
+    state.startKind = e.target.value;
     newTerrain();
     fit();
     draw();
