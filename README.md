@@ -7,6 +7,25 @@ et kart som ser naturlig ut, med et enkelt rutenett i bunn.
 
 Åpne `index.html` i en nettleser. Du trenger ingen server eller byggesteg.
 
+## Rutelab
+
+`lab.html` er en egen testside for et rutenett som følger terrenget bedre, på et lite kart
+(8 × 8 seksjoner à 8 × 8 ruter, omtrent 1 km). Den viser høydekurver, rutenettet,
+seksjonsgrenser, brettede ruter og retningsfeltet, og måler hvor godt rutene følger
+høydekurvene.
+
+- **Retningsfelt** (`src/fieldgrid.js`): fra høydene lages et kryssfelt som viser retningen
+  langs høydekurvene. Det lagres som vinkelen ganger fire, siden en rute ser lik ut dreid
+  90°, og glattes slik at tydelige linjer holder og flate områder tar retning fra omgivelsene.
+- **Rutenett**: hver kant får en ønsket retning og lengde fra feltet (dreid etter kurvene,
+  kortere i bratt terreng), og hjørnene legges så alle kantene passer best mulig samlet. Når
+  én kant roterer, drar den naboene med seg. Et svakt anker trekker hjørnene mot det rette
+  rutenettet.
+- **Seksjoner**: hver seksjon kan løses for seg med en buffer rundt, uten faste sømmer.
+
+Målt på frø 1848: avviket fra høydekurvene går fra 24° (rett rutenett) til omtrent 17–18°,
+med 2 brettede ruter. Løst seksjon for seg er sømmene 3–10 m, avhengig av buffer og anker.
+
 ## Hvordan kartet lages
 
 1. **Terreng som kontinuerlige felt** (`src/terrain.js`). Alle mål er i meter. Perlin-støy
