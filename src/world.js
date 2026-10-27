@@ -99,9 +99,12 @@
     }
 
     // Adds a piece of a stream from world point a to b (index units).
-    addStream(a, b, size, scale, level, age) {
+    addStream(a, b, size, scale, level, age, drop = 0) {
       const q = this.corners(1);
-      const piece = { a: invBilinear(q, a[0], a[1]), b: invBilinear(q, b[0], b[1]), size, scale, level, age, dir: [b[0] - a[0], b[1] - a[1]] };
+      // drop: metres the water falls across the cell; vis: how much of the stream
+      // shows yet (it fades in below its source).
+      const vis = Math.max(smoothstep(VISIBLE_AGE[0], VISIBLE_AGE[1], age), smoothstep(1.5, 3, size));
+      const piece = { a: invBilinear(q, a[0], a[1]), b: invBilinear(q, b[0], b[1]), size, scale, level, age, drop, vis, dir: [b[0] - a[0], b[1] - a[1]] };
       (this.pieces = this.pieces || []).push(piece);
     }
 
@@ -198,6 +201,7 @@
         cx,
         cy,
         water,
+        sea: water && w.terrain.isSea(cx, cy),
         elevation,
         moisture,
         ruggedness: s.ruggedness,
@@ -485,7 +489,7 @@
             const line = smoothLine(path.pts);
             let cur = null;
             const finish = () => {
-              if (cur) cur.cell.addStream(cur.a, cur.b, cur.size, cur.scale, cur.level, cur.age);
+              if (cur) cur.cell.addStream(cur.a, cur.b, cur.size, cur.scale, cur.level, cur.age, cur.top - cur.level);
               cur = null;
             };
             for (let k = 1; k < line.length; k++) {
@@ -513,7 +517,7 @@
                   cur.age = Math.max(cur.age, ag);
                 } else {
                   finish();
-                  cur = { cell: c, a: [x, y], b: [x, y], size, scale, level: lvl, age: ag };
+                  cur = { cell: c, a: [x, y], b: [x, y], size, scale, level: lvl, top: lvl, age: ag };
                 }
               }
             }

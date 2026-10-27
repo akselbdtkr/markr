@@ -289,6 +289,17 @@
       return H_MAX * Math.tanh(h / H_MAX);
     }
 
+    // Whether water at a point is open sea (or a fjord reaching it) rather than a
+    // lake: sea lies below the coast level; inland water is a lake unless a fjord
+    // valley cut it.
+    isSea(x, y) {
+      const L = this.layers(x, y);
+      if (L.u < 0) return true;
+      if (L.R.fjord < 0.01) return false;
+      const valley = smoothstep(0.66, 0.9, ridged(this.nFjord, x / (6000 * this.scale), y / (6000 * this.scale), 4));
+      return valley * L.R.fjord > 0.3;
+    }
+
     // Moisture [0, 0.9]. Water (below 0 m) is always 1. Streams add more later.
     moisture(x, y, elevation) {
       if (elevation < 0) return 1;

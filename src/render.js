@@ -30,6 +30,8 @@
   const STREAM = ramp(RAMPS.sea, Math.log1p(2) / Math.log1p(5000));
   // Light crest of the waves that pulse in along the coast.
   const FOAM = [214, 232, 240];
+  // White water where a stream falls steeply.
+  const WHITEWATER = [236, 244, 248];
   // Drawing switches the colour functions read.
   const SHOW = { streams: true };
   const LANDSCAPE = [[70, 120, 170], [170, 200, 120], [110, 150, 80], [190, 165, 110], [150, 145, 150]];
@@ -64,8 +66,6 @@
     if (h < 1.5) c = mix(c, WATER_SHALLOW, 0.35); // wet shoreline
     c = shade(c, v);
     if (v.moisture > 0.92) c = mix(c, STREAM, (v.moisture - 0.92) / 0.08);
-    // Streams are a colour in the cells they run through.
-    if (SHOW.streams && v.streamFill) c = mix(c, STREAM, v.streamFill);
     return c;
   }
 
@@ -284,8 +284,8 @@
         const time = performance.now() / 1000;
         ctx.fillStyle = rgb(FOAM);
         for (const [c, d] of this.shoreCells) {
-          const k = Math.max(0, Math.sin(time * 1.8 + d * 1.1 + (c.base.i + c.base.j) * 0.05));
-          const a = 0.28 * k * k * (1 - (d - 1) / SHORE_REACH);
+          const k = Math.max(0, Math.sin(time * 0.6 + d * 1.1 + (c.base.i + c.base.j) * 0.05));
+          const a = 0.2 * k * k * (1 - (d - 1) / SHORE_REACH);
           if (a < 0.01) continue;
           ctx.globalAlpha = a;
           this.path(c.corners(t));
@@ -335,22 +335,36 @@
       // Where neighbouring cells differ a lot (coast, river, a change of zone),
       // blend: each corner takes the mean colour of the cells around it, and the
       // cell is drawn in small pieces fading from its own colour to its corners'.
-      const blend = this.blend && this.view.scale > 6;
+      // The blend is drawn in more pieces the closer you zoom, so it stays smooth.
+      const scale = this.view.scale;
+      const blend = this.blend && scale > 6;
       const vertex = blend ? vertexColours(sections) : null;
+      const N = Math.max(2, Math.min(10, Math.ceil(scale / 6)));
+
+      // Streams are drawn into the cells they cross, as a band along their course.
+      const streams = SHOW.streams && this.mode === 'terrain';
+      const segs = streams ? this.streamSegments(sections, t) : null;
+      const textured = streams && scale > 6;
 
       ctx.lineWidth = 1;
       for (const c of leaves) {
         const q = c.corners(t);
-        const own = c.drawColor;
+        let own = c.drawColor;
+        const near = streams && !c.water ? nearSegments(world, c, segs) : null;
+        if (near && !textured) own = mix(own, STREAM, c.values.streamFill);
+        let corner = null;
         if (blend && c.level === 0) {
-          const corner = [vkey(c.i, c.j), vkey(c.i + 1, c.j), vkey(c.i + 1, c.j + 1), vkey(c.i, c.j + 1)].map((k) => {
+          corner = [vkey(c.i, c.j), vkey(c.i + 1, c.j), vkey(c.i + 1, c.j + 1), vkey(c.i, c.j + 1)].map((k) => {
             const a = vertex.get(k);
             return a ? [a[0] / a[3], a[1] / a[3], a[2] / a[3]] : own;
           });
-          if (corner.some((k) => Math.abs(k[0] - own[0]) + Math.abs(k[1] - own[1]) + Math.abs(k[2] - own[2]) > BLEND_CONTRAST)) {
-            this.drawBlended(q, own, corner);
-            continue;
-          }
+          if (!corner.some((k) => Math.abs(k[0] - own[0]) + Math.abs(k[1] - own[1]) + Math.abs(k[2] - own[2]) > BLEND_CONTRAST)) corner = null;
+        }
+        if (corner || (near && textured)) {
+          // Stream cells get pieces of about 3 px, so a thin creek stays continuous.
+          const n = near && textured ? Math.max(N, Math.min(12, Math.ceil(scale / 3))) : N;
+          this.drawPieces(q, own, corner, textured ? near : null, n);
+          continue;
         }
         const col = rgb(own);
         this.path(q);
@@ -376,20 +390,81 @@
       if (this.showLabels && this.view.scale > 42) this.drawLabels(sections, t);
     }
 
-    // A cell in N x N pieces, each coloured between the cell's own colour (at its
-    // centre) and its corners' blended colours (at its corners).
-    drawBlended(q, own, corner) {
-      const ctx = this.ctx, N = 3;
+    // Screen segments of every stream piece in view, per base cell:
+    // [ax, ay, bx, by, halfWidth, vis, foam].
+    streamSegments(sections, t) {
+      const out = new Map();
+      const cellPx = this.view.scale;
+      for (const s of sections) {
+        for (const c of s.baseCells()) {
+          if (!c.pieces) continue;
+          const q = c.corners(t), list = [];
+          for (const p of c.pieces) {
+            let [ax, ay] = this.toScreen(...M.bilinear(q, p.a[0], p.a[1]));
+            let [bx, by] = this.toScreen(...M.bilinear(q, p.b[0], p.b[1]));
+            // Reach a little past both ends so the band runs on into the next cell.
+            let dx = bx - ax, dy = by - ay;
+            const len = Math.hypot(dx, dy);
+            if (len > 0.01) {
+              dx /= len;
+              dy /= len;
+            } else {
+              const l = Math.hypot(p.dir[0], p.dir[1]) || 1;
+              dx = p.dir[0] / l;
+              dy = p.dir[1] / l;
+            }
+            const ext = cellPx * 0.2;
+            ax -= dx * ext;
+            ay -= dy * ext;
+            bx += dx * ext;
+            by += dy * ext;
+            // A creek is drawn at least about a fifth of a cell wide; a river as wide
+            // as its channel.
+            const hw = Math.max((M.channelWidth(p.size) / M.CELL_SIZE) * cellPx * 0.5, cellPx * 0.2, 2.5);
+            // White water where it falls steeply: metres of drop per metre run.
+            const run = Math.max(6, Math.hypot(bx - ax, by - ay) / cellPx * M.CELL_SIZE);
+            const foam = M.util.smoothstep(0.15, 0.6, p.drop / run);
+            list.push([ax, ay, bx, by, hw, p.vis, foam]);
+          }
+          out.set(c, list);
+        }
+      }
+      return out;
+    }
+
+    // A cell in N x N pieces. Each piece takes its colour from the cell's own
+    // colour (at the centre) blended toward its corners' colours (if `corner`),
+    // and then the stream bands that pass near it: full water in the channel,
+    // falling off quickly to the sides along an S-curve.
+    drawPieces(q, own, corner, near, N) {
+      const ctx = this.ctx;
       for (let b = 0; b < N; b++) {
         for (let a = 0; a < N; a++) {
           const u0 = a / N, v0 = b / N, u1 = (a + 1) / N, v1 = (b + 1) / N;
           const um = (u0 + u1) / 2, vm = (v0 + v1) / 2;
-          const top = mix(corner[0], corner[1], um), bot = mix(corner[3], corner[2], um);
-          const w = (1 - Math.abs(2 * um - 1)) * (1 - Math.abs(2 * vm - 1));
-          const col = rgb(mix(mix(top, bot, vm), own, w));
+          let col = own;
+          if (corner) {
+            const top = mix(corner[0], corner[1], um), bot = mix(corner[3], corner[2], um);
+            const w = (1 - Math.abs(2 * um - 1)) * (1 - Math.abs(2 * vm - 1));
+            col = mix(mix(top, bot, vm), own, w);
+          }
+          if (near) {
+            const [px, py] = this.toScreen(...M.bilinear(q, um, vm));
+            let best = 0, foam = 0;
+            for (const [ax, ay, bx, by, hw, vis, fm] of near) {
+              const d = segmentDistance(px, py, ax, ay, bx, by);
+              const f = vis * (1 - M.util.smoothstep(hw * 0.6, hw * 1.5, d));
+              if (f > best) {
+                best = f;
+                foam = fm;
+              }
+            }
+            if (best > 0.01) col = mix(col, mix(STREAM, WHITEWATER, foam), best);
+          }
+          const css = rgb(col);
           this.path([M.bilinear(q, u0, v0), M.bilinear(q, u1, v0), M.bilinear(q, u1, v1), M.bilinear(q, u0, v1)]);
-          ctx.fillStyle = col;
-          ctx.strokeStyle = col;
+          ctx.fillStyle = css;
+          ctx.strokeStyle = css;
           ctx.fill();
           ctx.stroke();
         }
@@ -442,6 +517,29 @@
   // How far out from the coast the waves reach, in cells.
   const SHORE_REACH = 4;
 
+  // Distance from point p to segment a-b.
+  function segmentDistance(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    const f = l2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
+    return Math.hypot(px - ax - f * dx, py - ay - f * dy);
+  }
+
+  // Stream segments of a cell's base cell and its eight neighbours, or null.
+  function nearSegments(world, c, segs) {
+    const S = M.SECTION, b = c.base;
+    let out = null;
+    for (let dj = -1; dj <= 1; dj++) {
+      for (let di = -1; di <= 1; di++) {
+        const i = b.i + di, j = b.j + dj;
+        const sec = di || dj ? world.loaded(Math.floor(i / S), Math.floor(j / S)) : b.section;
+        const n = sec && sec.cell(i, j);
+        const list = n && segs.get(n);
+        if (list) out = out ? out.concat(list) : list;
+      }
+    }
+    return out;
+  }
+
   // Numeric key of vertex (i, j).
   const vkey = (i, j) => (i + 524288) * 1048576 + (j + 524288);
 
@@ -474,6 +572,7 @@
   function shoreDistance(world, s) {
     if (s.shore) return s.shore;
     const S = M.SECTION, d = new Uint8Array(S * S);
+    // Lakes have no waves; only the sea (and fjords) do.
     const waterAt = (i, j) => {
       const sec = world.loaded(Math.floor(i / S), Math.floor(j / S));
       const c = sec && sec.cell(i, j);
@@ -481,7 +580,7 @@
     };
     let front = [];
     for (const c of s.baseCells()) {
-      if (!c.water) continue;
+      if (!c.water || !c.values.sea) continue;
       if (!waterAt(c.i + 1, c.j) || !waterAt(c.i - 1, c.j) || !waterAt(c.i, c.j + 1) || !waterAt(c.i, c.j - 1)) {
         d[(c.j - s.b0) * S + (c.i - s.a0)] = 1;
         front.push(c);
@@ -492,7 +591,7 @@
       for (const c of front) {
         for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           const n = s.cell(c.i + di, c.j + dj);
-          if (!n || !n.water) continue;
+          if (!n || !n.water || !n.values.sea) continue;
           const k = (n.j - s.b0) * S + (n.i - s.a0);
           if (d[k]) continue;
           d[k] = step;

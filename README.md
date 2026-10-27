@@ -113,12 +113,15 @@ et kart som ser naturlig ut, med et enkelt rutenett i bunn.
      tvers av løpet like bredt som skalaen.
    - **Rutene eier vassdraget.** Hver grunnrute som bekkelinja krysser, lagrer biten av
      bekken som går gjennom den: hvor den går inn og ut (i rutas egne u,v-koordinater),
-     størrelse, skala og retning. Vassdraget vises som en farge i rutene: en bekk farger en
-     stor rute svakt, en elv fyller den.
+     størrelse, skala, retning og hvor mange meter vannet faller gjennom ruta. Når du zoomer
+     inn, tegnes vassdraget som et bånd langs løpet inne i rutene: helt vann i kanalen, og en
+     S-kurve som raskt blir tørrere mot sidene. Der vannet faller bratt, blir båndet hvitt, som
+     fosser og stryk. Langt ute farger vassdraget hele ruta svakt.
    - **Blanding og bølger.** Der naboruter har stor fargeforskjell (kyst, elv, overgang mellom
      soner), får hvert hjørne snittfargen av rutene rundt seg, og ruta tegnes i små biter som
-     glir fra sin egen farge mot hjørnenes. Det gir en myk kystlinje. I vannet nær land går en
-     svak, animert puls inn mot kysten, som bølger. Rutene tegnes i et fast lag som bare
+     glir fra sin egen farge mot hjørnenes. Jo nærmere du zoomer, jo flere biter, så blandingen
+     holder seg myk. I havet nær land går en svak, langsom puls inn mot kysten, som bølger.
+     Innsjøer har ingen bølger. Rutene tegnes i et fast lag som bare
      tegnes på nytt når utsnittet endres; bølgene og musmarkøren legges oppå.
 8. **Underruter (kvadtre).** En grunnrute på 16 m kan deles i fire ruter på 8 m, og videre til
    4, 2 og 1 m (`cell.split()`). Den kan slås sammen igjen (`cell.merge()`). Underrutene får

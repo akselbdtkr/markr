@@ -427,7 +427,7 @@
     if (renderer.waves && renderer.hasShore && !pumping && !document.hidden && world.sections.size) {
       renderer.compose(world);
     }
-    setTimeout(() => requestAnimationFrame(waveTick), 66);
+    setTimeout(() => requestAnimationFrame(waveTick), 100);
   }
 
   renderer.resize();
