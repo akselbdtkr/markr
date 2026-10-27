@@ -8,7 +8,7 @@
   const renderer = new M.Renderer(canvas);
   const C = M.CELL_SIZE, S = M.SECTION;
 
-  const state = { b0: M.BOUNDS[0], b1: M.BOUNDS[1], b2: M.BOUNDS[2], b3: M.BOUNDS[3], lscale: 1, seed: 1848, strength: 2.5, warp: 0.35, contour: 100, buffer: 6, sources: 2, autoSplit: 28, overview: 15000 };
+  const state = { b0: M.BOUNDS[0], b1: M.BOUNDS[1], b2: M.BOUNDS[2], b3: M.BOUNDS[3], lscale: 1, region: -1, seed: 1848, strength: 2.5, warp: 0.35, contour: 100, buffer: 6, sources: 2, autoSplit: 28, overview: 15000 };
   let terrain, world;
   const edits = new Map(); // the player's split/merge edits; the only state worth saving
 
@@ -43,10 +43,10 @@
   // New world with the current settings. Keeps cached elevations when the seed is unchanged.
   function makeWorld() {
     const bounds = [state.b0, state.b1, state.b2, state.b3];
-    const same = terrain && terrain.seed === state.seed && terrain.bounds.join() === bounds.join() && terrain.scale === state.lscale;
+    const same = terrain && terrain.seed === state.seed && terrain.bounds.join() === bounds.join() && terrain.scale === state.lscale && terrain.region === state.region;
     const keep = world && same ? world.elev : undefined;
     if (!same) {
-      terrain = new M.Terrain(state.seed, { bounds, scale: state.lscale });
+      terrain = new M.Terrain(state.seed, { bounds, scale: state.lscale, region: state.region });
       showShares();
     }
     world = new M.World(terrain, {
@@ -131,7 +131,7 @@
   function drawOverview(force) {
     const [cx, cy] = renderer.centre;
     // Re-render the terrain only when the view has moved noticeably.
-    const k = `${state.seed}|${terrain.bounds.join()}|${terrain.scale}|${state.overview}|${Math.round((cx * C) / (state.overview / 40))}|${Math.round((cy * C) / (state.overview / 40))}`;
+    const k = `${state.seed}|${terrain.bounds.join()}|${terrain.scale}|${terrain.region}|${state.overview}|${Math.round((cx * C) / (state.overview / 40))}|${Math.round((cy * C) / (state.overview / 40))}`;
     const [x0, y0] = renderer.toWorld(0, 0), [x1, y1] = renderer.toWorld(renderer.cssW, renderer.cssH);
     if (k !== overviewKey || force) {
       overviewKey = k;
@@ -218,6 +218,17 @@
   bindRange('contour', 'contour', (v) => (v ? `hver ${v} m` : 'bare kysten'), rebuildSoon);
   bindRange('buffer', 'buffer', (v) => `${v} ruter`, rebuildSoon);
   for (let k = 0; k < 4; k++) bindRange('b' + k, 'b' + k, (v) => v.toFixed(2), rebuildSoon);
+  const regionSel = $('region');
+  M.REGIONS.forEach((r, k) => {
+    const o = document.createElement('option');
+    o.value = k;
+    o.textContent = `Bare ${r.name}`;
+    regionSel.appendChild(o);
+  });
+  regionSel.addEventListener('change', () => {
+    state.region = parseInt(regionSel.value, 10);
+    rebuildSoon();
+  });
   bindRange('lscale', 'lscale', (v) => `× ${v.toFixed(2)}`, rebuildSoon);
   bindRange('sources', 'sources', (v) => `${v}`, rebuildSoon);
   bindRange('autosplit', 'autoSplit', (v) => (v >= 8 ? `side > ${v} m` : 'av'), () => {
@@ -288,8 +299,15 @@
     const s = world.sectionInfo(sx, sy);
     const m = (x) => Math.round(x).toLocaleString('nb-NO');
     const drain = s.drain ? `${compass([s.drain[0] - sx, s.drain[1] - sy])} til (${s.drain[0]}, ${s.drain[1]})` : s.sea ? 'hav' : 'innsjø (ingen utløp)';
+    const regions = s.regions
+      .map((w, k) => [w, M.REGIONS[k].name])
+      .filter(([w]) => w >= 0.1)
+      .sort((p, q) => q[0] - p[0])
+      .map(([w, name]) => `${name} ${Math.round(w * 100)} %`)
+      .join(', ');
     $('section-info').innerHTML = dl([
       ['Seksjon', `(${sx}, ${sy})`],
+      ['Område', regions],
       ['Landskap', `${M.landscapeName(s.landscape)} (${s.landscape.toFixed(2)})`],
       ['Høyde midt', s.sea ? `${m(-s.height)} m dyp` : `${m(s.height)} moh.`],
       ['Til hav', s.sea ? 'er hav' : Number.isFinite(s.seaDist) ? `${km(s.seaDist * S * C)} km` : 'ikke innen rekkevidde'],

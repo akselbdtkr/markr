@@ -75,6 +75,17 @@
 
   const MODES = {
     terrain: { label: 'Terreng', color: terrainColor },
+    region: {
+      label: 'Landskapsområde',
+      color: (v) => {
+        const w = v.regions || [1, 0, 0, 0, 0];
+        const c = [0, 0, 0];
+        M.REGIONS.forEach((r, k) => {
+          for (let q = 0; q < 3; q++) c[q] += w[k] * r.colour[q];
+        });
+        return v.water ? mix(c, [40, 70, 120], 0.55) : c;
+      },
+    },
     landscape: {
       label: 'Landskap',
       color: (v) => ramp(LANDSCAPE, v.landscape),
@@ -130,6 +141,7 @@
         const s = terrain.sample(wx, wy, step / 2, step * 2);
         s.steepness = clamp01(s.slope / 0.5);
         s.area = 256; s.side = 16; s.farmland = 0; s.building = 0; s.resource = 0; s.streams = 0;
+        s.regions = terrain.regionParams(wx, wy).weights;
         s.moisture = Math.min(s.moisture, 0.9);
         const c = color(s);
         const k = (y * nx + x) * 4;

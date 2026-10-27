@@ -141,6 +141,8 @@
       <p class="hint">Seksjoner er 32 × 32 ruter (512 m). Hver søm løses for seg i en stripe med så mange ruter på hver side.</p>
 
       <h2>Landskap</h2>
+      <label for="region">Landskapsområde</label>
+      <select id="region"><option value="-1">Alle, styrt av områdelaget</option></select>
       <label>Hav <output id="b0-out"></output></label>
       <input id="b0" type="range" min="-1.5" max="1" step="0.02">
       <label>Slette | åser <output id="b1-out"></output></label>
@@ -166,11 +168,11 @@
     <div id="status" class="muted"></div>
   </aside>
 
-  <script>window.Markr = { VERSION: 9 };</script>
-  <script src="src/noise.js?v=9"></script>
-  <script src="src/terrain.js?v=9"></script>
-  <script src="src/world.js?v=9"></script>
-  <script src="src/render.js?v=9"></script>
-  <script src="src/main.js?v=9"></script>
+  <script>window.Markr = { VERSION: 10 };</script>
+  <script src="src/noise.js?v=10"></script>
+  <script src="src/terrain.js?v=10"></script>
+  <script src="src/world.js?v=10"></script>
+  <script src="src/render.js?v=10"></script>
+  <script src="src/main.js?v=10"></script>
 </body>
 </html>

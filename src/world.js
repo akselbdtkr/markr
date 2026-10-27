@@ -204,6 +204,7 @@
         slope: s.slope,
         steepness,
         landscape: s.landscape,
+        regions: w.terrain.regionParams(cx, cy).weights,
         streams: stream ? stream.size : 0,
         carved,
         // How far the cell is turned from the index grid, -45..45 degrees.
@@ -668,8 +669,9 @@
       const id = key(sx, sy);
       let q = this.quota.get(id);
       if (q === undefined) {
-        const tau = this.terrain.landscape((sx + 0.5) * S * C, (sy + 0.5) * S * C)[1];
-        const share = piecewise(SOURCE_SHARE, tau);
+        const cx = (sx + 0.5) * S * C, cy = (sy + 0.5) * S * C;
+        const tau = this.terrain.landscape(cx, cy)[1];
+        const share = piecewise(SOURCE_SHARE, tau) * this.terrain.regionParams(cx, cy).streams;
         q = Math.floor(this.sourceCount * share + hash01(this.terrain.seed + 7, sx, sy));
         this.quota.set(id, q);
         cap(this.quota, 200000);
@@ -1180,8 +1182,11 @@
     plainsDelta(sx, sy) {
       const d = this.drainTo(sx, sy);
       if (!d || !this.isSea(d[0], d[1])) return false;
-      const tau = this.terrain.landscape((sx + 0.5) * S * C, (sy + 0.5) * S * C)[1];
-      return tau > 0.12 && tau < 0.4 && hash01(this.terrain.seed + 13, sx, sy) < PLAINS_DELTA;
+      const cx = (sx + 0.5) * S * C, cy = (sy + 0.5) * S * C;
+      const tau = this.terrain.landscape(cx, cy)[1];
+      // Delta country splits nearly always.
+      const share = PLAINS_DELTA + (1 - PLAINS_DELTA) * this.terrain.regionParams(cx, cy).delta;
+      return tau > 0.12 && tau < 0.4 && hash01(this.terrain.seed + 13, sx, sy) < share;
     }
 
     // Lowest lattice point of a section (where a basin with no outlet collects).
@@ -1310,6 +1315,7 @@
     // Section facts for the info panel.
     sectionInfo(sx, sy) {
       return {
+        regions: this.terrain.regionParams((sx + 0.5) * S * C, (sy + 0.5) * S * C).weights,
         landscape: this.terrain.landscape((sx + 0.5) * S * C, (sy + 0.5) * S * C)[1],
         height: this.sectionHeight(sx, sy),
         sea: this.isSea(sx, sy),

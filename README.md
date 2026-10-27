@@ -27,6 +27,19 @@ et kart som ser naturlig ut, med et enkelt rutenett i bunn.
        steder. Når et platå når havet, blir kysten bratt.
      - *Fjell* (4,5 km): sammenhengende, forgrenede kjeder (ridged-støy). Topper og skar kommer
        fra rygger sentrert om sitt snitt. Fjell kan ligge på et platå eller utenfor.
+   - **Landskapsområder.** Et eget støylag på 100 km (to verdier) plasserer hvert punkt mellom
+     fem områder. Hvert område er et sett innstillinger for lagene over, og innstillingene
+     blandes med myke vekter, så områdene glir over i hverandre:
+     - *Blandet kyst*: harde kyster med klipper, sletter, åser, platåer og fjell.
+     - *Fjordland*: store, høye platåer og fjell, med daler som skjæres ned under havnivå nær
+       kysten og blir fjorder.
+     - *Innsjøland*: lave, myke åser med mange innsjøer, fuktig og mange bekker.
+     - *Deltasletter*: flatt lavland, svært grunt hav og store deltaer.
+     - *Skjærgård*: mange små sund, en grunn sokkel der platåene ligger under vann, og fjell
+       som reiser seg rett fra havet.
+     Områdene styrer også hvor mange kilder seksjonene får, hvor ofte elvene deler seg i
+     deltaer, og fuktigheten. Visningen *Landskapsområde* viser dem, og i menyen kan man velge
+     ett område for hele kartet.
    - **Innstillinger.** Under *Generering → Landskap* stiller man havnivå, overgangen slette |
      åser, platånivå, fjellnivå og landskapsskala. Andelen av hver type vises. Standard er
      omtrent 30 % hav, 25 % slette, 30 % åser, 12 % platå og 2–3 % alpint.
