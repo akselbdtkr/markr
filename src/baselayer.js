@@ -113,30 +113,45 @@
     //
     // n: noise function, L: noise size (m), oct: octaves, dB: level spacing,
     // maxLen: longest step (m), key: offset seed. Returns about normal.
-    stretched(n, x, y, L, oct, dB, maxLen, key) {
+    // The slope frame at a point: the smooth field, its slope and curvature.
+    // Computed once per point and shared by every stretched layer there (the
+    // last one is kept, since the layers ask for the same point in turn).
+    slopeFrame(x, y) {
+      if (this._fr && this._fx === x && this._fy === y) return this._fr;
       const h = 4000, F = (a, b) => this.smoothMix(a, b);
       const B = F(x, y), Bx1 = F(x + h, y), Bx0 = F(x - h, y), By1 = F(x, y + h), By0 = F(x, y - h);
       const gx = (Bx1 - Bx0) / (2 * h), gy = (By1 - By0) / (2 * h), g = Math.hypot(gx, gy);
       // Curvature here. A step longer than about half its radius would fold
-      // neighbouring points onto each other (a crease).
+      // neighbouring points onto each other (a crease). Both curvatures count:
+      // of the level line (points along it pressed together) and of the slope
+      // line (the step turning sideways).
       const bxx = (Bx1 - 2 * B + Bx0) / (h * h), byy = (By1 - 2 * B + By0) / (h * h);
       const bxy = (F(x + h, y + h) - F(x + h, y - h) - F(x - h, y + h) + F(x - h, y - h)) / (4 * h * h);
-      // Both curvatures count: of the level line (points along it pressed
-      // together) and of the slope line (the step turning sideways).
       const kLevel = Math.abs(bxx * gy * gy - 2 * bxy * gx * gy + byy * gx * gx);
       const kSlope = Math.abs((bxx - byy) * gx * gy + bxy * (gy * gy - gx * gx));
-      const kappa = g > 0 ? (kLevel + kSlope) / (g * g * g) : 0;
-      // Near tops and bottoms of the field the slope turns fast: fade out.
-      const fade = S(0.15, 0.5, g / this.typicalSlope());
+      const fr = {
+        x, y, B, g, ax: g > 0 ? gx / g : 1, ay: g > 0 ? gy / g : 0,
+        kappa: g > 0 ? (kLevel + kSlope) / (g * g * g) : 0,
+        // Near tops and bottoms of the field the slope turns fast: fade out.
+        fade: S(0.15, 0.5, g / this.typicalSlope()),
+      };
+      this._fr = fr;
+      this._fx = x;
+      this._fy = y;
+      return fr;
+    }
+
+    // Read noise n stretched along the slope (see above), in frame fr.
+    readStretched(fr, n, L, oct, dB, maxLen, key) {
+      const { x, y, B, g, ax, ay, kappa, fade } = fr;
       const read = (qx, qy, k) => {
         const ox = frac(Math.sin(k * 127.1 + key * 311.7) * 43758.5) * 1000, oy = frac(Math.sin(k * 269.5 + key * 183.3) * 43758.5) * 1000;
         return fbm(n, qx / L + ox, qy / L + oy, oct) / STD[oct];
       };
       if (!(dB > 0) || g < 1e-12) return read(x, y, 0);
-      const ax = gx / g, ay = gy / g, u = B / dB, k = Math.floor(u), f = u - k;
-      // Distance along the slope down to level k and up to level k + 1,
-      // softly capped so flat ground does not throw the point far away.
-      // A soft minimum of the step, maxLen and half the curvature radius: it
+      const u = B / dB, k = Math.floor(u), f = u - k;
+      // Distance along the slope down to level k and up to level k + 1, as a
+      // soft minimum of the step, maxLen and half the curvature radius: it
       // leaves the step untouched well below the limits (so points along the
       // slope still land on the same spot) and bends only near them.
       const lim = kappa > 0 ? Math.min(maxLen, 0.5 / kappa) : maxLen;
@@ -145,6 +160,14 @@
       const n0 = read(x - ax * d0, y - ay * d0, k), n1 = read(x + ax * d1, y + ay * d1, k + 1);
       const w1 = f * f * (3 - 2 * f), w0 = 1 - w1;
       return (w0 * n0 + w1 * n1) / Math.hypot(w0, w1);
+    }
+
+    // n: noise, L: size (m), oct: octaves, stretch: length / size. The step
+    // is valid only while the slope keeps its direction: at most a quarter of
+    // the basin size, and shorter where the field curves.
+    stretched(n, x, y, L, oct, stretch, key) {
+      const len = Math.min(stretch * L, 0.25 * this.p.basinSize * 1000);
+      return this.readStretched(this.slopeFrame(x, y), n, L, oct, stretch > 1 ? len * this.typicalSlope() : 0, len, key);
     }
 
     // Typical slope of the smooth field (per metre), measured once per layer, so the
@@ -165,11 +188,7 @@
 
     // --- middle layer: noise stretched along the slope of the base ------------
     mid(x, y) {
-      // A step is valid only while the slope keeps its direction: at most a
-      // quarter of the basin size, and shorter where the field curves (see
-      // stretched).
-      const p = this.p, Lm = p.midSize * 1000, len = Math.min(p.midStretch * Lm, 0.25 * p.basinSize * 1000);
-      return this.stretched(this.nmid, x, y, Lm, 2, p.midStretch > 1 ? len * this.typicalSlope() : 0, len, 8);
+      return this.stretched(this.nmid, x, y, this.p.midSize * 1000, 2, this.p.midStretch, 8);
     }
 
     // One layer alone, for viewing: fbm layers about normal, straits 0..1.

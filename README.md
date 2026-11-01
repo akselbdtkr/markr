@@ -71,6 +71,19 @@ lokalt terreng. Hvert lag arver fra laget over.
   - Målt strekking (endring på tvers delt på endring langs) er ca. 1,5 med 185 km bredde
     og ca. 1,8 med 60 km.
 
+### Områdelagene (`src/regionlayer.js`, 50–100 km)
+
+Lagene arver høyden og helningen fra grunnlaget, og strekkes langs helningen som
+mellomlaget. Retningen i et punkt regnes én gang og deles av alle strukne lag.
+
+- **Fasthet (0–1):** arves fra grunnlaget, der lavland er løsere enn høyland, pluss eget
+  noise-lag. En S-kurve gir gradvis overgang.
+- **Landskapstype:** slette, åser, platå og fjellsk ligger på én kjede ordnet etter fasthet.
+  Typelaget avgjør hvor i kjeden et område ligger, og fastere grunn og høyere land flytter
+  det videre mot fjellsk. I hvert nabopar gir fastere grunn den neste typen. Typene glir
+  over i hverandre uten faste terskler, og hver har sin farge på kartet.
+- **Fuktighet:** regnes fra type og fasthet. Løse sletter er våte, faste fjell er tørre.
+
 ## Ruteformler
 
 `formel.html` regner rutenettet med lokale formler: én for hver rute (3 × 3 høyder gir

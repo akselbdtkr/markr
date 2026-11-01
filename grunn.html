@@ -44,6 +44,9 @@
     .cell-name { display: flex; flex-direction: column; line-height: 1.2; }
     .type { color: var(--muted); font-size: 11px; }
     .grid input { width: 100%; font: inherit; font-size: 12px; text-align: right; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font-variant-numeric: tabular-nums; }
+    .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
+    .legend span { display: flex; align-items: center; gap: 5px; }
+    .legend i { width: 10px; height: 10px; display: inline-block; }
     .onoff { margin: 0; accent-color: var(--handle); }
     .eye { border: none; background: none; padding: 2px; color: var(--muted); cursor: pointer; display: flex; border-radius: 3px; }
     .eye[aria-pressed="true"] { color: var(--handle); }
@@ -83,12 +86,18 @@
       <summary>Mellomlaget</summary>
       <div id="midlayers" class="grid"></div>
     </details>
+    <details class="sec" open>
+      <summary>Områdelagene</summary>
+      <div id="reglayers" class="grid"></div>
+      <div id="legend" class="legend"></div>
+    </details>
     <div class="seed"><input id="seed" type="number" aria-label="Frø"><button id="reseed">Nytt frø</button></div>
   </aside>
 
   <script>window.Markr = { VERSION: 1 };</script>
   <script src="src/noise.js"></script>
   <script src="src/baselayer.js"></script>
+  <script src="src/regionlayer.js"></script>
   <script src="src/grunn.js"></script>
 </body>
 </html>

@@ -1,4 +1,5 @@
-// Grunnforskyvning: a window onto the base displacement layer alone.
+// Markr grunnlag: a window onto the large layers: the base displacement, the
+// middle layer and the region layers.
 // Visual first: a profile of height against the layer value with a handle for
 // each threshold, one line per noise layer, and a box for the point under the
 // pointer.
@@ -11,26 +12,34 @@
     tSea: -0.55, tHigh: 0.6, tDivide: 1.8,
     lowTop: 260, highTop: 1600, shelf: 320, deep: 3500,
     midSize: 185, midW: 0.9, midStretch: 10, tInland: -0.3,
+    firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1, typeFirm: 0.6, typeHeight: 0.6, regStretch: 3,
     show: 'map',
   };
 
   const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
   const prof = document.getElementById('profile'), pctx = prof.getContext('2d');
   const view = { cx: 0, cy: 0, mpp: 2500 };
-  let layer = null, job = 0, hover = null, hist = null;
+  let layer = null, region = null, job = 0, hover = null, hist = null;
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
   // Layers can be turned off without changing their values: their weight
   // goes to 0, while the normalisation stays as if they were on.
-  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true };
+  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true };
   function newLayer() {
     const p = { ...state, norm: Math.hypot(state.contW, state.basinW, state.baseW) || 1, normCB: Math.hypot(state.contW, state.basinW) || 1 };
     for (const id of ['cont', 'basin', 'base', 's1', 'mid']) if (!on[id]) p[id + 'W'] = 0;
     if (!on.inland) p.tInland = Infinity;
     if (!on.stretch) p.midStretch = 1;
     layer = new M.BaseLayer(state.seed, p);
+    const pr = { ...state };
+    if (!on.firm) pr.firmW = 0;
+    if (!on.regStretch) pr.regStretch = 1;
+    region = new M.RegionLayer(layer, state.seed, pr);
   }
+  // Region at a point (land only), or null.
+  const regionAt = (x, y, v) => (v >= state.tSea ? region.at(x, y, v) : null);
+  const REGION_VIEWS = ['firm', 'moist', 'type'];
   function rebuild() {
     newLayer();
     hist = histogram();
@@ -74,10 +83,31 @@
   function draw(block, W, H, dpr) {
     const nx = Math.ceil(W / block) + 1, ny = Math.ceil(H / block) + 1;
     const hs = new Float32Array(nx * ny), cl = new Uint8Array(nx * ny);
+    // Land colour from the regions: rgb, and 0 none / 1 shaded / 2 flat.
+    const col = new Float32Array(nx * ny * 3), how = new Uint8Array(nx * ny);
+    const setCol = (k, c, mode) => {
+      col[3 * k] = c[0];
+      col[3 * k + 1] = c[1];
+      col[3 * k + 2] = c[2];
+      how[k] = mode;
+    };
     const x0 = view.cx - (W / 2) * view.mpp, y0 = view.cy - (H / 2) * view.mpp, d = block * view.mpp;
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
         const x = x0 + (i + 0.5) * d, y = y0 + (j + 0.5) * d;
+        const k = j * nx + i;
+        if (REGION_VIEWS.includes(state.show)) {
+          // A region layer alone: grey 0..1 on land, or the type colours flat.
+          const v = layer.value(x, y), r = regionAt(x, y, v);
+          if (!r) {
+            cl[k] = 0;
+            continue;
+          }
+          cl[k] = 1;
+          if (state.show === 'type') setCol(k, M.RegionLayer.colour(r.w), 2);
+          else hs[k] = 2400 * r[state.show];
+          continue;
+        }
         if (state.show !== 'map') {
           // One layer alone, as a height-like grey field.
           const val = layer.single(state.show, x, y);
@@ -86,8 +116,9 @@
           continue;
         }
         const v = layer.value(x, y);
-        hs[j * nx + i] = layer.height(v);
-        cl[j * nx + i] = layer.cls(v);
+        hs[k] = layer.height(v);
+        cl[k] = layer.cls(v);
+        if (on.type && cl[k] > 0) setCol(k, M.RegionLayer.colour(regionAt(x, y, v).w), 1);
       }
     }
     const img = ctx.createImageData(canvas.width, canvas.height), px = img.data;
@@ -97,8 +128,13 @@
         const k = j * nx + i, h = hs[k];
         let c;
         if (cl[k] === 0) c = SEA;
+        else if (how[k] === 2) c = [col[3 * k], col[3 * k + 1], col[3 * k + 2]];
         else {
-          c = landColour(h);
+          if (how[k] === 1) {
+            // Type colour, darker with height.
+            const f = 1.06 - 0.45 * Math.sqrt(Math.max(0, Math.min(1, h / 3500)));
+            c = [col[3 * k] * f, col[3 * k + 1] * f, col[3 * k + 2] * f];
+          } else c = landColour(h);
           // A soft light from the north-west.
           const hx = hs[j * nx + Math.min(nx - 1, i + 1)] - hs[j * nx + Math.max(0, i - 1)];
           const hy = hs[Math.min(ny - 1, j + 1) * nx + i] - hs[Math.max(0, j - 1) * nx + i];
@@ -340,11 +376,22 @@
   for (const L of M.BaseLayer.LAYERS) {
     row(baseTable, L.name, L.type, [numInput(L.id + 'Size', 10, 20, 10000), numInput(L.id + 'W', 0.05, 0, 3), eye(L.id, L.name)], L.id);
   }
+  row(baseTable, 'Sundbredde', 'ridged', [null, numInput('s1Width', 0.01, 0.01, 0.8), null]);
   row(baseTable, 'Innland', 'terskel', [null, null, eye('inland', 'Innland')], 'inland');
   const midTable = document.getElementById('midlayers');
   head(midTable);
   row(midTable, 'Mellomlag', 'fbm', [numInput('midSize', 5, 10, 1000), numInput('midW', 0.05, 0, 3), eye('mid', 'Mellomlaget')], 'mid');
   row(midTable, 'Strekking', 'langs helningen', [null, numInput('midStretch', 0.5, 1, 20), null], 'stretch');
+  const regTable = document.getElementById('reglayers');
+  head(regTable);
+  row(regTable, 'Fasthet', 'fbm, strukket', [numInput('firmSize', 5, 10, 1000), numInput('firmW', 0.05, 0, 3), eye('firm', 'Fasthet')], 'firm');
+  row(regTable, 'Arv fra høyden', 'lavland løsere', [null, numInput('firmInherit', 0.05, 0, 3), null]);
+  row(regTable, 'Landskapstype', 'fbm, strukket', [numInput('typeSize', 5, 10, 1000), numInput('typeW', 0.05, 0, 3), eye('type', 'Landskapstype')], 'type');
+  row(regTable, 'Fasthet → type', 'fastere → fjellsk', [null, numInput('typeFirm', 0.05, 0, 3), null]);
+  row(regTable, 'Høyde → type', 'høyere → fjellsk', [null, numInput('typeHeight', 0.05, 0, 3), null]);
+  row(regTable, 'Fuktighet', 'type og fasthet', [null, null, eye('moist', 'Fuktighet')]);
+  row(regTable, 'Strekking', 'langs helningen', [null, numInput('regStretch', 0.5, 1, 20), null], 'regStretch');
+  document.getElementById('legend').innerHTML = M.RegionLayer.TYPES.map((t) => `<span><i style="background:rgb(${t.colour.join(',')})"></i>${t.name}</span>`).join('');
   for (const d of document.querySelectorAll('details.sec')) d.addEventListener('toggle', () => d.open && drawProfile());
 
   // --- the point under the pointer ------------------------------------------
@@ -355,8 +402,14 @@
       box.hidden = true;
       return;
     }
-    const c = hover.cls, col = c === 0 ? SEA : landColour(hover.h);
-    box.innerHTML = `<span class="swatch" style="background:rgb(${col.map((v) => v | 0).join(',')})"></span>${M.BaseLayer.CLASSES[c]}<span class="h">${Math.round(hover.h).toLocaleString('nb-NO')} m</span>`;
+    const c = hover.cls, r = hover.region;
+    let col = c === 0 ? SEA : landColour(hover.h), name = M.BaseLayer.CLASSES[c];
+    if (r && on.type) {
+      const top = r.w.indexOf(Math.max(...r.w));
+      col = M.RegionLayer.TYPES[top].colour;
+      name = `${M.RegionLayer.TYPES[top].name} · ${name}`;
+    }
+    box.innerHTML = `<span class="swatch" style="background:rgb(${col.map((v) => v | 0).join(',')})"></span>${name}<span class="h">${Math.round(hover.h).toLocaleString('nb-NO')} m</span>`;
     box.hidden = false;
     const W = canvas.clientWidth;
     box.style.left = `${Math.min(sx + 14, W - box.offsetWidth - 8)}px`;
@@ -382,6 +435,7 @@
     if (!prev) {
       const x = view.cx + (e.offsetX - W / 2) * view.mpp, y = view.cy + (e.offsetY - H / 2) * view.mpp;
       hover = layer.at(x, y);
+      hover.region = regionAt(x, y, hover.v);
       showPoint(e.offsetX, e.offsetY);
       drawProfile();
       return;
