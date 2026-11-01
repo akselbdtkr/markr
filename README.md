@@ -26,6 +26,23 @@ høydekurvene.
 Målt på frø 1848: avviket fra høydekurvene går fra 24° (rett rutenett) til omtrent 17–18°,
 med 2 brettede ruter. Løst seksjon for seg er sømmene 3–10 m, avhengig av buffer og anker.
 
+## Grunnforskyvning
+
+`grunn.html` viser det største laget alene (`src/baselayer.js`), 100–500 km. Terrenget skal
+bygges lag for lag: grunnforskyvning → mellomlag → områdelag (fasthet, landskapstype,
+nedsenk) → lokalt terreng. Hvert lag arver fra laget over.
+
+- **Verdi:** et stort lag for havbasseng (3 × skala) blandes med grunnlaget, så havet henger
+  sammen i store bassenger i stedet for spredte dammer. Vridning gjør kystene uregelmessige.
+- **Terskler (justerbare):** hav | lavland | høyland | vanndeling. Hav går fra sokkel (−200 m)
+  til dyphav (−5000 m) langt fra kysten. Lavland stiger svakt (til 300 m), høyland til
+  1500 m, og vanndelingen mot 5000 m. Over vanndelingen avgjøres terrenget lokalt senere.
+- **Sund:** ridged noise i to skalaer, store og små sund. De senker bare lavland nær kysten,
+  så de knytter havbassenger sammen og lager øyer og halvøyer, men skjærer aldri gjennom
+  høyland.
+- **Måling:** snitthøyde (mål −100…1500 m), andel av hver klasse og antall sammenhengende
+  havområder, både for hele laget (8000 km) og for utsnittet.
+
 ## Ruteformler
 
 `formel.html` regner rutenettet med lokale formler: én for hver rute (3 × 3 høyder gir
