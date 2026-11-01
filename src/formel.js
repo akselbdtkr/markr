@@ -16,7 +16,7 @@
   ];
   const state = {
     seed: 1848, region: -1, rough: 0.25, startKind: 'rugged', smooth: 32, contour: 10,
-    strength: 1.3, maxRot: 45, blend: 20, sizeAmount: 0.6, edgeSize: 0.6, edgePull: 0.8, sizeSpread: 1, alternate: 1, edgeReach: 0.6, contourFit: 0.5, coastJump: 1, ridgeJump: 1, contourJump: 0.8, narrow: 0.25, secSize: 1, secBudget: 0.25, diagonal: 1, diagBlend: 8, split2: 2.5, split4: 3.6, jumpMix: 1,
+    strength: 1, maxRot: 18, blend: 20, sizeAmount: 0.6, edgeSize: 0.6, edgePull: 0.8, sizeSpread: 1, alternate: 1, edgeReach: 0.6, contourFit: 0.5, coastJump: 1.8, ridgeJump: 1.6, contourJump: 1.4, narrow: 0.25, secSize: 1, secBudget: 0.25,  split2: 2.5, split4: 3.6, jumpMix: 1,
     secStrength: 0.5, jumpSoft: 0, jumpReach: 1, coastBand: 8, coastPull: 1, minCell: 3, lineWeight: 1,
     layer: 'grid', showContours: true, showSections: false,
   };
@@ -92,7 +92,7 @@
 
   function params() {
     const p = { seed: state.seed };
-    for (const k of ['strength', 'maxRot', 'blend', 'sizeAmount', 'edgeSize', 'edgePull', 'split2', 'split4', 'jumpMix', 'secStrength', 'jumpSoft', 'jumpReach', 'sizeSpread', 'alternate', 'edgeReach', 'contourFit', 'coastJump', 'ridgeJump', 'contourJump', 'narrow', 'secSize', 'secBudget', 'diagonal', 'diagBlend', 'coastBand', 'coastPull', 'minCell']) p[k] = state[k];
+    for (const k of ['strength', 'maxRot', 'blend', 'sizeAmount', 'edgeSize', 'edgePull', 'split2', 'split4', 'jumpMix', 'secStrength', 'jumpSoft', 'jumpReach', 'sizeSpread', 'alternate', 'edgeReach', 'contourFit', 'coastJump', 'ridgeJump', 'contourJump', 'narrow', 'secSize', 'secBudget',  'coastBand', 'coastPull', 'minCell']) p[k] = state[k];
     for (const c of CURVES) {
       p[c.id + 'From'] = state[c.id + 'From'];
       p[c.id + 'To'] = state[c.id + 'To'];
@@ -290,18 +290,6 @@
         const align = Math.abs((dx * ca + dy * sa) / l);
         const t = M.scurve(0.9, 1, align) * Math.min(1, (c.followEff ?? 0) * 1.2) * state.lineWeight;
         buckets[Math.min(3, Math.floor(t * 4))].push(A, B);
-      }
-    }
-    // Diagonal lines: where a cell's diagonal lies along the land, it is drawn
-    // too (the line runs corner to corner through the cells).
-    for (const { q, c, part } of quads) {
-      if (part || !(c.followEff > 0.3)) continue;
-      const ca = Math.cos(c.aEff ?? 0), sa = Math.sin(c.aEff ?? 0);
-      for (const [A, B] of [[q[0], q[2]], [q[1], q[3]]]) {
-        const dx = B[0] - A[0], dy = B[1] - A[1], l = Math.hypot(dx, dy);
-        if (l < 1e-6) continue;
-        const t = M.scurve(0.96, 1, Math.abs((dx * ca + dy * sa) / l)) * Math.min(1, c.followEff * 1.2) * state.lineWeight;
-        if (t > 0.25) buckets[Math.min(3, Math.floor(t * 4))].push(A, B);
       }
     }
     buckets.forEach((list, k) => {
@@ -527,8 +515,6 @@
   range('contourFit', (v) => (v ? pct(v) : 'av'), rebuildGrid);
   for (const k of ['coastJump', 'ridgeJump', 'contourJump']) range(k, (v) => `${v.toFixed(2)} rute`, rebuildGrid);
   range('narrow', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
-  range('diagonal', (v) => (v ? pct(v) : 'av'), rebuildGrid);
-  range('diagBlend', (v) => `22,5° ± ${v}°`, rebuildGrid);
   range('secSize', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
   range('secBudget', (v) => `±${Math.round(v * 100)} %`, rebuildGrid);
   range('coastBand', (v) => `±${v} m`, rebuildGrid);

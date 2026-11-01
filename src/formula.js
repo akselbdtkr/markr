@@ -322,39 +322,15 @@
           if (((vb % 2) + 2) % 2 === 0) wR += (fol - wR) * alt;
           if (((va % 2) + 2) % 2 === 0) wC += (fol - wC) * alt;
         }
-        // Diagonals: near 45 degrees a line follows the chain of cells corner to
-        // corner, which already runs at 45 degrees, and only turns by the
-        // difference. Same as rows: a sum along the diagonal from a smooth start
-        // place, and a sawtooth across it (diagonals are 1/sqrt2 apart).
-        let wD = 0, sgnT = 0;
-        for (const c of c4) {
-          const deg = Math.abs(c.theta) * DEG;
-          wD += (c.followEff * S(22.5 - p.diagBlend, 22.5 + p.diagBlend, deg) * (p.diagonal ?? 0)) / 4;
-          sgnT += c.followEff * c.theta;
-        }
-        let ddx = 0, ddy = 0;
-        if (wD > 0.01) {
-          const up = sgnT >= 0; // (1, 1) family, else (1, -1)
-          const d = up ? va - vb : va + vb;
-          const od = originOf(d + 3001), k0 = Math.floor((va - od) / ORIGIN) * ORIGIN + od;
-          let K = 0;
-          for (let x = k0; x < va; x++) {
-            const c = up ? cell(x, x - d) : cell(x, d - x - 1);
-            const dl = up ? c.theta - Math.PI / 4 : c.theta + Math.PI / 4;
-            K += 2 * Math.tan(Math.max(-0.6, Math.min(0.6, dl))) * c.followEff * p.strength;
-          }
-          const dev = sawT(K, Math.min(1, threshold(c4) * (p.jumpReach ?? 1))) * Math.SQRT1_2 * Math.min(1, wD * p.strength * 1.5);
-          // Across the (1, 1) diagonal is (-1, 1)/sqrt2; across (1, -1) is (1, 1)/sqrt2.
-          ddx = (up ? -dev : dev) * Math.SQRT1_2;
-          ddy = dev * Math.SQRT1_2;
-          wR *= 1 - Math.min(1, wD * 1.5);
-          wC *= 1 - Math.min(1, wD * 1.5);
-        }
-        // At a threshold of one cell the rows reach ±0.5, so a row ends where
-        // the next one begins: the line carries on unbroken.
-        const T = Math.min(1, threshold(c4) * (p.jumpReach ?? 1));
+        // The threshold T (cells) is how far a row may move off its place before
+        // it hands the line on: up to two cells. Neighbouring rows follow nearly
+        // parallel contours from nearly the same start, so they move together;
+        // where they still squeeze each other at a jump, the cells there get
+        // smaller or are merged by the cell checks. Sides, never diagonals,
+        // follow the line.
+        const T = Math.min(2, threshold(c4) * (p.jumpReach ?? 1));
         const devR = sawT(I, T), devC = sawT(J, T);
-        let dy = devR * Math.min(1, wR * p.strength) + ddy, dx = devC * Math.min(1, wC * p.strength) + ddx;
+        let dy = devR * Math.min(1, wR * p.strength), dx = devC * Math.min(1, wC * p.strength);
         // Smaller cells at the jump: the closer the row is to its threshold, the
         // further its vertex moves along the row toward the jump, so the cells on
         // both sides of a jump are narrower. Also local.
@@ -395,8 +371,9 @@
             dy += p.coastPull * (sy - dy);
           }
         }
-        dx = Math.max(-0.5, Math.min(0.5, dx));
-        dy = Math.max(-0.5, Math.min(0.5, dy));
+        const lim = Math.max(0.5, T / 2);
+        dx = Math.max(-lim, Math.min(lim, dx));
+        dy = Math.max(-lim, Math.min(lim, dy));
         const [sx, sy] = sectionShift(va, vb);
         X[b * row + a] = va + dx + sx;
         Y[b * row + a] = vb + dy + sy;
@@ -424,7 +401,7 @@
     const len = (q, r) => Math.hypot(X[r] - X[q], Y[r] - Y[q]);
     const counts = { triangle: 0, line: 0, point: 0 };
     const state = new Uint8Array(n * n); // 0 whole, 3 triangle, 2 line, 1 point
-    for (let round = 0; round < 8; round++) {
+    for (let round = 0; round < 24; round++) {
       let changed = false;
       for (let b = 0; b < n; b++) {
         for (let a = 0; a < n; a++) {
