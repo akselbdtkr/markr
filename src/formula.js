@@ -213,6 +213,11 @@
       if (f <= 0) return u - 0.5;
       return u < 1 - f ? -0.5 + u / (1 - f) : 0.5 - (u - (1 - f)) / f;
     };
+    // Rivers: from the cells already worked out, over the map and its margin.
+    const net = p.rivers && M.riverNet
+      ? M.riverNet(H, (i, j) => cells[at(i, j)], (i, j, h) => (p.moisture ? p.moisture((i + 0.5) * C, (j + 0.5) * C, h) : 0.5), i0 - MG + 1, j0 - MG + 1, n + 2 * MG - 2, p)
+      : null;
+
     // Height and slope at a vertex: from the four cells around it.
     const Hv = (va, vb) => (H(va - 1, vb - 1) + H(va, vb - 1) + H(va - 1, vb) + H(va, vb)) / 4;
     const Gv = (va, vb) => [
@@ -374,6 +379,20 @@
         const lim = Math.max(0.5, T / 2);
         dx = Math.max(-lim, Math.min(lim, dx));
         dy = Math.max(-lim, Math.min(lim, dy));
+        // Rivers pull the grid toward their course: within the river's width and
+        // a reach that grows with loose ground, the vertex moves a share of the
+        // way to the nearest point of the river. Loose ground bends more.
+        if (net) {
+          const nr = net.nearest(va, vb, 3);
+          if (nr) {
+            const reach = nr.pt.width / C / 2 + 0.5 + 1.5 * (1 - nr.pt.firm);
+            if (nr.d < reach) {
+              const f = p.riverPull * (0.4 + 0.6 * (1 - nr.pt.firm)) * (1 - nr.d / reach);
+              dx += f * (nr.pt.x - va - dx);
+              dy += f * (nr.pt.y - vb - dy);
+            }
+          }
+        }
         const [sx, sy] = sectionShift(va, vb);
         X[b * row + a] = va + dx + sx;
         Y[b * row + a] = vb + dy + sy;
@@ -487,7 +506,17 @@
     for (let sj = Math.floor(j0 / SECTION); sj < Math.ceil((j0 + n) / SECTION); sj++) {
       for (let si = Math.floor(i0 / SECTION); si < Math.ceil((i0 + n) / SECTION); si++) sections.push(Object.assign({ si, sj, scale: p.secSize ? secScale(si, sj) : 0 }, section(si, sj)));
     }
-    return { X, Y, row, N: n, i0, j0, cells: cellsOut, jumps, counts, sections, time: performance.now() - t0 };
+    if (net) {
+      for (let b = 0; b < n; b++) {
+        for (let a = 0; a < n; a++) {
+          const c = cellsOut[b * n + a], i = i0 + a, j = j0 + b;
+          c.firm = net.firmAt(i, j);
+          c.lake = net.lakeAt(i, j);
+          c.acc = net.accAt(i, j);
+        }
+      }
+    }
+    return { X, Y, row, N: n, i0, j0, cells: cellsOut, jumps, counts, sections, net, time: performance.now() - t0 };
   }
 
   M.cellFormula = cellFormula;

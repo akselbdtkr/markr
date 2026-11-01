@@ -12,19 +12,21 @@
     { id: 'follow', label: 'Følge høydekurvene', unit: '° helning', min: 0, max: 40, step: 0.5, from: 3, to: 12, hint: 'Hvor bratt det må være før rutene roterer etter kurvene.' },
     { id: 'edge', label: 'Egg eller dal', unit: ' m forskjell', min: 0, max: 12, step: 0.25, from: 1, to: 4, hint: 'Hvor mye lavere (egg) eller høyere (dal) naboene langs kurven må ligge.' },
     { id: 'sec', label: 'Seksjonens retning', unit: '° helning', min: 0, max: 30, step: 0.5, from: 1, to: 6, hint: 'Hvor bratt seksjonen som helhet må være før den roterer rutene sine.' },
+    { id: 'source', label: 'Vassdrag oppstår i daler', unit: '° helning', min: 0, max: 50, step: 0.5, from: 8, to: 16, hint: 'Hvor bratt dalen må være der et vassdrag springer ut.' },
     { id: 'size', label: 'Mindre ruter i bratt', unit: '° helning', min: 0, max: 70, step: 1, from: 25, to: 50, hint: 'Hvor bratt det må være før rutene krymper.' },
   ];
   const state = {
     seed: 1848, region: -1, rough: 0.25, startKind: 'rugged', smooth: 32, contour: 10,
     strength: 1, maxRot: 18, blend: 20, sizeAmount: 0.6, edgeSize: 0.6, edgePull: 0.8, sizeSpread: 1, alternate: 1, edgeReach: 0.6, contourFit: 0.5, coastJump: 1.8, ridgeJump: 1.6, contourJump: 1.4, narrow: 0.25, secSize: 1, secBudget: 0.25,  split2: 2.5, split4: 3.6, jumpMix: 1,
     secStrength: 0.5, jumpSoft: 0, jumpReach: 1, coastBand: 8, coastPull: 1, minCell: 3, lineWeight: 1,
+    rivers: true, firmLow: 0, firmHigh: 600, width: 1.5, maxWidth: 30, meander: 3, incise: 2, riverPull: 0.6, lakeDepth: 1, sourceSpacing: 6,
     layer: 'grid', showContours: true, showSections: false,
   };
   for (const c of CURVES) {
     state[c.id + 'From'] = c.from;
     state[c.id + 'To'] = c.to;
   }
-  let terrain, field, grid, start, view = { scale: 1, ox: 0, oy: 0 }, bg = null, contours = null, hover = null, quads = [];
+  let baseTerrain, terrain, field, grid, start, view = { scale: 1, ox: 0, oy: 0 }, bg = null, contours = null, hover = null, quads = [];
   const toScreen = (x, y) => [x * view.scale + view.ox, y * view.scale + view.oy];
   const toWorld = (sx, sy) => [(sx - view.ox) / view.scale, (sy - view.oy) / view.scale];
   const N = 64;
@@ -33,6 +35,7 @@
 
   function newTerrain() {
     const base = new M.Terrain(state.seed, { region: state.region });
+    baseTerrain = base;
     const { createPerlin, fbm, ridged } = M.noise;
     const nR = createPerlin(state.seed * 31 + 5), nP = createPerlin(state.seed * 31 + 6);
     terrain = {
@@ -93,6 +96,8 @@
   function params() {
     const p = { seed: state.seed };
     for (const k of ['strength', 'maxRot', 'blend', 'sizeAmount', 'edgeSize', 'edgePull', 'split2', 'split4', 'jumpMix', 'secStrength', 'jumpSoft', 'jumpReach', 'sizeSpread', 'alternate', 'edgeReach', 'contourFit', 'coastJump', 'ridgeJump', 'contourJump', 'narrow', 'secSize', 'secBudget',  'coastBand', 'coastPull', 'minCell']) p[k] = state[k];
+    for (const k of ['rivers', 'firmLow', 'firmHigh', 'width', 'maxWidth', 'meander', 'incise', 'riverPull', 'lakeDepth', 'sourceSpacing']) p[k] = state[k];
+    p.moisture = (x, y, h) => baseTerrain.moisture(x, y, h);
     for (const c of CURVES) {
       p[c.id + 'From'] = state[c.id + 'From'];
       p[c.id + 'To'] = state[c.id + 'To'];
@@ -148,7 +153,9 @@
     kinds.coast = 0;
     for (const c of grid.cells) if ((c.edge > 0.5 || c.kind === 'coast') && kinds[c.kind] !== undefined) kinds[c.kind]++;
     for (const c of grid.cells) if (c.kind === 'peak' || c.kind === 'pit') kinds[c.kind]++;
+    const net = grid.net;
     const rows = [
+      ['Vassdrag', net ? `${net.rivers.length} løp, ${net.sources.length} kilder, ${net.lakes} innsjøruter` : 'av'],
       ['Brettede ruter', `${folds}`],
       ['Hopp langs radene', `${grid.jumps}`],
       ['Delt', `${grid.s2} i to, ${grid.s4} i fire`],
@@ -252,6 +259,16 @@
     ctx.drawImage(img, bx, by, img.width * field.res * view.scale, img.height * field.res * view.scale);
 
     // Filled cells: the terrain colour and shading at each cell's centre.
+    if (state.layer === 'firm') {
+      for (const { q, c } of quads) {
+        const f = c.firm ?? 0.5;
+        poly(q);
+        ctx.fillStyle = ctx.strokeStyle = rgb(mix([196, 160, 110], [90, 96, 110], f));
+        ctx.lineWidth = 1;
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
     if (state.layer === 'filled' || state.layer === 'kinds') {
       for (const { q, c } of quads) {
         const cx = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4, cy = (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4;
@@ -268,6 +285,36 @@
         ctx.lineWidth = 1;
         ctx.fill();
         ctx.stroke();
+      }
+    }
+    // Lakes and rivers.
+    if (grid.net) {
+      ctx.fillStyle = 'rgba(70,130,190,0.8)';
+      for (const { q, c } of quads) {
+        if (!c.lake) continue;
+        poly(q);
+        ctx.fill();
+      }
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const rv of grid.net.rivers) {
+        const L = rv.line;
+        for (let k = 1; k < L.length; k++) {
+          const [ax, ay] = toScreen(L[k - 1].x * C, L[k - 1].y * C), [bx, by] = toScreen(L[k].x * C, L[k].y * C);
+          ctx.strokeStyle = `rgba(40,110,190,${0.55 + 0.4 * Math.min(1, L[k].depth / 10)})`;
+          ctx.lineWidth = Math.max(1.2, L[k].width * view.scale);
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
+        }
+      }
+      ctx.fillStyle = 'rgba(20,70,150,0.95)';
+      for (const [i, j] of grid.net.sources) {
+        const [x, y] = toScreen((i + 0.5) * C, (j + 0.5) * C);
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
     if (state.showContours) {
@@ -397,6 +444,8 @@
       ['Type', kind],
       ['Forskjell langs kurven', `${r(c.d2 || 0, 1)} m`],
       ['Ønsket størrelse', `${r(c.size * 100)} %`],
+      ['Fasthet', c.firm !== undefined ? `${r(c.firm * 100)} %${c.lake ? ', innsjø' : ''}` : '–'],
+      ['Nedbørfelt', c.acc ? `${r(c.acc)} ruter (${r((c.acc * C * C) / 10000, 1)} ha)` : '–'],
       ['Deling', c.collapse ? ['', 'slått sammen til punkt', 'slått sammen til linje', 'slått sammen til trekant'][c.collapse] : c.split ? `i ${c.split}` : 'ingen'],
     ];
     $('cell').innerHTML = '<dl>' + rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('') + '</dl>';
@@ -506,6 +555,11 @@
   range('strength', (v) => v.toFixed(2), rebuildGrid);
   range('maxRot', (v) => `${v}°`, rebuildGrid);
   range('sizeAmount', pct, rebuildGrid);
+  range('width', (v) => v.toFixed(1), rebuildGrid);
+  range('meander', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
+  range('riverPull', (v) => (v ? pct(v) : 'av'), rebuildGrid);
+  range('lakeDepth', (v) => `${v} m`, rebuildGrid);
+  range('firmHigh', (v) => `${v} moh.`, rebuildGrid);
   range('secStrength', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
   range('jumpSoft', (v) => (v ? pct(v) : 'brå'), rebuildGrid);
   range('jumpReach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
