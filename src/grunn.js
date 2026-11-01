@@ -1,63 +1,47 @@
 // Grunnforskyvning: a window onto the base displacement layer alone.
+// Visual first: a profile of height against the layer value with a handle for
+// each threshold, one line per noise layer, and a box for the point under the
+// pointer.
 (function (M) {
   'use strict';
 
-  const CONTROLS = [
-    { id: 'scale', label: 'Skala', min: 100, max: 500, step: 10, def: 250, fmt: (v) => `${v} km` },
-    { id: 'offset', label: 'Forskyvning (mer land →)', min: -1.5, max: 1.5, step: 0.05, def: 0.25, fmt: (v) => v.toFixed(2) },
-    { id: 'basin', label: 'Havbasseng, størrelse', min: 1, max: 5, step: 0.1, def: 3, fmt: (v) => `× ${v.toFixed(1)}` },
-    { id: 'basinW', label: 'Havbasseng, vekt', min: 0, max: 1, step: 0.05, def: 0.7, fmt: (v) => v.toFixed(2) },
-    { id: 'warp', label: 'Vridning av kystene', min: 0, max: 0.8, step: 0.05, def: 0.2, fmt: (v) => v.toFixed(2) },
-    { group: 'Terskler' },
-    { id: 'tSea', label: 'Hav under', min: -1.5, max: 1, step: 0.05, def: 0, fmt: (v) => v.toFixed(2) },
-    { id: 'tHigh', label: 'Høyland over', min: -0.5, max: 2, step: 0.05, def: 0.8, fmt: (v) => v.toFixed(2) },
-    { id: 'tDivide', label: 'Vanndeling over', min: 0, max: 3, step: 0.05, def: 1.6, fmt: (v) => v.toFixed(2) },
-    { group: 'Høyder' },
-    { id: 'lowTop', label: 'Lavland stiger til', min: 50, max: 800, step: 10, def: 300, fmt: (v) => `${v} m` },
-    { id: 'highTop', label: 'Høyland stiger til', min: 400, max: 3000, step: 50, def: 1500, fmt: (v) => `${v} m` },
-    { id: 'shelf', label: 'Sokkel', min: 20, max: 600, step: 10, def: 200, fmt: (v) => `−${v} m` },
-    { id: 'deep', label: 'Dyphav', min: 1000, max: 5000, step: 100, def: 5000, fmt: (v) => `−${v} m` },
-    { group: 'Sund' },
-    { id: 's1', label: 'Store sund, styrke', min: 0, max: 1.5, step: 0.05, def: 1, fmt: (v) => (v ? v.toFixed(2) : 'av') },
-    { id: 'w1', label: 'Store sund, bredde', min: 0.02, max: 0.3, step: 0.01, def: 0.06, fmt: (v) => v.toFixed(2) },
-    { id: 's2', label: 'Små sund, styrke', min: 0, max: 1.5, step: 0.05, def: 0.8, fmt: (v) => (v ? v.toFixed(2) : 'av') },
-    { id: 'w2', label: 'Små sund, bredde', min: 0.02, max: 0.3, step: 0.01, def: 0.06, fmt: (v) => v.toFixed(2) },
-  ];
+  const state = {
+    seed: 1848, scale: 240,
+    cont: 0.7, basin: 0.5, base: 0.5, s1: 0.65, s2: 1.05, warp: 0.15,
+    w1: 0.26, w2: 0.2,
+    tSea: -0.55, tHigh: 0.6, tDivide: 1.8,
+    lowTop: 260, highTop: 1600, shelf: 320, deep: 3500,
+  };
+  const LAYER_MAX = { cont: 1, basin: 1, base: 1, s1: 1.5, s2: 1.5, warp: 0.6 };
 
-  const state = { seed: 1848, shade: true, lines: true };
-  for (const c of CONTROLS) if (c.id) state[c.id] = c.def;
-
-  const canvas = document.getElementById('map');
-  const ctx = canvas.getContext('2d');
-  // View: centre in metres, metres per CSS pixel.
+  const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
+  const prof = document.getElementById('profile'), pctx = prof.getContext('2d');
   const view = { cx: 0, cy: 0, mpp: 2500 };
-  let layer = null, job = 0, hover = null;
+  let layer = null, job = 0, hover = null, hist = null;
 
-  const rebuild = () => {
-    const p = {};
-    for (const c of CONTROLS) if (c.id) p[c.id] = state[c.id];
-    p.tHigh = Math.max(p.tHigh, p.tSea + 0.05);
-    p.tDivide = Math.max(p.tDivide, p.tHigh + 0.05);
-    layer = new M.BaseLayer(state.seed, p);
-    measureReference();
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  function newLayer() {
+    layer = new M.BaseLayer(state.seed, { ...state });
+  }
+  function rebuild() {
+    newLayer();
+    hist = histogram();
+    drawProfile();
     render();
+  }
+
+  // --- colours: blue sea, one grey ramp over land, dashed divide outline ----
+
+  const SEA = [61, 111, 168];
+  const landColour = (h) => {
+    const t = Math.sqrt(Math.max(0, Math.min(1, h / 3500)));
+    const c = 232 - 160 * t;
+    return [c, c - 2, c - 6];
   };
 
-  // Colours: blue by depth, then green, brown, grey, white.
-  const SEA = [[0, [150, 200, 225]], [200, [110, 170, 210]], [1000, [60, 120, 180]], [5000, [20, 45, 95]]];
-  const LAND = [[0, [120, 165, 95]], [300, [170, 185, 110]], [900, [175, 150, 105]], [1500, [140, 120, 100]], [2500, [150, 145, 140]], [4000, [240, 240, 240]]];
-  const ramp = (stops, t) => {
-    if (t <= stops[0][0]) return stops[0][1];
-    for (let k = 1; k < stops.length; k++) {
-      if (t <= stops[k][0]) {
-        const [a, ca] = stops[k - 1], [b, cb] = stops[k], f = (t - a) / (b - a);
-        return [ca[0] + (cb[0] - ca[0]) * f, ca[1] + (cb[1] - ca[1]) * f, ca[2] + (cb[2] - ca[2]) * f];
-      }
-    }
-    return stops[stops.length - 1][1];
-  };
+  // --- map -----------------------------------------------------------------
 
-  // Render in passes: coarse blocks first, then sharper.
   function render() {
     const id = ++job;
     const dpr = window.devicePixelRatio || 1;
@@ -66,16 +50,15 @@
     canvas.height = Math.round(H * dpr);
     const passes = [8, 3, 1.5];
     let k = 0;
+    M.grunn.done = false;
     const step = () => {
       if (id !== job) return;
       const t0 = performance.now();
       draw(passes[k], W, H, dpr);
       M.grunn.lastPass = { block: passes[k], ms: performance.now() - t0 };
-      measureView();
       if (++k < passes.length) requestAnimationFrame(step);
       else M.grunn.done = true;
     };
-    M.grunn.done = false;
     step();
   }
 
@@ -91,20 +74,22 @@
       }
     }
     const img = ctx.createImageData(canvas.width, canvas.height), px = img.data;
-    const bs = block * dpr;
+    const bs = block * dpr, dash = Math.max(3, 7 / block); // dash length in blocks
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
         const k = j * nx + i, h = hs[k];
-        let c = h < 0 ? ramp(SEA, -h) : ramp(LAND, h);
-        if (state.shade && h > 0) {
+        let c;
+        if (cl[k] === 0) c = SEA;
+        else {
+          c = landColour(h);
+          // A soft light from the north-west.
           const hx = hs[j * nx + Math.min(nx - 1, i + 1)] - hs[j * nx + Math.max(0, i - 1)];
           const hy = hs[Math.min(ny - 1, j + 1) * nx + i] - hs[Math.max(0, j - 1) * nx + i];
-          const sh = Math.max(-0.35, Math.min(0.35, (-(hx + hy) / (4 * d)) * 12));
+          const sh = Math.max(-0.2, Math.min(0.2, (-(hx + hy) / (4 * d)) * 8));
           c = [c[0] * (1 + sh), c[1] * (1 + sh), c[2] * (1 + sh)];
-        }
-        // Threshold lines: where the class changes to the right or below.
-        if (state.lines && cl[k] > 0 && ((i + 1 < nx && cl[k + 1] !== cl[k]) || (j + 1 < ny && cl[k + nx] !== cl[k]))) {
-          c = cl[k] === 1 ? [70, 90, 60] : [90, 60, 40];
+          // The divide field: a dashed outline.
+          const edge = (cl[k] === 3) !== ((i + 1 < nx && cl[k + 1] === 3) || false) || (cl[k] === 3) !== ((j + 1 < ny && cl[k + nx] === 3) || false);
+          if (edge && Math.floor((i + j) / dash) % 2 === 0) c = [40, 40, 44];
         }
         const sx0 = Math.floor(i * bs), sy0 = Math.floor(j * bs);
         const sx1 = Math.min(canvas.width, Math.floor((i + 1) * bs)), sy1 = Math.min(canvas.height, Math.floor((j + 1) * bs));
@@ -120,16 +105,14 @@
       }
     }
     ctx.putImageData(img, 0, 0);
-    // Scale bar.
+    // Scale bar, no box.
     ctx.save();
     ctx.scale(dpr, dpr);
-    const km = niceKm(150 * view.mpp / 1000), len = (km * 1000) / view.mpp;
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.fillRect(12, H - 34, len + 16, 24);
-    ctx.fillStyle = '#222';
-    ctx.fillRect(20, H - 18, len, 3);
+    const km = niceKm((120 * view.mpp) / 1000), len = (km * 1000) / view.mpp;
+    ctx.fillStyle = 'rgba(20,20,24,0.8)';
+    ctx.fillRect(16, H - 20, len, 3);
     ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText(`${km} km`, 20, H - 22);
+    ctx.fillText(`${km} km`, 16, H - 26);
     ctx.restore();
   }
   const niceKm = (v) => {
@@ -137,148 +120,204 @@
     return (f < 2 ? 1 : f < 5 ? 2 : 5) * e;
   };
 
-  // Measurement over a grid: mean, extremes, class shares, connected seas.
-  function measure(x0, y0, span, n) {
-    const d = span / n, cls = new Uint8Array(n * n);
-    let sum = 0, lo = Infinity, hi = -Infinity;
-    const share = [0, 0, 0, 0];
+  // --- profile: height against v, with the share of land at each v behind ---
+
+  const VMIN = -3, VMAX = 3.5, BINS = 65;
+  function histogram() {
+    const n = 140, span = 8e6, d = span / n, bins = new Float32Array(BINS);
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < n; i++) {
-        const v = layer.value(x0 + (i + 0.5) * d, y0 + (j + 0.5) * d), h = layer.height(v), c = layer.cls(v);
-        sum += h;
-        lo = Math.min(lo, h);
-        hi = Math.max(hi, h);
-        share[c]++;
-        cls[j * n + i] = c;
+        const v = layer.value(-span / 2 + (i + 0.5) * d, -span / 2 + (j + 0.5) * d);
+        const b = Math.floor(((v - VMIN) / (VMAX - VMIN)) * BINS);
+        if (b >= 0 && b < BINS) bins[b]++;
       }
     }
-    // Connected seas (4-neighbours).
-    const lab = new Int32Array(n * n).fill(-1), sizes = [];
-    for (let s = 0; s < n * n; s++) {
-      if (cls[s] !== 0 || lab[s] >= 0) continue;
-      const id = sizes.length, stack = [s];
-      lab[s] = id;
-      let size = 0;
-      while (stack.length) {
-        const q = stack.pop(), qi = q % n, qj = (q - qi) / n;
-        size++;
-        for (const [a, b] of [[qi + 1, qj], [qi - 1, qj], [qi, qj + 1], [qi, qj - 1]]) {
-          if (a < 0 || b < 0 || a >= n || b >= n) continue;
-          const r = b * n + a;
-          if (cls[r] === 0 && lab[r] < 0) {
-            lab[r] = id;
-            stack.push(r);
-          }
-        }
+    return bins;
+  }
+
+  const PAD = 8, RAIL = 22;
+  const geom = () => {
+    const W = prof.clientWidth, H = prof.clientHeight;
+    return { W, H, plotH: H - RAIL, X: (v) => PAD + ((v - VMIN) / (VMAX - VMIN)) * (W - 2 * PAD), V: (x) => VMIN + ((x - PAD) / (W - 2 * PAD)) * (VMAX - VMIN) };
+  };
+  // Height axis: square root, so lowland shows beside 5000 m.
+  const Yof = (h, plotH) => plotH / 2 - Math.sign(h) * Math.sqrt(Math.abs(h) / 5000) * (plotH / 2 - 6);
+  const THRESHOLDS = ['tSea', 'tHigh', 'tDivide'];
+
+  function drawProfile() {
+    const dpr = window.devicePixelRatio || 1, g = geom();
+    prof.width = Math.round(g.W * dpr);
+    prof.height = Math.round(g.H * dpr);
+    pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    pctx.clearRect(0, 0, g.W, g.H);
+    const ink = css('--text'), muted = css('--muted'), accent = css('--handle');
+    // Share of the map at each value, coloured as on the map.
+    if (hist) {
+      const max = Math.max(...hist), bw = (g.W - 2 * PAD) / BINS;
+      for (let b = 0; b < BINS; b++) {
+        const v = VMIN + ((b + 0.5) / BINS) * (VMAX - VMIN), c = layer.cls(v);
+        const hgt = (hist[b] / max) * (g.plotH - 4);
+        const col = c === 0 ? SEA : landColour(layer.height(v));
+        pctx.fillStyle = `rgba(${col[0] | 0},${col[1] | 0},${col[2] | 0},0.75)`;
+        pctx.fillRect(PAD + b * bw, g.plotH - hgt, bw + 0.5, hgt);
       }
-      sizes.push(size);
     }
-    sizes.sort((a, b) => b - a);
-    const seaN = share[0];
-    return {
-      mean: sum / (n * n), lo, hi,
-      share: share.map((s) => s / (n * n)),
-      seas: sizes.length,
-      largestSea: seaN ? sizes[0] / seaN : 0,
+    // Sea level.
+    pctx.strokeStyle = muted;
+    pctx.setLineDash([2, 3]);
+    pctx.lineWidth = 1;
+    pctx.beginPath();
+    pctx.moveTo(PAD, Yof(0, g.plotH));
+    pctx.lineTo(g.W - PAD, Yof(0, g.plotH));
+    pctx.stroke();
+    pctx.setLineDash([]);
+    // The profile.
+    pctx.strokeStyle = ink;
+    pctx.lineWidth = 2;
+    pctx.beginPath();
+    for (let x = PAD; x <= g.W - PAD; x++) {
+      const y = Yof(layer.height(g.V(x)), g.plotH);
+      x === PAD ? pctx.moveTo(x, y) : pctx.lineTo(x, y);
+    }
+    pctx.stroke();
+    // Threshold streaks and their square handles on the rail.
+    for (const t of THRESHOLDS) {
+      const x = Math.round(g.X(state[t])) + 0.5;
+      pctx.strokeStyle = accent;
+      pctx.lineWidth = 1;
+      pctx.beginPath();
+      pctx.moveTo(x, 0);
+      pctx.lineTo(x, g.H - 6);
+      pctx.stroke();
+      pctx.fillStyle = accent;
+      pctx.fillRect(x - 6, g.H - 16, 12, 12);
+    }
+    // The point under the pointer.
+    if (hover) {
+      const x = g.X(hover.v), y = Yof(hover.h, g.plotH);
+      pctx.fillStyle = ink;
+      pctx.beginPath();
+      pctx.arc(x, y, 4, 0, 2 * Math.PI);
+      pctx.fill();
+    }
+  }
+
+  // Drag a threshold: grab the nearest streak.
+  let dragT = null;
+  prof.addEventListener('pointerdown', (e) => {
+    const g = geom();
+    let best = null, bd = 14;
+    for (const t of THRESHOLDS) {
+      const d = Math.abs(g.X(state[t]) - e.offsetX);
+      if (d < bd) {
+        bd = d;
+        best = t;
+      }
+    }
+    if (!best) return;
+    dragT = best;
+    prof.setPointerCapture(e.pointerId);
+  });
+  prof.addEventListener('pointermove', (e) => {
+    const g = geom();
+    prof.style.cursor = THRESHOLDS.some((t) => Math.abs(g.X(state[t]) - e.offsetX) < 14) || dragT ? 'ew-resize' : 'default';
+    if (!dragT) return;
+    setThreshold(dragT, g.V(e.offsetX));
+  });
+  const endDrag = () => {
+    if (dragT) later(rebuild);
+    dragT = null;
+  };
+  prof.addEventListener('pointerup', endDrag);
+  prof.addEventListener('pointercancel', endDrag);
+  function setThreshold(t, v) {
+    const gap = 0.05, k = THRESHOLDS.indexOf(t);
+    const lo = k > 0 ? state[THRESHOLDS[k - 1]] + gap : VMIN, hi = k < 2 ? state[THRESHOLDS[k + 1]] - gap : VMAX;
+    state[t] = Math.round(Math.max(lo, Math.min(hi, v)) * 100) / 100;
+    newLayer();
+    drawProfile();
+    later(rebuild, 250);
+  }
+  // Keyboard: focus the profile, Tab-free: arrows move the selected handle.
+  let keyT = 0;
+  prof.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') return;
+    if (e.key === ' ' || e.key === 'Enter') keyT = (keyT + 1) % 3;
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') setThreshold(THRESHOLDS[keyT], state[THRESHOLDS[keyT]] + (e.key === 'ArrowLeft' ? -0.05 : 0.05));
+    else return;
+    e.preventDefault();
+  });
+
+  // --- one line per layer: a streak with a square handle for its weight -----
+
+  function lineSlider(el, get, set, max) {
+    const track = document.createElement('div'), knob = document.createElement('div');
+    track.className = 'track';
+    knob.className = 'knob';
+    knob.tabIndex = 0;
+    track.appendChild(knob);
+    el.appendChild(track);
+    const place = () => (knob.style.left = `${(get() / max) * 100}%`);
+    const from = (e) => {
+      const r = track.getBoundingClientRect();
+      set(Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * max * 100) / 100);
+      place();
     };
+    let on = false;
+    track.addEventListener('pointerdown', (e) => {
+      on = true;
+      track.setPointerCapture(e.pointerId);
+      from(e);
+    });
+    track.addEventListener('pointermove', (e) => on && from(e));
+    track.addEventListener('pointerup', () => (on = false));
+    knob.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      set(Math.max(0, Math.min(max, Math.round((get() + (e.key === 'ArrowLeft' ? -0.05 : 0.05) * max) * 100) / 100)));
+      place();
+      e.preventDefault();
+    });
+    place();
   }
 
-  const fmtM = (v) => `${Math.round(v).toLocaleString('nb-NO')} m`;
-  const pctS = (v) => `${Math.round(v * 100)} %`;
-  function statsHtml(s, warn) {
-    const ok = s.mean >= -100 && s.mean <= 1500;
-    return `<dl>
-      <dt>Snitthøyde</dt><dd${warn && !ok ? ' class="warn"' : ''}>${fmtM(s.mean)}${warn && !ok ? ' (utenfor −100…1500)' : ''}</dd>
-      <dt>Lavest / høyest</dt><dd>${fmtM(s.lo)} / ${fmtM(s.hi)}</dd>
-      ${BaseLayerClasses().map((n, k) => `<dt>${n[0].toUpperCase() + n.slice(1)}</dt><dd>${pctS(s.share[k])}</dd>`).join('')}
-      <dt>Havområder</dt><dd>${s.seas}, største ${pctS(s.largestSea)} av havet</dd>
-    </dl>`;
-  }
-  const BaseLayerClasses = () => M.BaseLayer.CLASSES;
-
-  function measureReference() {
-    const t0 = performance.now();
-    const s = measure(-4e6, -4e6, 8e6, 200);
-    M.grunn.reference = s;
-    document.getElementById('ref').innerHTML = statsHtml(s, true) + `<p class="hint">8000 × 8000 km, 200 × 200 prøver, ${Math.round(performance.now() - t0)} ms</p>`;
-  }
-  function measureView() {
-    const W = canvas.clientWidth, H = canvas.clientHeight, span = Math.min(W, H) * view.mpp;
-    const s = measure(view.cx - span / 2, view.cy - span / 2, span, 100);
-    M.grunn.view = s;
-    document.getElementById('viewstats').innerHTML = statsHtml(s, false);
+  const list = document.getElementById('layers');
+  for (const L of M.BaseLayer.LAYERS) {
+    const row = document.createElement('div'), head = document.createElement('div');
+    row.className = 'layer';
+    head.className = 'layer-head';
+    const km = Math.round(L.size * state.scale);
+    head.innerHTML = `<span>${L.name}</span><span class="type">${L.type}${L.type !== 'warp' ? ` · ${km.toLocaleString('nb-NO')} km` : ''}</span>`;
+    row.appendChild(head);
+    lineSlider(row, () => state[L.id], (v) => {
+      state[L.id] = v;
+      later(rebuild, 200);
+    }, LAYER_MAX[L.id]);
+    list.appendChild(row);
   }
 
-  function showHover() {
-    const el = document.getElementById('hover');
+  // --- the point under the pointer ------------------------------------------
+
+  const box = document.getElementById('pointbox');
+  function showPoint(sx, sy) {
     if (!hover) {
-      el.innerHTML = '<span class="muted">Pek på kartet.</span>';
+      box.hidden = true;
       return;
     }
-    const [x, y] = hover, r = layer.at(x, y);
-    el.innerHTML = `<dl>
-      <dt>Posisjon</dt><dd>${Math.round(x / 1000)}, ${Math.round(y / 1000)} km</dd>
-      <dt>Høyde</dt><dd>${fmtM(r.h)}</dd>
-      <dt>Verdi</dt><dd>${r.v.toFixed(2)}</dd>
-      <dt>Klasse</dt><dd>${M.BaseLayer.CLASSES[r.cls]}</dd>
-    </dl>`;
+    const c = hover.cls, col = c === 0 ? SEA : landColour(hover.h);
+    box.innerHTML = `<span class="swatch" style="background:rgb(${col.map((v) => v | 0).join(',')})"></span>${M.BaseLayer.CLASSES[c]}<span class="h">${Math.round(hover.h).toLocaleString('nb-NO')} m</span>`;
+    box.hidden = false;
+    const W = canvas.clientWidth;
+    box.style.left = `${Math.min(sx + 14, W - box.offsetWidth - 8)}px`;
+    box.style.top = `${sy + 14}px`;
   }
 
-  // --- controls ---------------------------------------------------------------
+  // --- pan and zoom ----------------------------------------------------------
 
   let timer = 0;
-  const later = (f) => {
+  function later(f, ms = 150) {
     clearTimeout(timer);
-    timer = setTimeout(f, 120);
-  };
-  const box = document.getElementById('controls');
-  for (const c of CONTROLS) {
-    if (c.group) {
-      const h = document.createElement('h2');
-      h.textContent = c.group;
-      box.appendChild(h);
-      continue;
-    }
-    const lab = document.createElement('label'), out = document.createElement('output'), inp = document.createElement('input');
-    lab.textContent = c.label + ' ';
-    lab.htmlFor = c.id;
-    lab.appendChild(out);
-    Object.assign(inp, { id: c.id, type: 'range', min: c.min, max: c.max, step: c.step, value: c.def });
-    out.textContent = c.fmt(c.def);
-    inp.addEventListener('input', () => {
-      state[c.id] = +inp.value;
-      out.textContent = c.fmt(state[c.id]);
-      later(rebuild);
-    });
-    box.appendChild(lab);
-    box.appendChild(inp);
+    timer = setTimeout(f, ms);
   }
-  const seedEl = document.getElementById('seed');
-  seedEl.value = state.seed;
-  seedEl.addEventListener('change', () => {
-    state.seed = Math.round(+seedEl.value) || 0;
-    rebuild();
-  });
-  document.getElementById('reseed').addEventListener('click', () => {
-    state.seed = Math.floor(Math.random() * 100000);
-    seedEl.value = state.seed;
-    rebuild();
-  });
-  for (const id of ['shade', 'lines']) {
-    const el = document.getElementById(id);
-    el.checked = state[id];
-    el.addEventListener('change', () => {
-      state[id] = el.checked;
-      render();
-    });
-  }
-  document.getElementById('home').addEventListener('click', () => {
-    Object.assign(view, { cx: 0, cy: 0, mpp: 2500 });
-    render();
-  });
-
-  // --- pan and zoom -----------------------------------------------------------
-
   const pointers = new Map();
   let pinch = 0;
   canvas.addEventListener('pointerdown', (e) => {
@@ -287,10 +326,14 @@
   });
   canvas.addEventListener('pointermove', (e) => {
     const W = canvas.clientWidth, H = canvas.clientHeight;
-    hover = [view.cx + (e.offsetX - W / 2) * view.mpp, view.cy + (e.offsetY - H / 2) * view.mpp];
-    showHover();
     const prev = pointers.get(e.pointerId);
-    if (!prev) return;
+    if (!prev) {
+      const x = view.cx + (e.offsetX - W / 2) * view.mpp, y = view.cy + (e.offsetY - H / 2) * view.mpp;
+      hover = layer.at(x, y);
+      showPoint(e.offsetX, e.offsetY);
+      drawProfile();
+      return;
+    }
     if (pointers.size === 1) {
       view.cx -= (e.offsetX - prev[0]) * view.mpp;
       view.cy -= (e.offsetY - prev[1]) * view.mpp;
@@ -311,7 +354,8 @@
   canvas.addEventListener('pointercancel', up);
   canvas.addEventListener('pointerleave', () => {
     hover = null;
-    showHover();
+    showPoint();
+    drawProfile();
   });
   function zoom(f, sx, sy, now = true) {
     const W = canvas.clientWidth, H = canvas.clientHeight;
@@ -325,9 +369,61 @@
     e.preventDefault();
     zoom(Math.exp(e.deltaY * 0.0015), e.offsetX, e.offsetY);
   }, { passive: false });
-  window.addEventListener('resize', () => later(render));
+  window.addEventListener('resize', () => later(() => {
+    drawProfile();
+    render();
+  }));
 
-  M.grunn = { state, view, rebuild, render, get layer() { return layer; } };
-  showHover();
+  const seedEl = document.getElementById('seed');
+  seedEl.value = state.seed;
+  seedEl.addEventListener('change', () => {
+    state.seed = Math.round(+seedEl.value) || 0;
+    rebuild();
+  });
+  document.getElementById('reseed').addEventListener('click', () => {
+    state.seed = Math.floor(Math.random() * 100000);
+    seedEl.value = state.seed;
+    rebuild();
+  });
+
+  // For tests: shares, mean and connected seas over 8000 km (not shown).
+  function stats(n = 200, span = 8e6) {
+    const d = span / n, cls = new Uint8Array(n * n), share = [0, 0, 0, 0];
+    let sum = 0, lo = Infinity, hi = -Infinity;
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const r = layer.at(-span / 2 + (i + 0.5) * d, -span / 2 + (j + 0.5) * d);
+        sum += r.h;
+        lo = Math.min(lo, r.h);
+        hi = Math.max(hi, r.h);
+        share[r.cls]++;
+        cls[j * n + i] = r.cls;
+      }
+    }
+    const lab = new Int32Array(n * n).fill(-1), sizes = [];
+    for (let s = 0; s < n * n; s++) {
+      if (cls[s] !== 0 || lab[s] >= 0) continue;
+      const stack = [s];
+      lab[s] = sizes.length;
+      let size = 0;
+      while (stack.length) {
+        const q = stack.pop(), qi = q % n, qj = (q - qi) / n;
+        size++;
+        for (const [a, b] of [[qi + 1, qj], [qi - 1, qj], [qi, qj + 1], [qi, qj - 1]]) {
+          if (a < 0 || b < 0 || a >= n || b >= n) continue;
+          const r = b * n + a;
+          if (cls[r] === 0 && lab[r] < 0) {
+            lab[r] = sizes.length;
+            stack.push(r);
+          }
+        }
+      }
+      sizes.push(size);
+    }
+    sizes.sort((a, b) => b - a);
+    return { mean: sum / (n * n), lo, hi, share: share.map((s) => s / (n * n)), seas: sizes.length, largestSea: share[0] ? sizes[0] / share[0] : 0 };
+  }
+
+  M.grunn = { state, view, rebuild, render, stats, get layer() { return layer; } };
   rebuild();
 })(window.Markr = window.Markr || {});

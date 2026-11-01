@@ -32,16 +32,15 @@ med 2 brettede ruter. Løst seksjon for seg er sømmene 3–10 m, avhengig av bu
 bygges lag for lag: grunnforskyvning → mellomlag → områdelag (fasthet, landskapstype,
 nedsenk) → lokalt terreng. Hvert lag arver fra laget over.
 
-- **Verdi:** et stort lag for havbasseng (3 × skala) blandes med grunnlaget, så havet henger
-  sammen i store bassenger i stedet for spredte dammer. Vridning gjør kystene uregelmessige.
-- **Terskler (justerbare):** hav | lavland | høyland | vanndeling. Hav går fra sokkel (−200 m)
-  til dyphav (−5000 m) langt fra kysten. Lavland stiger svakt (til 300 m), høyland til
-  1500 m, og vanndelingen mot 5000 m. Over vanndelingen avgjøres terrenget lokalt senere.
-- **Sund:** ridged noise i to skalaer, store og små sund. De senker bare lavland nær kysten,
-  så de knytter havbassenger sammen og lager øyer og halvøyer, men skjærer aldri gjennom
-  høyland.
-- **Måling:** snitthøyde (mål −100…1500 m), andel av hver klasse og antall sammenhengende
-  havområder, både for hele laget (8000 km) og for utsnittet.
+- **Verdi:** tre noise-lag blandes etter vekt: kontinenter (10 × skala), havbasseng
+  (4,2 × skala) og grunnlaget (240 km). De store lagene gjør havet sammenhengende.
+- **Terskler:** hav | lavland | høyland | vanndeling, alle på samme verdi. Profilen i
+  panelet viser høyden etter verdien, med andelen av kartet bak. Strekene under dras for å
+  flytte tersklene.
+- **Sund:** ridged noise i to skalaer. De gjør lavland nær kysten til åpent hav, så
+  havbassenger knyttes sammen, men skjærer aldri gjennom høyland.
+- **Visning:** hav er blått, land er en grå skala etter høyde, og vanndelingsfeltet er
+  stiplet. Boksen ved pekeren viser type og høyde.
 
 ## Ruteformler
 
