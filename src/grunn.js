@@ -7,15 +7,15 @@
   'use strict';
 
   const state = {
-    seed: 1848,
+    seed: 58942,
     contSize: 3010, contW: 2.6, basinSize: 940, basinW: 1.75, baseSize: 240, baseW: 1.2, s1Size: 710, s1W: 2.8, s1Width: 0.26,
-    tSea: -0.55, tHigh: 0.6, tDivide: 1.8,
+    tSea: -0.33, tHigh: 1.15, tDivide: 2.63,
     lowTop: 260, highTop: 1600, shelf: 320, deep: 3500,
-    midSize: 185, midW: 0.9, midStretch: 10, tInland: -0.3,
+    midSize: 185, midW: 0.9, midStretch: 10, tInland: 0,
     firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1.05, typeFirm: 0.4, typeHeight: 0.3, regStretch: 3,
-    tT1: -0.86, tT2: 1.01, tT3: 1.84, typeSoft: 0.25,
-    depMode: 'median', depSize: 60, depDepth: 0.5, depWidth: 0.2, depStretch: 3, depAlign: 0.7,
-    show: 'map', contours: true,
+    tT1: -0.34, tT2: 1.01, tT3: 1.84, typeSoft: 0.6,
+    depMode: 'median', depSize: 100, depDepth: 0, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7,
+    show: 'map', contours: true, mono: false,
   };
 
   const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
@@ -148,7 +148,7 @@
         if (cl[k] === 0) c = SEA;
         else if (how[k] === 2) c = [col[3 * k], col[3 * k + 1], col[3 * k + 2]];
         else {
-          if (how[k] === 1) {
+          if (how[k] === 1 && !state.mono) {
             // Type colour, darker with height.
             const f = 1.06 - 0.45 * Math.sqrt(Math.max(0, Math.min(1, h / 3500)));
             c = [col[3 * k] * f, col[3 * k + 1] * f, col[3 * k + 2] * f];
@@ -156,7 +156,7 @@
           // A soft light from the north-west.
           const hx = hs[j * nx + Math.min(nx - 1, i + 1)] - hs[j * nx + Math.max(0, i - 1)];
           const hy = hs[Math.min(ny - 1, j + 1) * nx + i] - hs[Math.max(0, j - 1) * nx + i];
-          const sh = Math.max(-0.2, Math.min(0.2, (-(hx + hy) / (4 * d)) * 8));
+          const sh = state.mono ? Math.max(-0.35, Math.min(0.35, (-(hx + hy) / (4 * d)) * 14)) : Math.max(-0.2, Math.min(0.2, (-(hx + hy) / (4 * d)) * 8));
           c = [c[0] * (1 + sh), c[1] * (1 + sh), c[2] * (1 + sh)];
           // Contours every 100 m.
           if (state.contours && h > 0) {
@@ -230,14 +230,17 @@
         }
       }
       if (o.base) o.base(c2, g);
-      c2.strokeStyle = ink;
-      c2.lineWidth = 2;
-      c2.beginPath();
-      for (let x = PAD; x <= g.W - PAD; x++) {
-        const y = o.curve(g.V(x), g.plotH);
-        x === PAD ? c2.moveTo(x, y) : c2.lineTo(x, y);
+      // One curve (ink), or several in their own colours.
+      for (const [fn, colour] of o.curves ? o.curves() : [[o.curve, ink]]) {
+        c2.strokeStyle = colour;
+        c2.lineWidth = 2;
+        c2.beginPath();
+        for (let x = PAD; x <= g.W - PAD; x++) {
+          const y = fn(g.V(x), g.plotH);
+          x === PAD ? c2.moveTo(x, y) : c2.lineTo(x, y);
+        }
+        c2.stroke();
       }
-      c2.stroke();
       for (const t of o.keys) {
         const x = Math.round(g.X(state[t])) + 0.5;
         c2.strokeStyle = accent;
@@ -337,13 +340,18 @@
     },
     point: (g) => (hover ? [hover.v, Yof(hover.h, g.plotH)] : null),
   });
-  // Type profile: place on the chain (0..3) against the type value z.
-  const posY = (pos, plotH) => plotH - 6 - (pos / 3) * (plotH - 14);
+  // Type profile: the share of each type (0..100 %) against the type value
+  // z, one S-curve per threshold, a curve per type in its colour.
+  const shareY = (w, plotH) => plotH - 4 - w * (plotH - 10);
   const typeProfile = makeProfile({
     canvas: document.getElementById('typeprofile'), keys: ['tT1', 'tT2', 'tT3'], min: -3, max: 3,
-    binColour: (z) => M.RegionLayer.TYPES[Math.round(region.posOf(z))].colour,
-    curve: (z, plotH) => posY(region.posOf(z), plotH),
-    point: (g) => (hover && hover.region ? [hover.region.z, posY(hover.region.pos, g.plotH)] : null),
+    binColour: (z) => M.RegionLayer.colour(region.weights(z)),
+    curves: () => M.RegionLayer.TYPES.map((t, k) => [(z, plotH) => shareY(region.weights(z)[k], plotH), `rgb(${t.colour.map((c) => (c * 0.75) | 0).join(',')})`]),
+    point: (g) => {
+      if (!hover || !hover.region) return null;
+      const w = hover.region.w, k = w.indexOf(Math.max(...w));
+      return [hover.region.z, shareY(w[k], g.plotH)];
+    },
   });
   function drawProfile() {
     baseProfile.draw();
@@ -441,6 +449,7 @@
   row(regTable, 'Arv fra høyden', 'lavland løsere', [null, numInput('firmInherit', 0.05, 0, 3), null]);
   row(regTable, 'Landskapstype', 'fbm, strukket', [numInput('typeSize', 5, 10, 1000), numInput('typeW', 0.05, 0, 3), eye('type', 'Landskapstype')], 'type');
   row(regTable, 'Fasthet → type', 'fastere → fjellsk', [null, numInput('typeFirm', 0.05, 0, 3), null]);
+  row(regTable, 'Overgang', 'S-kurve', [null, numInput('typeSoft', 0.05, 0.01, 3), null]);
   row(regTable, 'Høyde → type', 'høyere → fjellsk', [null, numInput('typeHeight', 0.05, 0, 3), null]);
   row(regTable, 'Fuktighet', 'type og fasthet', [null, null, eye('moist', 'Fuktighet')]);
   row(regTable, 'Strekking', 'langs helningen', [null, numInput('regStretch', 0.5, 1, 20), null], 'regStretch');
@@ -448,9 +457,18 @@
   const depTable = document.getElementById('deplayers');
   head(depTable);
   row(depTable, 'Nedsenk', 'strukket', [numInput('depSize', 5, 5, 1000), numInput('depDepth', 0.05, 0, 3), eye('dep', 'Nedsenk')], 'dep');
-  row(depTable, 'Bredde', 'løs grunn: bredere', [null, numInput('depWidth', 0.01, 0.01, 1), null]);
+  row(depTable, 'Linjebredde', 'løs grunn: bredere', [null, numInput('depWidth', 0.01, 0.01, 3), null]);
+  row(depTable, 'Myke kanter', 'S-kurve', [null, numInput('depSoft', 0.05, 0, 3), null]);
   row(depTable, 'Retning', 'grunt på tvers av helningen', [null, numInput('depAlign', 0.05, 0, 1), null]);
   row(depTable, 'Strekking', 'langs helningen', [null, numInput('depStretch', 0.5, 1, 20), null], 'depStretch');
+  for (const b of document.querySelectorAll('#viewmode button')) {
+    b.setAttribute('aria-pressed', String(b.dataset.mono === String(state.mono)));
+    b.addEventListener('click', () => {
+      state.mono = b.dataset.mono === 'true';
+      for (const o of document.querySelectorAll('#viewmode button')) o.setAttribute('aria-pressed', String(o === b));
+      render();
+    });
+  }
   for (const b of document.querySelectorAll('#depmode button')) {
     b.setAttribute('aria-pressed', String(b.dataset.mode === state.depMode));
     b.addEventListener('click', () => {
@@ -499,7 +517,7 @@
     }
     const c = hover.cls, r = hover.region;
     let col = c === 0 ? SEA : landColour(hover.h), name = M.BaseLayer.CLASSES[c];
-    if (r && on.type) {
+    if (r && on.type && !state.mono) {
       const top = r.w.indexOf(Math.max(...r.w));
       col = M.RegionLayer.TYPES[top].colour;
       name = `${M.RegionLayer.TYPES[top].name} · ${name}`;

@@ -86,22 +86,22 @@
   </main>
   <aside>
     <h1>Markr grunnlag</h1>
-    <details class="sec" open>
+    <details class="sec">
       <summary>Grunnlagene</summary>
       <canvas id="profile" tabindex="0" aria-label="Profil: høyde etter verdien i laget. Dra strekene for å flytte tersklene."></canvas>
       <div id="layers" class="grid"></div>
     </details>
-    <details class="sec" open>
+    <details class="sec">
       <summary>Mellomlaget</summary>
       <div id="midlayers" class="grid"></div>
     </details>
-    <details class="sec" open>
+    <details class="sec">
       <summary>Områdelagene</summary>
       <canvas id="typeprofile" class="profile" tabindex="0" aria-label="Landskapstype: typen etter verdien i typelaget. Dra strekene for å flytte tersklene mellom slette, åser, platå og fjellsk."></canvas>
       <div id="reglayers" class="grid"></div>
       <div id="legend" class="legend"></div>
     </details>
-    <details class="sec" open>
+    <details class="sec">
       <summary>Nedsenkslaget</summary>
       <div id="depmode" class="seg" role="group" aria-label="Metode for båndet">
         <button data-mode="median">Medianterskel</button><button data-mode="ridged">Ridged</button>
@@ -109,6 +109,9 @@
       <div id="deplayers" class="grid"></div>
     </details>
     <div class="seed"><input id="seed" type="number" aria-label="Frø"><button id="reseed">Nytt frø</button></div>
+    <div id="viewmode" class="seg" role="group" aria-label="Visning">
+      <button data-mono="false">Farger</button><button data-mono="true">Gråtoner</button>
+    </div>
     <label class="check"><input id="contours" type="checkbox">Høydekurver hver 100 m</label>
     <button id="copy" class="wide">Kopier innstillinger</button>
   </aside>

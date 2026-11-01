@@ -82,8 +82,9 @@ mellomlaget. Retningen i et punkt regnes én gang og deles av alle strukne lag.
   Typelaget avgjør hvor i kjeden et område ligger, og fastere grunn og høyere land flytter
   det videre mot fjellsk. I hvert nabopar gir fastere grunn den neste typen. Typene glir
   over i hverandre, og hver har sin farge på kartet. Typeverdien leses med tre terskler som
-  du setter selv i en egen profil: slette | åser | platå | fjellsk. Hver terskel er et mykt
-  steg.
+  du setter selv i en egen profil: slette | åser | platå | fjellsk. Hver terskel er en
+  S-kurve med justerbar bredde («Overgang»). Der kurvene overlapper, er et punkt en andel
+  av flere typer. Profilen viser andelen av hver type som en kurve i typens farge.
 - **Fuktighet:** regnes fra type og fasthet. Løse sletter er våte, faste fjell er tørre.
 
 ### Nedsenkslaget (`src/depressionlayer.js`)
@@ -100,10 +101,13 @@ kan den ikke det, så det blir ikke innlandssjøer.
     grunnere. Linjene møtes og krysser, så det blir grener, men også løkker.
 - **Fasthet:** løs grunn gir bredere bånd med flat bunn og bratte sider. Fast grunn gir
   smale bånd med myke, V-formede sider.
+- **Linjebredde og myke kanter:** bredden på båndet og hvor langt S-kurven går ut fra
+  linja kan justeres hver for seg.
 - **Retning:** deler av båndet som går på tvers av helningen, blir grunne. Dype,
   sammenhengende nedsenkninger går derfor med helningen.
 
-**På siden:** høydekurver hver 100 m (mørkere hver 500 m) kan skrus av og på. «Kopier
+**På siden:** alle seksjonene er lukket fra start. Kartet kan vises i farger eller i
+gråtoner med kraftigere skygge. Høydekurver hver 100 m (mørkere hver 500 m) kan skrus av og på. «Kopier
 innstillinger» kopierer alle verdiene, og hvilke lag som er på, som tekst til chatten.
 
 ## Ruteformler

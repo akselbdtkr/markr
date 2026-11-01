@@ -26,7 +26,7 @@
 
   class DepressionLayer {
     // p: depMode ('median' | 'ridged'), depSize (km), depDepth (v units),
-    // depWidth, depStretch, depAlign (0..1).
+    // depWidth, depSoft (edge S-curve), depStretch, depAlign (0..1).
     constructor(base, seed, p) {
       this.base = base;
       this.p = p;
@@ -52,15 +52,16 @@
       const n = this.read(fr, 0, 0, this.n1, L, oct, 31);
       // Width and sides from firmness: loose is wider with a flat floor and
       // steep sides, firm is narrow with soft sides.
-      const w = p.depWidth * (1.5 - firm), a = 0.75 * (1 - firm);
-      const prof = (t) => 1 - S(a, 1, t);
+      // depSoft widens the S-curve outward from the line: softer edges.
+      const w = p.depWidth * (1.5 - firm), a = 0.5 * (1 - firm) / (1 + p.depSoft);
+      const prof = (t) => 1 - S(a, 1 + p.depSoft, t);
       // Align: how much the band runs with the slope. The band runs along the
       // level lines of n, so it runs with the slope where n hardly changes
       // along the slope.
       const h = 2000;
       const nA = this.read(fr, fr.ax * h, fr.ay * h, this.n1, L, oct, 31), nB = this.read(fr, -fr.ay * h, fr.ax * h, this.n1, L, oct, 31);
       const dA = Math.abs(nA - n), dC = Math.abs(nB - n), par = dC / (Math.hypot(dA, dC) || 1);
-      const align = 1 - p.depAlign * (1 - S(0.5, 0.9, par));
+      const align = 1 - p.depAlign * (1 - S(0.3, 0.95, par));
       let band = prof(Math.abs(n) / w) * align;
       if (!median) {
         // Second octave: half the size, narrower and shallower, its own lines.
