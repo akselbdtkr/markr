@@ -74,9 +74,11 @@
 
   // The cell formula. H(i, j) gives the height at the centre of cell (i, j).
   // Returns {a, follow, edge, kind, size, pull, slope, d2, h}.
-  function cellFormula(H, i, j, p) {
-    // The 3 x 3 window of heights.
-    const w = [-1, 0, 1].map((dj) => [-1, 0, 1].map((di) => H(i + di, j + dj)));
+  // `level` is the water level the cell is measured against: 0 m for the sea,
+  // or a river's surface where a river is near. Everything below it is water.
+  function cellFormula(H, i, j, p, level = 0) {
+    // The 3 x 3 window of heights, relative to the water level.
+    const w = [-1, 0, 1].map((dj) => [-1, 0, 1].map((di) => H(i + di, j + dj) - level));
     const h0 = w[1][1];
     let lo = Infinity, hi = -Infinity;
     for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) if (r !== 1 || c !== 1) {
@@ -86,9 +88,9 @@
     const sh = windowShape(w, 1);
     // Coast: near 0 m with land and water both in the window.
     if (Math.abs(h0) < p.coastBand && Math.min(lo, h0) < 0 && Math.max(hi, h0) >= 0) {
-      return { a: sh.a, follow: 1, edge: 0, kind: 'coast', size: 1, pull: 0, slope: sh.slope, d2: 0, h: h0 };
+      return { a: sh.a, follow: 1, edge: 0, kind: 'coast', size: 1, pull: 0, slope: sh.slope, d2: 0, h: h0, level };
     }
-    if (h0 < 0) return { a: 0, follow: 0, edge: 0, kind: 'water', size: 1, pull: 0, slope: 0, d2: 0, h: h0 };
+    if (h0 < 0) return { a: 0, follow: 0, edge: 0, kind: level > 0 ? 'river' : 'water', size: 1, pull: 0, slope: 0, d2: 0, h: h0, level };
     // Ridge or valley: curvature along the contour, t^T Hess t, as the height
     // difference (m) between the cell and its neighbours one cell along the
     // contour on each side. Negative: both sides lower (ridge); positive: valley.
@@ -104,7 +106,7 @@
     // Flat cells push their corners out (a negative pull), so they grow where
     // steep neighbours shrink: more spread in cell size.
     const flat = (1 - S(p.followFrom, p.sizeFrom, sh.slope)) * (p.sizeSpread ?? 0) * 0.25;
-    return { a: sh.a, follow: Math.max(follow, edge), edge, kind, size, pull: pull - flat, slope: sh.slope, d2: sh.d2, h: h0 };
+    return { a: sh.a, follow: Math.max(follow, edge), edge, kind, size, pull: pull - flat, slope: sh.slope, d2: sh.d2, h: h0, level };
   }
 
   // The section formula: the same window, over the mean heights of a section
@@ -163,11 +165,28 @@
       }
       return [x, y];
     };
+    // River water levels per cell (NaN where there is no river), from the river
+    // layer, worked out before the cells.
+    let Wl = null;
+    if (p.waterLevel) {
+      Wl = new Float32Array(R * R).fill(NaN);
+      for (let j = j0 - MG; j < j0 + n + MG; j++) for (let i = i0 - MG; i < i0 + n + MG; i++) {
+        const v = p.waterLevel((i + 0.5) * C, (j + 0.5) * C);
+        if (v !== null) Wl[at(i, j)] = v;
+      }
+    }
     const DEFAULT = { a: 0, theta: 0, rowsW: 1, follow: 0, edge: 0, pull: 0, size: 1, kind: 'flat', h: 0 };
     const cells = new Array(R * R);
     for (let j = j0 - MG + 1; j < j0 + n + MG - 1; j++) {
       for (let i = i0 - MG + 1; i < i0 + n + MG - 1; i++) {
-        const c = cellFormula(H, i, j, p);
+        // Water level: a river's surface at this cell or next to it, else 0 m.
+        let lev = 0;
+        if (Wl) for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+          const v = Wl[at(i + di, j + dj)];
+          if (v > lev) lev = v;
+        }
+        const c = cellFormula(H, i, j, p, lev);
+        c.firm = p.firmness ? p.firmness((i + 0.5) * C, (j + 0.5) * C, H(i, j)) : 0.5;
         // The cell's own direction, and the section's, added as vectors at
         // twice the angle (a line pointing either way is the same line). Where
         // the cell is flat the section decides; on clear slopes the cell does.
@@ -214,8 +233,9 @@
       return u < 1 - f ? -0.5 + u / (1 - f) : 0.5 - (u - (1 - f)) / f;
     };
     // Rivers: from the cells already worked out, over the map and its margin.
-    const net = p.rivers && M.riverNet
-      ? M.riverNet(H, (i, j) => cells[at(i, j)], (i, j, h) => (p.moisture ? p.moisture((i + 0.5) * C, (j + 0.5) * C, h) : 0.5), i0 - MG + 1, j0 - MG + 1, n + 2 * MG - 2, p)
+    // Streams: from valley heads in the section and its neighbour ring only.
+    const net = p.streams && M.streamNet
+      ? M.streamNet(H, (i, j) => cells[at(i, j)], (i, j, h) => (p.moisture ? p.moisture((i + 0.5) * C, (j + 0.5) * C, h) : 0.5), i0 - SECTION, j0 - SECTION, n + 2 * SECTION, p)
       : null;
 
     // Height and slope at a vertex: from the four cells around it.
@@ -362,11 +382,11 @@
         }
         dx += px;
         dy += py;
-        // Coast: where the four cells around hold both land and water, the
-        // vertex is pulled hard onto the 0 m line (one Newton step along the
-        // slope of the four heights).
+        // Coast and river banks: where the four cells around hold both land and
+        // water, the vertex is pulled hard onto the water line (one Newton step
+        // along the slope of the four heights, measured from the water level).
         const h4 = c4.map((c) => c.h);
-        if (Math.min(...h4) < 0 && Math.max(...h4) >= 0 && c4.some((c) => c.kind === 'coast')) {
+        if (Math.min(...h4) < 0 && Math.max(...h4) >= 0 && c4.some((c) => c.kind === 'coast') && Math.max(...c4.map((c) => c.level || 0)) - Math.min(...c4.map((c) => c.level || 0)) < 1) {
           const hv = (h4[0] + h4[1] + h4[2] + h4[3]) / 4;
           const gx = (h4[1] + h4[3] - h4[0] - h4[2]) / (2 * C), gy = (h4[2] + h4[3] - h4[0] - h4[1]) / (2 * C);
           const g2 = gx * gx + gy * gy;
@@ -382,15 +402,13 @@
         // Rivers pull the grid toward their course: within the river's width and
         // a reach that grows with loose ground, the vertex moves a share of the
         // way to the nearest point of the river. Loose ground bends more.
+        // Streams pull the grid gently toward their course, more in loose ground.
         if (net) {
-          const nr = net.nearest(va, vb, 3);
-          if (nr) {
-            const reach = nr.pt.width / C / 2 + 0.5 + 1.5 * (1 - nr.pt.firm);
-            if (nr.d < reach) {
-              const f = p.riverPull * (0.4 + 0.6 * (1 - nr.pt.firm)) * (1 - nr.d / reach);
-              dx += f * (nr.pt.x - va - dx);
-              dy += f * (nr.pt.y - vb - dy);
-            }
+          const nr = net.nearest(va, vb, 2);
+          if (nr && nr.d < 1.5) {
+            const f = p.riverPull * (0.4 + 0.6 * (1 - nr.pt.firm)) * (1 - nr.d / 1.5) * 0.5;
+            dx += f * (nr.pt.x - va - dx);
+            dy += f * (nr.pt.y - vb - dy);
           }
         }
         const [sx, sy] = sectionShift(va, vb);
@@ -510,9 +528,11 @@
       for (let b = 0; b < n; b++) {
         for (let a = 0; a < n; a++) {
           const c = cellsOut[b * n + a], i = i0 + a, j = j0 + b;
-          c.firm = net.firmAt(i, j);
-          c.lake = net.lakeAt(i, j);
-          c.acc = net.accAt(i, j);
+          const st = net.cellAt(i, j);
+          if (st) {
+            c.stream = st.lake ? 0 : st.width;
+            c.lake = st.lake;
+          }
         }
       }
     }

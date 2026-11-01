@@ -119,17 +119,21 @@
     <input id="jumpMix" type="range" min="0" max="1" step="0.05">
 
     <h2>Vassdrag</h2>
+    <div class="check"><input id="rivers" type="checkbox"><label for="rivers">Store elver</label></div>
+    <div class="check"><input id="streams" type="checkbox"><label for="streams">Bekker fra dalhodene</label></div>
+    <label>Avstand mellom elvene <output id="riverScale-out"></output></label>
+    <input id="riverScale" type="range" min="3" max="40" step="1">
     <label>Bredde <output id="width-out"></output></label>
-    <input id="width" type="range" min="0.5" max="8" step="0.1">
-    <label>Slynger i løs grunn <output id="meander-out"></output></label>
-    <input id="meander" type="range" min="0" max="4" step="0.1">
-    <label>Vassdraget trekker rutene <output id="riverPull-out"></output></label>
+    <input id="width" type="range" min="20" max="1000" step="10">
+    <label>Største bredde <output id="maxWidth-out"></output></label>
+    <input id="maxWidth" type="range" min="50" max="1000" step="10">
+    <label>Elva starter i ulendt terreng over <output id="riverHead-out"></output></label>
+    <input id="riverHead" type="range" min="0" max="1000" step="10">
+    <label>Bekkene trekker rutene <output id="riverPull-out"></output></label>
     <input id="riverPull" type="range" min="0" max="1" step="0.05">
     <label>Innsjø når gropa er dypere enn <output id="lakeDepth-out"></output></label>
     <input id="lakeDepth" type="range" min="0.2" max="10" step="0.1">
-    <label>Fast grunn fra <output id="firmHigh-out"></output></label>
-    <input id="firmHigh" type="range" min="50" max="800" step="10">
-    <p class="hint">Fasthet: høy og tørr grunn er fast, lav og fuktig er løs. Bredden følger nedbørfeltet.</p>
+    <p class="hint">Elvene kommer fra et eget noise-lag. Vannflaten faller jevnt fra høyden der elva starter til der den slutter. Bredden følger fastheten og hvor flatt det er.</p>
 
     <h2>Kyst</h2>
     <label>Kystrute: høyde innenfor <output id="coastBand-out"></output></label>
@@ -167,6 +171,7 @@
       <select id="startKind">
         <option value="rugged">Ulendt, med litt kyst</option>
         <option value="varied">Variert: hav og lier</option>
+        <option value="river">Elvedal</option>
       </select>
       <label>Ekstra ulendthet <output id="rough-out"></output></label>
       <input id="rough" type="range" min="0" max="1.5" step="0.05">
@@ -188,6 +193,7 @@
   <script src="src/terrain.js"></script>
   <script src="src/fieldgrid.js"></script>
   <script src="src/formula.js"></script>
+  <script src="src/riverlayer.js"></script>
   <script src="src/rivers.js"></script>
   <script src="src/formel.js"></script>
 </body>

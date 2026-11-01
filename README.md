@@ -26,6 +26,37 @@ høydekurvene.
 Målt på frø 1848: avviket fra høydekurvene går fra 24° (rett rutenett) til omtrent 17–18°,
 med 2 brettede ruter. Løst seksjon for seg er sømmene 3–10 m, avhengig av buffer og anker.
 
+## Ruteformler
+
+`formel.html` regner rutenettet med lokale formler: én for hver rute (3 × 3 høyder gir
+helning, krumning, egg, dal, topp, bunn og kyst) og én for hvert hjørne (rad- og
+kolonnesummer med hopp, terskler som S-kurver). Alt er lokalt, så hver seksjon kan regnes
+for seg uten sømmer. Kantene på rutene følger konturen, aldri diagonalen.
+
+### Elver og bekker (`src/riverlayer.js`, `src/rivers.js`)
+
+Elvene regnes **før** rutene, og rutene formes etter dem. Alle vassdrag er vann og farger
+rutene de ligger i blå; de tegnes ikke som linjer.
+
+- **Store elver fra et eget noise-lag.** En elvelinje er der et vridd noise-lag krysser null.
+  Fra et punkt på linja følges den i steg på 256 m begge veier. Nedstrøms er den veien som
+  når havet (ellers den som ender lavest). Oppstrøms må den nå ulendt og høyt terreng
+  (over «Elva starter i ulendt terreng over»): en elv kan ikke starte på flatt land.
+- **Hele løpet lastes billig.** Vandringen bruker bare noise og grov terrenghøyde, ingen
+  seksjoner eller ruter. Den huskes per punkt, så andre punkter på samme elv gjenbruker den.
+  Slik vet en seksjon at den har en elv selv om kilden ligger langt unna.
+- **Vannflaten** ligger ikke på 0 m. Den faller jevnt fra høyden der elva starter til der
+  den slutter: `hStart + (hSlutt − hStart) · oppstrøms / (oppstrøms + nedstrøms)`.
+- **Bredde og dybde** uten nedbørfelt: bredden kommer av fastheten (løs grunn gir bred elv)
+  og hvor flatt det er, og vokser mot munningen, fra 8 m opp til 1 km. Dybden kommer av
+  elveløpets formel, dypere i fast grunn. Elva graves ned i høyden, med bredder som stiger
+  brattere i fast grunn.
+- **Fasthet** er to S-kurver med gradvis overgang: høyt og tørt er fast, lavt og vått er løst.
+- **Bekker** starter i dalhoder (S-kurve for helning, med avstand mellom kildene) og følger
+  bratteste vei ned til hav, elv eller en annen bekk. Volumet trenger ikke stemme med elva.
+  En grop fylles lokalt (inntil 40 ruter) og blir en innsjø hvis den er dypere enn
+  terskelen. Bekkene trenger bare seksjonen og én seksjon rundt.
+
 ## Hvordan kartet lages
 
 1. **Terreng som kontinuerlige felt** (`src/terrain.js`). Alle mål er i meter. Perlin-støy

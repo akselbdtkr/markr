@@ -13,20 +13,22 @@
     { id: 'edge', label: 'Egg eller dal', unit: ' m forskjell', min: 0, max: 12, step: 0.25, from: 1, to: 4, hint: 'Hvor mye lavere (egg) eller høyere (dal) naboene langs kurven må ligge.' },
     { id: 'sec', label: 'Seksjonens retning', unit: '° helning', min: 0, max: 30, step: 0.5, from: 1, to: 6, hint: 'Hvor bratt seksjonen som helhet må være før den roterer rutene sine.' },
     { id: 'source', label: 'Vassdrag oppstår i daler', unit: '° helning', min: 0, max: 50, step: 0.5, from: 8, to: 16, hint: 'Hvor bratt dalen må være der et vassdrag springer ut.' },
+    { id: 'firmH', label: 'Fast grunn: høyde', unit: ' moh.', min: 0, max: 1200, step: 10, from: 50, to: 600, hint: 'Høy grunn er fast. Elva blir smalere og graver dypere der.' },
+    { id: 'dry', label: 'Fast grunn: tørrhet', unit: ' % tørr', min: 0, max: 100, step: 1, from: 20, to: 80, hint: 'Tørr grunn er fast, fuktig grunn er løs.' },
     { id: 'size', label: 'Mindre ruter i bratt', unit: '° helning', min: 0, max: 70, step: 1, from: 25, to: 50, hint: 'Hvor bratt det må være før rutene krymper.' },
   ];
   const state = {
     seed: 1848, region: -1, rough: 0.25, startKind: 'rugged', smooth: 32, contour: 10,
     strength: 1, maxRot: 18, blend: 20, sizeAmount: 0.6, edgeSize: 0.6, edgePull: 0.8, sizeSpread: 1, alternate: 1, edgeReach: 0.6, contourFit: 0.5, coastJump: 1.8, ridgeJump: 1.6, contourJump: 1.4, narrow: 0.25, secSize: 1, secBudget: 0.25,  split2: 2.5, split4: 3.6, jumpMix: 1,
     secStrength: 0.5, jumpSoft: 0, jumpReach: 1, coastBand: 8, coastPull: 1, minCell: 3, lineWeight: 1,
-    rivers: true, firmLow: 0, firmHigh: 600, width: 1.5, maxWidth: 30, meander: 3, incise: 2, riverPull: 0.6, lakeDepth: 1, sourceSpacing: 6,
+    rivers: true, streams: true, riverScale: 9, width: 400, maxWidth: 1000, riverHead: 200, headRugged: 0.55, riverPull: 0.6, lakeDepth: 1, sourceSpacing: 6,
     layer: 'grid', showContours: true, showSections: false,
   };
   for (const c of CURVES) {
     state[c.id + 'From'] = c.from;
     state[c.id + 'To'] = c.to;
   }
-  let baseTerrain, terrain, field, grid, start, view = { scale: 1, ox: 0, oy: 0 }, bg = null, contours = null, hover = null, quads = [];
+  let riverLayer = null, baseTerrain, terrain, field, grid, start, view = { scale: 1, ox: 0, oy: 0 }, bg = null, contours = null, hover = null, quads = [];
   const toScreen = (x, y) => [x * view.scale + view.ox, y * view.scale + view.oy];
   const toWorld = (sx, sy) => [(sx - view.ox) / view.scale, (sy - view.oy) / view.scale];
   const N = 64;
@@ -38,13 +40,25 @@
     baseTerrain = base;
     const { createPerlin, fbm, ridged } = M.noise;
     const nR = createPerlin(state.seed * 31 + 5), nP = createPerlin(state.seed * 31 + 6);
+    const land = (x, y, mw) => {
+      const h = base.elevation(x, y, mw);
+      if (!state.rough || h <= 0 || mw > 400) return h;
+      const patch = M.util.smoothstep(-0.1, 0.6, fbm(nP, x / 1800, y / 1800, 2) / 0.2);
+      const r = ridged(nR, x / 420, y / 420, 2) - 0.55;
+      return Math.max(h + state.rough * patch * Math.min(1, h / 30) * 90 * r, Math.min(h, 2));
+    };
+    // Large rivers, from their own noise layer, carved into the land.
+    riverLayer = state.rivers ? new M.RiverLayer(base, state.seed, riverParams()) : null;
     terrain = {
       elevation(x, y, mw = 0) {
-        const h = base.elevation(x, y, mw);
-        if (!state.rough || h <= 0 || mw > 400) return h;
-        const patch = M.util.smoothstep(-0.1, 0.6, fbm(nP, x / 1800, y / 1800, 2) / 0.2);
-        const r = ridged(nR, x / 420, y / 420, 2) - 0.55;
-        return Math.max(h + state.rough * patch * Math.min(1, h / 30) * 90 * r, Math.min(h, 2));
+        const h = land(x, y, mw);
+        return riverLayer && h > 0 ? riverLayer.carve(x, y, h).h : h;
+      },
+      // The water surface of a river at (x, y), or null.
+      waterLevel(x, y) {
+        if (!riverLayer) return null;
+        const h = land(x, y, 0);
+        return h > 0 ? riverLayer.carve(x, y, h).level : null;
       },
     };
     start = findStart(terrain);
@@ -70,6 +84,16 @@
             steep += Math.min(0.6, sl) - 2 * Math.max(0, sl - 0.8);
           }
         }
+        if (state.startKind === 'river') {
+          // A big river through the middle.
+          const r = riverLayer && riverLayer.at(x, y);
+          const score = r && r.d < r.width / 2 ? r.width - Math.hypot(gx, gy) * 2 : -Infinity;
+          if (score > bs) {
+            bs = score;
+            best = [x, y];
+          }
+          continue;
+        }
         const score =
           state.startKind === 'rugged'
             ? (water >= 2 && water <= 8 ? 150 : 0) + Math.min(hi - lo, 400) + 40 * steep - (hi > 900 ? 300 : 0) - Math.hypot(gx, gy)
@@ -82,6 +106,23 @@
     }
     return best;
   }
+
+  function riverParams() {
+    return {
+      scale: state.riverScale * 1000, width: state.width, maxWidth: state.maxWidth, riverHead: state.riverHead, headRugged: state.headRugged,
+      firmHFrom: state.firmHFrom, firmHTo: state.firmHTo, dryFrom: state.dryFrom, dryTo: state.dryTo,
+    };
+  }
+
+  function refreshTerrain() {
+    newTerrain();
+    fit();
+    draw();
+  }
+
+  // Firmness: two S-curves (height, dryness), mixed: a gradual change.
+  const firmAt = (x, y, h) =>
+    0.5 * M.scurve(state.firmHFrom, state.firmHTo, h) + 0.5 * M.scurve(state.dryFrom / 100, state.dryTo / 100, 1 - baseTerrain.moisture(x, y, h));
 
   const origin = () => [Math.round(start[0] / C - N / 2), Math.round(start[1] / C - N / 2)];
 
@@ -96,7 +137,9 @@
   function params() {
     const p = { seed: state.seed };
     for (const k of ['strength', 'maxRot', 'blend', 'sizeAmount', 'edgeSize', 'edgePull', 'split2', 'split4', 'jumpMix', 'secStrength', 'jumpSoft', 'jumpReach', 'sizeSpread', 'alternate', 'edgeReach', 'contourFit', 'coastJump', 'ridgeJump', 'contourJump', 'narrow', 'secSize', 'secBudget',  'coastBand', 'coastPull', 'minCell']) p[k] = state[k];
-    for (const k of ['rivers', 'firmLow', 'firmHigh', 'width', 'maxWidth', 'meander', 'incise', 'riverPull', 'lakeDepth', 'sourceSpacing']) p[k] = state[k];
+    for (const k of ['streams', 'riverPull', 'lakeDepth', 'sourceSpacing']) p[k] = state[k];
+    p.waterLevel = riverLayer ? (x, y) => terrain.waterLevel(x, y) : null;
+    p.firmness = firmAt;
     p.moisture = (x, y, h) => baseTerrain.moisture(x, y, h);
     for (const c of CURVES) {
       p[c.id + 'From'] = state[c.id + 'From'];
@@ -108,6 +151,13 @@
   function rebuildGrid() {
     const [i0, j0] = origin();
     grid = M.formulaGrid((x, y) => field.samp(field.hm, x, y), i0, j0, N, params());
+    // The river each cell lies in or beside, for the info panel.
+    if (riverLayer) {
+      grid.cells.forEach((c, k) => {
+        const x = (i0 + (k % N) + 0.5) * C, y = (j0 + Math.floor(k / N) + 0.5) * C;
+        c.riv = c.level > 0 ? riverLayer.at(x, y) : null;
+      });
+    }
     buildQuads();
     showStats();
     draw();
@@ -155,7 +205,7 @@
     for (const c of grid.cells) if (c.kind === 'peak' || c.kind === 'pit') kinds[c.kind]++;
     const net = grid.net;
     const rows = [
-      ['Vassdrag', net ? `${net.rivers.length} løp, ${net.sources.length} kilder, ${net.lakes} innsjøruter` : 'av'],
+      ['Vassdrag', `${grid.cells.filter((c) => c.kind === 'river').length} elveruter, ${net ? `${net.sources.length} kilder, ${net.streams} bekkeruter, ${net.lakes} innsjøruter` : 'ingen bekker'}`],
       ['Brettede ruter', `${folds}`],
       ['Hopp langs radene', `${grid.jumps}`],
       ['Delt', `${grid.s2} i to, ${grid.s4} i fire`],
@@ -287,35 +337,19 @@
         ctx.stroke();
       }
     }
-    // Lakes and rivers.
-    if (grid.net) {
-      ctx.fillStyle = 'rgba(70,130,190,0.8)';
-      for (const { q, c } of quads) {
-        if (!c.lake) continue;
-        poly(q);
-        ctx.fill();
-      }
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      for (const rv of grid.net.rivers) {
-        const L = rv.line;
-        for (let k = 1; k < L.length; k++) {
-          const [ax, ay] = toScreen(L[k - 1].x * C, L[k - 1].y * C), [bx, by] = toScreen(L[k].x * C, L[k].y * C);
-          ctx.strokeStyle = `rgba(40,110,190,${0.55 + 0.4 * Math.min(1, L[k].depth / 10)})`;
-          ctx.lineWidth = Math.max(1.2, L[k].width * view.scale);
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx, by);
-          ctx.stroke();
-        }
-      }
-      ctx.fillStyle = 'rgba(20,70,150,0.95)';
-      for (const [i, j] of grid.net.sources) {
-        const [x, y] = toScreen((i + 0.5) * C, (j + 0.5) * C);
-        ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    // Water colours the cells it lies in: rivers, streams and lakes. Nothing is
+    // drawn as a line. Deeper water is darker.
+    for (const { q, c } of quads) {
+      let col = null;
+      if (c.kind === 'river') col = mix([120, 175, 215], [35, 85, 150], Math.min(1, -c.h / 12));
+      else if (c.lake) col = [80, 140, 195];
+      else if (c.stream) col = mix([150, 195, 225], [70, 135, 195], Math.min(1, c.stream / 8));
+      if (!col) continue;
+      poly(q);
+      ctx.fillStyle = ctx.strokeStyle = rgb(col);
+      ctx.lineWidth = 1;
+      ctx.fill();
+      ctx.stroke();
     }
     if (state.showContours) {
       const L = contourLines();
@@ -444,8 +478,9 @@
       ['Type', kind],
       ['Forskjell langs kurven', `${r(c.d2 || 0, 1)} m`],
       ['Ønsket størrelse', `${r(c.size * 100)} %`],
-      ['Fasthet', c.firm !== undefined ? `${r(c.firm * 100)} %${c.lake ? ', innsjø' : ''}` : '–'],
-      ['Nedbørfelt', c.acc ? `${r(c.acc)} ruter (${r((c.acc * C * C) / 10000, 1)} ha)` : '–'],
+      ['Fasthet', `${r((c.firm ?? 0) * 100)} %`],
+      ['Vann', c.kind === 'river' ? `elv, vannflate ${r(c.level)} moh., ${r(-c.h, 1)} m dyp` : c.lake ? 'innsjø' : c.stream ? `bekk, ${r(c.stream, 1)} m bred` : c.level > 0 ? `elvebredd, vannflate ${r(c.level)} moh.` : '–'],
+      ...(c.riv ? [['Elva', `${r(c.riv.width)} m bred, fra ${r(c.riv.hStart)} til ${r(c.riv.hEnd)} moh., ${r(c.riv.f * 100)} % av løpet`]] : []),
       ['Deling', c.collapse ? ['', 'slått sammen til punkt', 'slått sammen til linje', 'slått sammen til trekant'][c.collapse] : c.split ? `i ${c.split}` : 'ingen'],
     ];
     $('cell').innerHTML = '<dl>' + rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('') + '</dl>';
@@ -534,7 +569,8 @@
           $(c.id + 'To').value = state[c.id + 'To'];
         }
         plot();
-        later(rebuildGrid);
+        // Firmness changes the rivers too, so those rebuild the terrain.
+        later(c.id === 'firmH' || c.id === 'dry' ? refreshTerrain : rebuildGrid);
       });
     }
     plot();
@@ -555,11 +591,25 @@
   range('strength', (v) => v.toFixed(2), rebuildGrid);
   range('maxRot', (v) => `${v}°`, rebuildGrid);
   range('sizeAmount', pct, rebuildGrid);
-  range('width', (v) => v.toFixed(1), rebuildGrid);
-  range('meander', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
+  const reRiver = () => {
+    newTerrain();
+    fit();
+    draw();
+  };
+  range('riverScale', (v) => `${v} km`, reRiver);
+  range('width', (v) => `${v} m`, reRiver);
+  range('maxWidth', (v) => `${v} m`, reRiver);
+  range('riverHead', (v) => `${v} moh.`, reRiver);
   range('riverPull', (v) => (v ? pct(v) : 'av'), rebuildGrid);
   range('lakeDepth', (v) => `${v} m`, rebuildGrid);
-  range('firmHigh', (v) => `${v} moh.`, rebuildGrid);
+  for (const id of ['rivers', 'streams']) {
+    $(id).checked = state[id];
+    $(id).addEventListener('change', (e) => {
+      state[id] = e.target.checked;
+      if (id === 'rivers') reRiver();
+      else rebuildGrid();
+    });
+  }
   range('secStrength', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
   range('jumpSoft', (v) => (v ? pct(v) : 'brå'), rebuildGrid);
   range('jumpReach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
@@ -642,5 +692,5 @@
   fit();
   draw();
   showCell(null);
-  M.formel = { state, get grid() { return grid; }, rebuildGrid, rebuildField };
+  M.formel = { state, get grid() { return grid; }, get river() { return riverLayer; }, get start() { return start; }, rebuildGrid, rebuildField };
 })(window.Markr = window.Markr || {});
