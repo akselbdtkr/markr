@@ -213,10 +213,74 @@
       if (f <= 0) return u - 0.5;
       return u < 1 - f ? -0.5 + u / (1 - f) : 0.5 - (u - (1 - f)) / f;
     };
+    // Height and slope at a vertex: from the four cells around it.
+    const Hv = (va, vb) => (H(va - 1, vb - 1) + H(va, vb - 1) + H(va - 1, vb) + H(va, vb)) / 4;
+    const Gv = (va, vb) => [
+      (H(va, vb - 1) + H(va, vb) - H(va - 1, vb - 1) - H(va - 1, vb)) / (2 * C),
+      (H(va - 1, vb) + H(va, vb) - H(va - 1, vb - 1) - H(va, vb - 1)) / (2 * C),
+    ];
+
+    // Section size, sparingly: each section wants to be smaller if steep and
+    // larger if flat (on a log scale). Each section shares a budget with its
+    // 8 neighbours: its own wish minus the mean wish of the neighbourhood, so
+    // what one section grows the others give up, and the mean over any
+    // neighbourhood stays near zero; clamped to the budget. Any area can then
+    // be tiled.
+    const wishF = new Map(), scaleF = new Map();
+    const wish = (si, sj) => {
+      const k = si + ',' + sj;
+      let v = wishF.get(k);
+      if (v === undefined) {
+        v = -(p.secSize ?? 0) * (2 * S(p.sizeFrom, p.sizeTo, section(si, sj).slope) - 1);
+        wishF.set(k, v);
+      }
+      return v;
+    };
+    const secScale = (si, sj) => {
+      const k = si + ',' + sj;
+      let v = scaleF.get(k);
+      if (v === undefined) {
+        let m = 0;
+        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) m += wish(si + di, sj + dj);
+        const budget = p.secBudget ?? 0.15;
+        v = Math.max(-budget, Math.min(budget, wish(si, sj) - m / 9));
+        scaleF.set(k, v);
+      }
+      return v;
+    };
+    // The section displacement at a vertex: each of the four nearest section
+    // centres scales the space around it, blended with bilinear weights. Where
+    // all scale alike nothing moves; it is smooth across section edges.
+    const sectionShift = (va, vb) => {
+      if (!p.secSize) return [0, 0];
+      const u = va / SECTION - 0.5, v = vb / SECTION - 0.5;
+      const si = Math.floor(u), sj = Math.floor(v), fu = u - si, fv = v - sj;
+      let x = 0, y = 0;
+      for (const [di, dj, w] of [[0, 0, (1 - fu) * (1 - fv)], [1, 0, fu * (1 - fv)], [0, 1, (1 - fu) * fv], [1, 1, fu * fv]]) {
+        const ls = secScale(si + di, sj + dj), cx = (si + di + 0.5) * SECTION, cy = (sj + dj + 0.5) * SECTION;
+        x += w * ls * (va - cx);
+        y += w * ls * (vb - cy);
+      }
+      return [x, y];
+    };
+
+    // Jump thresholds by line type: how far a row may follow before it hands the
+    // line on. The coast holds longest, ridges and valleys next, contours least.
+    const threshold = (c4) => {
+      if (c4.some((c) => c.kind === 'coast')) return p.coastJump ?? 1;
+      let e = 0;
+      for (const c of c4) e = Math.max(e, c.edge || 0);
+      return (p.contourJump ?? 0.8) + ((p.ridgeJump ?? 1) - (p.contourJump ?? 0.8)) * e;
+    };
+    // The sawtooth with period T: the row rises with the line until it is T/2
+    // off its place, then hands over and starts at -T/2.
+    const sawT = (I, T) => T * saw(I / T);
+
     const row = n + 1, X = new Float64Array(row * row), Y = new Float64Array(row * row);
     for (let b = 0; b <= n; b++) {
       for (let a = 0; a <= n; a++) {
         const va = i0 + a, vb = j0 + b;
+        const c4 = [cell(va - 1, vb - 1), cell(va, vb - 1), cell(va - 1, vb), cell(va, vb)];
         // Row: sum the steps from this row's last origin to the vertex.
         const ob = originOf(vb), ra = Math.floor((va - ob) / ORIGIN) * ORIGIN + ob;
         let I = 0;
@@ -224,10 +288,25 @@
         const oa = originOf(va + 7919), rb = Math.floor((vb - oa) / ORIGIN) * ORIGIN + oa;
         let J = 0;
         for (let y = rb; y < vb; y++) J += colTan(va, y);
+        // Fit to the contour: the row's sum drifts off the real contour over a
+        // long run, so it is corrected toward where the contour through the
+        // row's origin actually crosses this vertex's column (one Newton step
+        // from the vertex's own height and slope). Columns likewise. Local.
+        const fit = p.contourFit ?? 0;
+        if (fit > 0) {
+          const [gx, gy] = Gv(va, vb), hv = Hv(va, vb);
+          if (Math.abs(gy) > 0.02 && Math.abs(gy) >= Math.abs(gx) * 0.5) {
+            const target = (Hv(ra, vb) - hv) / (gy * C);
+            if (Math.abs(target - I) < 2) I += fit * (target - I);
+          }
+          if (Math.abs(gx) > 0.02 && Math.abs(gx) >= Math.abs(gy) * 0.5) {
+            const target = (Hv(va, rb) - hv) / (gx * C);
+            if (Math.abs(target - J) < 2) J += fit * (target - J);
+          }
+        }
         // The sawtooth is as high as the four cells around follow rows (or
         // columns): weak following gives small jumps, and where rows and columns
         // share the line (around 45 degrees) each jumps only part of the way.
-        const c4 = [cell(va - 1, vb - 1), cell(va, vb - 1), cell(va - 1, vb), cell(va, vb)];
         let wR = 0, wC = 0, fol = 0, tr = 0;
         for (const c of c4) {
           wR += (c.followEff * c.rowsW) / 4;
@@ -243,17 +322,37 @@
           if (((vb % 2) + 2) % 2 === 0) wR += (fol - wR) * alt;
           if (((va % 2) + 2) % 2 === 0) wC += (fol - wC) * alt;
         }
-        // At full height the rows reach ±0.5, so a row ends where the next one
-        // begins: the line carries on unbroken, and the pinched cell between
-        // them is merged by the cell checks below.
-        const amp = p.jumpReach ?? 1;
-        let dy = amp * saw(I) * Math.min(1, wR * p.strength), dx = amp * saw(J) * Math.min(1, wC * p.strength);
-        // The four cells around pull the vertex toward their centres: the 2 x 2
-        // matrix of their pulls times the kernels [[-1, 1], [-1, 1]] (x) and
-        // [[-1, -1], [1, 1]] (y), times a quarter.
-        const P = [[c4[0].pull, c4[1].pull], [c4[2].pull, c4[3].pull]];
-        dx += (-P[0][0] + P[0][1] - P[1][0] + P[1][1]) * 0.25;
-        dy += (-P[0][0] - P[0][1] + P[1][0] + P[1][1]) * 0.25;
+        // At a threshold of one cell the rows reach ±0.5, so a row ends where
+        // the next one begins: the line carries on unbroken.
+        const T = Math.min(1, threshold(c4) * (p.jumpReach ?? 1));
+        const devR = sawT(I, T), devC = sawT(J, T);
+        let dy = devR * Math.min(1, wR * p.strength), dx = devC * Math.min(1, wC * p.strength);
+        // Smaller cells at the jump: the closer the row is to its threshold, the
+        // further its vertex moves along the row toward the jump, so the cells on
+        // both sides of a jump are narrower. Also local.
+        const nar = p.narrow ?? 0;
+        if (nar > 0) {
+          const sR = Math.sign(rowTan(va - 1, vb) + rowTan(va, vb)), sC = Math.sign(colTan(va, vb - 1) + colTan(va, vb));
+          dx += nar * 0.5 * S(0.5, 1, Math.abs(devR) / (T / 2)) * Math.sign(devR) * sR * Math.min(1, wR * p.strength);
+          dy += nar * 0.5 * S(0.5, 1, Math.abs(devC) / (T / 2)) * Math.sign(devC) * sC * Math.min(1, wC * p.strength);
+        }
+        // Pull toward the cells around, over two rings of cells (a 4 x 4 block,
+        // weights 1 for the four nearest and `edgeReach` for the outer ring):
+        // ridges and valleys gather the grid lines from two cells away. The size
+        // pull (steep cells shrink, flat cells grow) uses the inner ring only.
+        let px = 0, py = 0;
+        for (let dj = -2; dj <= 1; dj++) {
+          for (let di = -2; di <= 1; di++) {
+            const c = cell(va + di, vb + dj), ox = di + 0.5, oy = dj + 0.5;
+            const inner = Math.abs(ox) < 1 && Math.abs(oy) < 1;
+            const w = inner ? 1 : (p.edgeReach ?? 0.5);
+            const amount = inner ? c.pull : (p.edgePull ?? 0) * (c.edge || 0);
+            px += amount * w * Math.sign(ox) * (inner ? 0.25 : 0.12);
+            py += amount * w * Math.sign(oy) * (inner ? 0.25 : 0.12);
+          }
+        }
+        dx += px;
+        dy += py;
         // Coast: where the four cells around hold both land and water, the
         // vertex is pulled hard onto the 0 m line (one Newton step along the
         // slope of the four heights).
@@ -268,11 +367,11 @@
             dy += p.coastPull * (sy - dy);
           }
         }
-        const lim = Math.max(LIMIT, amp / 2);
-        dx = Math.max(-lim, Math.min(lim, dx));
-        dy = Math.max(-lim, Math.min(lim, dy));
-        X[b * row + a] = va + dx;
-        Y[b * row + a] = vb + dy;
+        dx = Math.max(-0.5, Math.min(0.5, dx));
+        dy = Math.max(-0.5, Math.min(0.5, dy));
+        const [sx, sy] = sectionShift(va, vb);
+        X[b * row + a] = va + dx + sx;
+        Y[b * row + a] = vb + dy + sy;
       }
     }
 
@@ -381,7 +480,7 @@
     for (let b = 0; b <= n; b++) for (let a = 0; a < n; a++) if (Math.abs(Y[b * row + a + 1] - Y[b * row + a]) > 0.6) jumps++;
     const sections = [];
     for (let sj = Math.floor(j0 / SECTION); sj < Math.ceil((j0 + n) / SECTION); sj++) {
-      for (let si = Math.floor(i0 / SECTION); si < Math.ceil((i0 + n) / SECTION); si++) sections.push(Object.assign({ si, sj }, section(si, sj)));
+      for (let si = Math.floor(i0 / SECTION); si < Math.ceil((i0 + n) / SECTION); si++) sections.push(Object.assign({ si, sj, scale: p.secSize ? secScale(si, sj) : 0 }, section(si, sj)));
     }
     return { X, Y, row, N: n, i0, j0, cells: cellsOut, jumps, counts, sections, time: performance.now() - t0 };
   }

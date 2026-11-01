@@ -16,7 +16,7 @@
   ];
   const state = {
     seed: 1848, region: -1, rough: 0.25, startKind: 'rugged', smooth: 32, contour: 10,
-    strength: 1.3, maxRot: 45, blend: 20, sizeAmount: 0.6, edgeSize: 0.6, edgePull: 0.8, sizeSpread: 1, alternate: 1, split2: 2.5, split4: 3.6, jumpMix: 1,
+    strength: 1.3, maxRot: 45, blend: 20, sizeAmount: 0.6, edgeSize: 0.6, edgePull: 0.8, sizeSpread: 1, alternate: 1, edgeReach: 0.6, contourFit: 0.5, coastJump: 1, ridgeJump: 1, contourJump: 0.8, narrow: 0.25, secSize: 0.3, secBudget: 0.12, split2: 2.5, split4: 3.6, jumpMix: 1,
     secStrength: 0.5, jumpSoft: 0, jumpReach: 1, coastBand: 8, coastPull: 1, minCell: 3, lineWeight: 1,
     layer: 'grid', showContours: true, showSections: false,
   };
@@ -92,7 +92,7 @@
 
   function params() {
     const p = { seed: state.seed };
-    for (const k of ['strength', 'maxRot', 'blend', 'sizeAmount', 'edgeSize', 'edgePull', 'split2', 'split4', 'jumpMix', 'secStrength', 'jumpSoft', 'jumpReach', 'sizeSpread', 'alternate', 'coastBand', 'coastPull', 'minCell']) p[k] = state[k];
+    for (const k of ['strength', 'maxRot', 'blend', 'sizeAmount', 'edgeSize', 'edgePull', 'split2', 'split4', 'jumpMix', 'secStrength', 'jumpSoft', 'jumpReach', 'sizeSpread', 'alternate', 'edgeReach', 'contourFit', 'coastJump', 'ridgeJump', 'contourJump', 'narrow', 'secSize', 'secBudget', 'coastBand', 'coastPull', 'minCell']) p[k] = state[k];
     for (const c of CURVES) {
       p[c.id + 'From'] = state[c.id + 'From'];
       p[c.id + 'To'] = state[c.id + 'To'];
@@ -511,6 +511,12 @@
   range('jumpReach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
   range('alternate', (v) => (v ? pct(v) : 'av'), rebuildGrid);
   range('sizeSpread', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
+  range('edgeReach', (v) => (v ? v.toFixed(2) : 'bare nærmeste'), rebuildGrid);
+  range('contourFit', (v) => (v ? pct(v) : 'av'), rebuildGrid);
+  for (const k of ['coastJump', 'ridgeJump', 'contourJump']) range(k, (v) => `${v.toFixed(2)} rute`, rebuildGrid);
+  range('narrow', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
+  range('secSize', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
+  range('secBudget', (v) => `±${Math.round(v * 100)} %`, rebuildGrid);
   range('coastBand', (v) => `±${v} m`, rebuildGrid);
   range('coastPull', pct, rebuildGrid);
   range('minCell', (v) => `${v} m`, rebuildGrid);
