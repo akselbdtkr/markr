@@ -16,8 +16,8 @@
   ];
   const state = {
     seed: 1848, region: -1, rough: 0.25, startKind: 'rugged', smooth: 32, contour: 10,
-    strength: 1, maxRot: 30, blend: 20, sizeAmount: 0.4, edgeSize: 0.6, edgePull: 0.5, split2: 1.8, split4: 2.8, jumpMix: 1,
-    secStrength: 1, jumpSoft: 0, jumpReach: 1, coastBand: 8, coastPull: 1, minCell: 3, lineWeight: 1,
+    strength: 1.3, maxRot: 45, blend: 20, sizeAmount: 0.6, edgeSize: 0.6, edgePull: 0.8, sizeSpread: 1, alternate: 1, split2: 2.5, split4: 3.6, jumpMix: 1,
+    secStrength: 0.5, jumpSoft: 0, jumpReach: 1, coastBand: 8, coastPull: 1, minCell: 3, lineWeight: 1,
     layer: 'grid', showContours: true, showSections: false,
   };
   for (const c of CURVES) {
@@ -92,7 +92,7 @@
 
   function params() {
     const p = { seed: state.seed };
-    for (const k of ['strength', 'maxRot', 'blend', 'sizeAmount', 'edgeSize', 'edgePull', 'split2', 'split4', 'jumpMix', 'secStrength', 'jumpSoft', 'jumpReach', 'coastBand', 'coastPull', 'minCell']) p[k] = state[k];
+    for (const k of ['strength', 'maxRot', 'blend', 'sizeAmount', 'edgeSize', 'edgePull', 'split2', 'split4', 'jumpMix', 'secStrength', 'jumpSoft', 'jumpReach', 'sizeSpread', 'alternate', 'coastBand', 'coastPull', 'minCell']) p[k] = state[k];
     for (const c of CURVES) {
       p[c.id + 'From'] = state[c.id + 'From'];
       p[c.id + 'To'] = state[c.id + 'To'];
@@ -509,6 +509,8 @@
   range('secStrength', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
   range('jumpSoft', (v) => (v ? pct(v) : 'brå'), rebuildGrid);
   range('jumpReach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
+  range('alternate', (v) => (v ? pct(v) : 'av'), rebuildGrid);
+  range('sizeSpread', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
   range('coastBand', (v) => `±${v} m`, rebuildGrid);
   range('coastPull', pct, rebuildGrid);
   range('minCell', (v) => `${v} m`, rebuildGrid);

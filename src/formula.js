@@ -101,7 +101,10 @@
     const steep = S(p.sizeFrom, p.sizeTo, sh.slope);
     const size = 1 - p.sizeAmount * Math.max(steep, edge * p.edgeSize);
     const pull = p.sizeAmount * steep * 0.5 + p.edgePull * edge;
-    return { a: sh.a, follow: Math.max(follow, edge), edge, kind, size, pull, slope: sh.slope, d2: sh.d2, h: h0 };
+    // Flat cells push their corners out (a negative pull), so they grow where
+    // steep neighbours shrink: more spread in cell size.
+    const flat = (1 - S(p.followFrom, p.sizeFrom, sh.slope)) * (p.sizeSpread ?? 0) * 0.25;
+    return { a: sh.a, follow: Math.max(follow, edge), edge, kind, size, pull: pull - flat, slope: sh.slope, d2: sh.d2, h: h0 };
   }
 
   // The section formula: the same window, over the mean heights of a section
@@ -225,10 +228,20 @@
         // columns): weak following gives small jumps, and where rows and columns
         // share the line (around 45 degrees) each jumps only part of the way.
         const c4 = [cell(va - 1, vb - 1), cell(va, vb - 1), cell(va - 1, vb), cell(va, vb)];
-        let wR = 0, wC = 0;
+        let wR = 0, wC = 0, fol = 0, tr = 0;
         for (const c of c4) {
           wR += (c.followEff * c.rowsW) / 4;
           wC += (c.followEff * (1 - c.rowsW)) / 4;
+          fol += c.followEff / 4;
+          tr += (4 * c.rowsW * (1 - c.rowsW)) / 4; // 1 at 45 degrees, 0 away from it
+        }
+        // In the hand-over between row lines and column lines, every other row
+        // and every other column follows the line fully instead of all of them
+        // halfway, so the line stays unbroken through the turn.
+        const alt = (p.alternate ?? 0) * tr;
+        if (alt > 0) {
+          if (((vb % 2) + 2) % 2 === 0) wR += (fol - wR) * alt;
+          if (((va % 2) + 2) % 2 === 0) wC += (fol - wC) * alt;
         }
         // At full height the rows reach ±0.5, so a row ends where the next one
         // begins: the line carries on unbroken, and the pinched cell between

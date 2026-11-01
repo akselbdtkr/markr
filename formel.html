@@ -100,6 +100,8 @@
     <input id="maxRot" type="range" min="5" max="45" step="1">
     <label>Hopphøyde (1 = radene møtes) <output id="jumpReach-out"></output></label>
     <input id="jumpReach" type="range" min="0.5" max="1" step="0.05">
+    <label>Annenhver rad/kolonne følger i overgangene <output id="alternate-out"></output></label>
+    <input id="alternate" type="range" min="0" max="1" step="0.05">
     <label>Myke hopp <output id="jumpSoft-out"></output></label>
     <input id="jumpSoft" type="range" min="0" max="0.5" step="0.05">
     <label>Hoppene spres over inntil <output id="jumpMix-out"></output></label>
@@ -114,6 +116,8 @@
     <h2>Størrelse</h2>
     <label>Mindre ruter i bratt <output id="sizeAmount-out"></output></label>
     <input id="sizeAmount" type="range" min="0" max="0.9" step="0.05">
+    <label>Flate ruter blir større <output id="sizeSpread-out"></output></label>
+    <input id="sizeSpread" type="range" min="0" max="2" step="0.05">
     <label>Dragning mot egger og daler <output id="edgePull-out"></output></label>
     <input id="edgePull" type="range" min="0" max="1" step="0.05">
     <label>Del i to, langs kurven, når ruta er større enn ønsket <output id="split2-out"></output></label>
