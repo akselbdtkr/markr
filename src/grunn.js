@@ -6,13 +6,13 @@
   'use strict';
 
   const state = {
-    seed: 1848, scale: 240,
-    cont: 0.7, basin: 0.5, base: 0.5, s1: 0.65, s2: 1.05, warp: 0.15,
-    w1: 0.26, w2: 0.2,
+    seed: 1848,
+    contSize: 2400, contW: 0.7, basinSize: 1008, basinW: 0.5, baseSize: 240, baseW: 0.5, s1Size: 144, s1W: 0.65, s1Width: 0.26,
     tSea: -0.55, tHigh: 0.6, tDivide: 1.8,
     lowTop: 260, highTop: 1600, shelf: 320, deep: 3500,
+    midSize: 150, midW: 0.5, midStretch: 3,
+    show: 'map',
   };
-  const LAYER_MAX = { cont: 1, basin: 1, base: 1, s1: 1.5, s2: 1.5, warp: 0.6 };
 
   const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
   const prof = document.getElementById('profile'), pctx = prof.getContext('2d');
@@ -34,6 +34,8 @@
   // --- colours: blue sea, one grey ramp over land, dashed divide outline ----
 
   const SEA = [61, 111, 168];
+  // Flat colours per class, for the bars behind the profile.
+  const CLASS_COLOUR = [SEA, [214, 212, 206], [168, 166, 161], [112, 110, 106]];
   const landColour = (h) => {
     const t = Math.sqrt(Math.max(0, Math.min(1, h / 3500)));
     const c = 232 - 160 * t;
@@ -68,7 +70,14 @@
     const x0 = view.cx - (W / 2) * view.mpp, y0 = view.cy - (H / 2) * view.mpp, d = block * view.mpp;
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
-        const v = layer.value(x0 + (i + 0.5) * d, y0 + (j + 0.5) * d);
+        const x = x0 + (i + 0.5) * d, y = y0 + (j + 0.5) * d;
+        if (state.show === 'mid') {
+          // The middle layer alone, as a height-like grey field.
+          hs[j * nx + i] = 1200 + 600 * layer.mid(x, y);
+          cl[j * nx + i] = 1;
+          continue;
+        }
+        const v = layer.value(x, y);
         hs[j * nx + i] = layer.height(v);
         cl[j * nx + i] = layer.cls(v);
       }
@@ -157,8 +166,8 @@
       for (let b = 0; b < BINS; b++) {
         const v = VMIN + ((b + 0.5) / BINS) * (VMAX - VMIN), c = layer.cls(v);
         const hgt = (hist[b] / max) * (g.plotH - 4);
-        const col = c === 0 ? SEA : landColour(layer.height(v));
-        pctx.fillStyle = `rgba(${col[0] | 0},${col[1] | 0},${col[2] | 0},0.75)`;
+        const col = CLASS_COLOUR[c];
+        pctx.fillStyle = `rgb(${col.join(',')})`;
         pctx.fillRect(PAD + b * bw, g.plotH - hgt, bw + 0.5, hgt);
       }
     }
@@ -248,52 +257,55 @@
     e.preventDefault();
   });
 
-  // --- one line per layer: a streak with a square handle for its weight -----
+  // --- layers: one compact row each, with typed size and weight -------------
 
-  function lineSlider(el, get, set, max) {
-    const track = document.createElement('div'), knob = document.createElement('div');
-    track.className = 'track';
-    knob.className = 'knob';
-    knob.tabIndex = 0;
-    track.appendChild(knob);
-    el.appendChild(track);
-    const place = () => (knob.style.left = `${(get() / max) * 100}%`);
-    const from = (e) => {
-      const r = track.getBoundingClientRect();
-      set(Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * max * 100) / 100);
-      place();
-    };
-    let on = false;
-    track.addEventListener('pointerdown', (e) => {
-      on = true;
-      track.setPointerCapture(e.pointerId);
-      from(e);
+  function numInput(key, step, min, max, after) {
+    const el = document.createElement('input');
+    Object.assign(el, { type: 'number', step, min, max, value: state[key] });
+    el.setAttribute('aria-label', key);
+    el.addEventListener('change', () => {
+      const v = +el.value;
+      if (!Number.isFinite(v)) return (el.value = state[key]);
+      state[key] = Math.max(min, Math.min(max, v));
+      el.value = state[key];
+      (after || rebuild)();
     });
-    track.addEventListener('pointermove', (e) => on && from(e));
-    track.addEventListener('pointerup', () => (on = false));
-    knob.addEventListener('keydown', (e) => {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-      set(Math.max(0, Math.min(max, Math.round((get() + (e.key === 'ArrowLeft' ? -0.05 : 0.05) * max) * 100) / 100)));
-      place();
-      e.preventDefault();
-    });
-    place();
+    return el;
   }
-
-  const list = document.getElementById('layers');
+  function row(table, name, type, cells) {
+    const n = document.createElement('div');
+    n.className = 'cell-name';
+    n.innerHTML = `${name}<span class="type">${type}</span>`;
+    table.appendChild(n);
+    for (const c of cells) {
+      const d = document.createElement('div');
+      if (c) d.appendChild(c);
+      table.appendChild(d);
+    }
+  }
+  const head = (table) => {
+    for (const t of ['', 'km', 'vekt']) {
+      const d = document.createElement('div');
+      d.className = 'col-head';
+      d.textContent = t;
+      table.appendChild(d);
+    }
+  };
+  const baseTable = document.getElementById('layers');
+  head(baseTable);
   for (const L of M.BaseLayer.LAYERS) {
-    const row = document.createElement('div'), head = document.createElement('div');
-    row.className = 'layer';
-    head.className = 'layer-head';
-    const km = Math.round(L.size * state.scale);
-    head.innerHTML = `<span>${L.name}</span><span class="type">${L.type}${L.type !== 'warp' ? ` · ${km.toLocaleString('nb-NO')} km` : ''}</span>`;
-    row.appendChild(head);
-    lineSlider(row, () => state[L.id], (v) => {
-      state[L.id] = v;
-      later(rebuild, 200);
-    }, LAYER_MAX[L.id]);
-    list.appendChild(row);
+    row(baseTable, L.name, L.type, [numInput(L.id + 'Size', 10, 20, 10000), numInput(L.id + 'W', 0.05, 0, 3)]);
   }
+  const midTable = document.getElementById('midlayers');
+  head(midTable);
+  row(midTable, 'Mellomlag', 'fbm', [numInput('midSize', 5, 10, 1000), numInput('midW', 0.05, 0, 3)]);
+  row(midTable, 'Strekking', 'langs helningen', [null, numInput('midStretch', 0.5, 1, 10)]);
+  for (const d of document.querySelectorAll('details.sec')) d.addEventListener('toggle', () => d.open && drawProfile());
+  const showMid = document.getElementById('showMid');
+  showMid.addEventListener('change', () => {
+    state.show = showMid.checked ? 'mid' : 'map';
+    render();
+  });
 
   // --- the point under the pointer ------------------------------------------
 

@@ -1,11 +1,15 @@
-// Grunnforskyvning: the base displacement, 100–500 km. It shifts the land
-// against sea level over large areas.
+// Grunnlagene: the base displacement, 100–500 km, and the middle layer.
 //
-// Three noise layers are mixed into one value v: continents (largest),
-// basins and the base layer. v is read with thresholds:
-// sea | lowland | highland | divide. Straits (ridged noise, two scales) pull
-// lowland near the coast below the sea threshold, so seas join up through
-// sounds.
+// Base: three noise layers mixed into one value v by weight: continents,
+// basins and the base layer itself. Large straits (ridged noise) turn coastal
+// lowland into open sea, so seas join up. v is read with thresholds:
+// sea | lowland | highland | divide.
+//
+// Middle layer (mellomlaget): inherits from the base. It is stretched along
+// the slope of the base value, so its shapes run downhill, and it shifts v on
+// land only, growing from the coast inland: it lifts and sinks the highland
+// and the divide, so some mountain areas are high and others low, while the
+// coast stays where the base put it.
 (function (M) {
   'use strict';
 
@@ -15,55 +19,105 @@
     const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
     return t * t * (3 - 2 * t);
   };
+  const frac = (v) => v - Math.floor(v);
   const CLASSES = ['hav', 'lavland', 'høyland', 'vanndeling'];
 
-  // The noise layers, largest first. size is a factor on the base scale.
+  // The base noise layers, largest first: size in km, weight.
   const LAYERS = [
-    { id: 'cont', name: 'Kontinenter', type: 'fbm', size: 10, oct: 2 },
-    { id: 'basin', name: 'Havbasseng', type: 'fbm', size: 4.2, oct: 3 },
-    { id: 'base', name: 'Grunnlag', type: 'fbm', size: 1, oct: 3 },
-    { id: 's1', name: 'Store sund', type: 'ridged', size: 0.6 },
-    { id: 's2', name: 'Små sund', type: 'ridged', size: 0.15 },
-    { id: 'warp', name: 'Vridning', type: 'warp', size: 1 },
+    { id: 'cont', name: 'Kontinenter', type: 'fbm' },
+    { id: 'basin', name: 'Havbasseng', type: 'fbm' },
+    { id: 'base', name: 'Grunnlag', type: 'fbm' },
+    { id: 's1', name: 'Sund', type: 'ridged' },
   ];
 
   class BaseLayer {
-    // p: scale (km), weights per layer (p.cont, p.basin, p.base, p.s1, p.s2,
-    // p.warp), widths w1/w2, thresholds tSea/tHigh/tDivide, heights.
+    // p: per layer <id>Size (km) and <id>W (weight); s1Width; thresholds
+    // tSea/tHigh/tDivide; heights lowTop/highTop/shelf/deep; middle layer
+    // midSize (km), midW, midStretch.
     constructor(seed, p) {
       this.p = p;
       const P = (k) => createPerlin(seed * 53 + k);
       this.nb = P(1);
-      this.wx = P(2);
-      this.wy = P(3);
       this.ns1 = P(4);
-      this.ns2 = P(5);
       this.nm = P(6);
       this.nc = P(7);
-      this.norm = Math.hypot(p.cont, p.basin, p.base) || 1;
+      this.nmid = P(8);
+      this.norm = Math.hypot(p.contW, p.basinW, p.baseW) || 1;
+      this.frames = new Map(); // middle-layer lattice corner -> frame
     }
 
-    value(x, y) {
-      const p = this.p, L = p.scale * 1000, W = p.warp * L;
-      const qx = x + (W * fbm(this.wx, x / L, y / L, 2)) / STD[2];
-      const qy = y + (W * fbm(this.wy, x / L, y / L, 2)) / STD[2];
-      const LC = 10 * L, LB = 4.2 * L;
-      let v =
-        (p.cont * fbm(this.nc, qx / LC, qy / LC, 2) / STD[2] +
-          p.basin * fbm(this.nm, qx / LB, qy / LB, 3) / STD[3] +
-          p.base * fbm(this.nb, qx / L, qy / L, 3) / STD[3]) / this.norm;
+    // The smooth mix of the three fbm layers, without straits.
+    mix(x, y) {
+      const p = this.p, LC = p.contSize * 1000, LB = p.basinSize * 1000, L = p.baseSize * 1000;
+      return (
+        (p.contW * fbm(this.nc, x / LC, y / LC, 2)) / STD[2] +
+        (p.basinW * fbm(this.nm, x / LB, y / LB, 3)) / STD[3] +
+        (p.baseW * fbm(this.nb, x / L, y / L, 3)) / STD[3]
+      ) / this.norm;
+    }
+
+    // The base value: the mix with straits.
+    baseValue(x, y) {
+      const p = this.p;
+      let v = this.mix(x, y);
       // Straits: only in lowland close to the sea, never through highland.
-      // Gate: full near the coast, gone halfway into the lowland.
       const near = 1 - S(p.tSea, p.tSea + 0.5 * (p.tHigh - p.tSea), v);
-      if (near > 0 && v > p.tSea - 0.6) {
-        let s = 0;
-        if (p.s1 > 0) s = Math.max(s, p.s1 * S(1 - p.w1, 1 - p.w1 * 0.3, ridged(this.ns1, qx / (0.6 * L), qy / (0.6 * L), 1)));
-        if (p.s2 > 0) s = Math.max(s, p.s2 * S(1 - p.w2, 1 - p.w2 * 0.3, ridged(this.ns2, qx / (0.15 * L), qy / (0.15 * L), 1)));
-        // A strait is clear sea: full strength pulls v well below the threshold.
+      if (p.s1W > 0 && near > 0 && v > p.tSea - 0.6) {
+        const LS = p.s1Size * 1000, w = p.s1Width;
+        const s = p.s1W * S(1 - w, 1 - w * 0.3, ridged(this.ns1, x / LS, y / LS, 1));
         const t = Math.min(1, s) * near;
         v = v * (1 - t) + (p.tSea - 0.6) * t;
       }
       return v;
+    }
+
+    // --- middle layer --------------------------------------------------------
+    // Stretched noise needs a direction, and a direction that turns from place
+    // to place would twist a single noise. So each corner of a lattice (2 ×
+    // the layer size) gets its own frame from the slope of the base there, the
+    // noise is read in each of the four nearest frames, and they are blended.
+    frame(i, j, G) {
+      const k = i + ',' + j;
+      let f = this.frames.get(k);
+      if (f) return f;
+      const x = i * G, y = j * G;
+      // The slope of the base over its own size: a smooth direction, so
+      // neighbouring frames agree and the blend shows no weave.
+      const h = this.p.baseSize * 1000;
+      const gx = (this.mix(x + h, y) - this.mix(x - h, y)) / (2 * h);
+      const gy = (this.mix(x, y + h) - this.mix(x, y - h)) / (2 * h);
+      const g = Math.hypot(gx, gy);
+      // Stretch only where the base clearly slopes.
+      const e = 1 + (this.p.midStretch - 1) * S(0.15, 0.6, g * this.p.baseSize * 1000);
+      const ax = g > 0 ? gx / g : 1, ay = g > 0 ? gy / g : 0;
+      f = { x, y, ax, ay, e, ox: frac(Math.sin(i * 127.1 + j * 311.7) * 43758.5) * 1000, oy: frac(Math.sin(i * 269.5 + j * 183.3) * 43758.5) * 1000 };
+      this.frames.set(k, f);
+      if (this.frames.size > 200000) this.frames.clear();
+      return f;
+    }
+
+    // The middle-layer value at (x, y), about normal (mean 0, sd 1).
+    mid(x, y) {
+      const p = this.p, Lm = p.midSize * 1000, G = 2 * Lm;
+      const u = x / G, w = y / G, i = Math.floor(u), j = Math.floor(w);
+      const fu = u - i, fv = w - j, su = fu * fu * (3 - 2 * fu), sv = fv * fv * (3 - 2 * fv);
+      let sum = 0, sw2 = 0;
+      for (const [di, dj, wt] of [[0, 0, (1 - su) * (1 - sv)], [1, 0, su * (1 - sv)], [0, 1, (1 - su) * sv], [1, 1, su * sv]]) {
+        if (wt <= 0) continue;
+        const f = this.frame(i + di, j + dj, G), dx = x - f.x, dy = y - f.y;
+        const along = (dx * f.ax + dy * f.ay) / (Lm * f.e), across = (-dx * f.ay + dy * f.ax) / Lm;
+        sum += (wt * fbm(this.nmid, along + f.ox, across + f.oy, 2)) / STD[2];
+        sw2 += wt * wt;
+      }
+      return sum / Math.sqrt(sw2);
+    }
+
+    // The final value: base, then the middle layer on land.
+    value(x, y) {
+      const p = this.p;
+      const v = this.baseValue(x, y);
+      if (!(p.midW > 0) || v <= p.tSea) return v;
+      return v + p.midW * this.mid(x, y) * S(p.tSea, p.tHigh, v);
     }
 
     // Height in metres from v: the profile.

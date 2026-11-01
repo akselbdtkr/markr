@@ -26,21 +26,29 @@ høydekurvene.
 Målt på frø 1848: avviket fra høydekurvene går fra 24° (rett rutenett) til omtrent 17–18°,
 med 2 brettede ruter. Løst seksjon for seg er sømmene 3–10 m, avhengig av buffer og anker.
 
-## Grunnforskyvning
+## Grunnlagene
 
-`grunn.html` viser det største laget alene (`src/baselayer.js`), 100–500 km. Terrenget skal
-bygges lag for lag: grunnforskyvning → mellomlag → områdelag (fasthet, landskapstype,
-nedsenk) → lokalt terreng. Hvert lag arver fra laget over.
+`grunn.html` viser de største lagene alene (`src/baselayer.js`). Terrenget skal bygges lag
+for lag: grunnforskyvning → mellomlag → områdelag (fasthet, landskapstype, nedsenk) →
+lokalt terreng. Hvert lag arver fra laget over.
 
-- **Verdi:** tre noise-lag blandes etter vekt: kontinenter (10 × skala), havbasseng
-  (4,2 × skala) og grunnlaget (240 km). De store lagene gjør havet sammenhengende.
-- **Terskler:** hav | lavland | høyland | vanndeling, alle på samme verdi. Profilen i
-  panelet viser høyden etter verdien, med andelen av kartet bak. Strekene under dras for å
-  flytte tersklene.
-- **Sund:** ridged noise i to skalaer. De gjør lavland nær kysten til åpent hav, så
-  havbassenger knyttes sammen, men skjærer aldri gjennom høyland.
-- **Visning:** hav er blått, land er en grå skala etter høyde, og vanndelingsfeltet er
-  stiplet. Boksen ved pekeren viser type og høyde.
+### Grunnforskyvning (100–500 km)
+
+- **Verdi:** tre fbm-lag blandes etter vekt: kontinenter (2400 km), havbasseng (1008 km) og
+  grunnlaget (240 km). Størrelse og vekt skrives inn for hvert lag.
+- **Sund:** ridged noise (144 km) gjør lavland nær kysten til åpent hav, så havbassenger
+  knyttes sammen. Sundene skjærer aldri gjennom høyland.
+- **Terskler:** hav | lavland | høyland | vanndeling, på samme verdi. Profilen viser høyden
+  etter verdien, med andelen av kartet bak i flate klassefarger. Strekene under dras.
+
+### Mellomlaget
+
+- **Arver fra grunnlaget:** det flytter verdien bare på land, økende fra kysten og innover.
+  Kysten blir der grunnlaget satte den, mens høyland og vanndeling løftes eller senkes, så
+  noen fjellområder blir høye og andre lave.
+- **Strukket langs helningen:** et gitter (2 × lagets størrelse) gir hvert hjørne en retning
+  fra helningen i grunnlaget, målt over grunnlagets egen størrelse. Støyen leses i hvert av
+  de fire nærmeste hjørnenes retning og blandes. Strekkingen avtar der grunnlaget er flatt.
 
 ## Ruteformler
 

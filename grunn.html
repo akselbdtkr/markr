@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Markr grunnforskyvning</title>
+  <title>Markr grunnlag</title>
   <style>
     :root {
       --bg: #f4f2ec; --panel: #ffffff; --text: #22262b; --muted: #8a8f95;
@@ -31,21 +31,25 @@
     main { position: relative; min-width: 0; }
     #map { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; background: #3d6fa8; }
     aside { background: var(--panel); border-left: 1px solid var(--border); padding: 18px 16px; overflow-y: auto; }
-    h1 { font-size: 16px; font-weight: 600; margin: 0 0 14px; }
-    #profile { width: 100%; height: 170px; display: block; touch-action: none; outline: none; }
+    h1 { font-size: 16px; font-weight: 600; margin: 0 0 10px; }
+    #profile { width: 100%; height: 150px; margin-top: 10px; display: block; touch-action: none; outline: none; }
     #profile:focus-visible { outline: 2px solid var(--handle); outline-offset: 2px; }
-    .layer { margin: 14px 0; }
-    .layer-head { display: flex; justify-content: space-between; font-size: 13px; }
-    .type { color: var(--muted); font-size: 12px; }
-    .track { position: relative; height: 18px; cursor: pointer; touch-action: none; }
-    .track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--muted); }
-    .knob { position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; background: var(--handle); }
-    .knob:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
-    .seed { display: flex; gap: 6px; margin-top: 22px; }
+    details.sec { border-top: 1px solid var(--border); padding: 10px 0 4px; }
+    details.sec > summary { cursor: pointer; font-weight: 600; font-size: 13px; list-style: none; display: flex; justify-content: space-between; }
+    details.sec > summary::after { content: "–"; color: var(--muted); }
+    details.sec:not([open]) > summary::after { content: "+"; }
+    details.sec > summary:focus-visible { outline: 2px solid var(--handle); outline-offset: 2px; }
+    .grid { display: grid; grid-template-columns: 1fr 64px 52px; gap: 4px 6px; align-items: center; margin: 10px 0 6px; font-size: 13px; }
+    .col-head { font-size: 11px; color: var(--muted); text-align: right; }
+    .cell-name { display: flex; flex-direction: column; line-height: 1.2; }
+    .type { color: var(--muted); font-size: 11px; }
+    .grid input { width: 100%; font: inherit; font-size: 12px; text-align: right; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font-variant-numeric: tabular-nums; }
+    .check { display: flex; gap: 6px; align-items: center; font-size: 13px; margin: 4px 0 8px; }
+    .check input { margin: 0; accent-color: var(--handle); }
+    .seed { display: flex; gap: 6px; margin-top: 12px; }
     .seed input, .seed button { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; }
     .seed input { width: 0; flex: 1; }
     .seed button { cursor: pointer; }
-    hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
     #pointbox {
       position: absolute; pointer-events: none; background: var(--panel); color: var(--text);
       border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: 13px;
@@ -66,10 +70,17 @@
     <div id="pointbox" hidden></div>
   </main>
   <aside>
-    <h1>Grunnforskyvning</h1>
-    <canvas id="profile" tabindex="0" aria-label="Profil: høyde etter verdien i laget. Dra strekene for å flytte tersklene."></canvas>
-    <hr>
-    <div id="layers"></div>
+    <h1>Markr grunnlag</h1>
+    <details class="sec" open>
+      <summary>Grunnlagene</summary>
+      <canvas id="profile" tabindex="0" aria-label="Profil: høyde etter verdien i laget. Dra strekene for å flytte tersklene."></canvas>
+      <div id="layers" class="grid"></div>
+    </details>
+    <details class="sec" open>
+      <summary>Mellomlaget</summary>
+      <div id="midlayers" class="grid"></div>
+      <label class="check"><input id="showMid" type="checkbox">Vis bare mellomlaget</label>
+    </details>
     <div class="seed"><input id="seed" type="number" aria-label="Frø"><button id="reseed">Nytt frø</button></div>
   </aside>
 
