@@ -570,6 +570,7 @@
     const counts = {}; // per kind: vertices weighted, owning a line, within reach
     const narrow = opts.narrow;
     const blendAngle = opts.blendAngle ?? 15, transBoost = opts.transBoost ?? 0.6;
+    const attract = opts.attract ?? 0.6, attractCells = opts.attractCells ?? 3;
     const lim = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     for (let b = -MG; b < N + MG; b++) {
       for (let a = -MG; a < N + MG; a++) {
@@ -594,7 +595,9 @@
             const along = rows ? a : b, own = rows ? b : a;
             // Dense rows start their strips at staggered places, so the jumps
             // of neighbouring rows do not line up into a fault.
-            const phase = fm.dense && opts.stagger ? (((own * 5) % fm.run) + fm.run) % fm.run : 0;
+            // Dense rows move their jumps one step every second row, so the jumps
+            // lie on slanted lines instead of one straight column of narrow cells.
+            const phase = fm.dense ? (((Math.floor(own / 2) * (opts.stagger ? 5 : 1)) % fm.run) + fm.run) % fm.run : 0;
             const s0 = Math.floor((along - phase) / fm.run) * fm.run + phase, mid = lim(s0 + fm.run / 2, -MG, N + MG - 1);
             const reach = (fm.reachFor ? fm.reachFor(g) : fm.reach) * boost;
             let levels;
@@ -620,10 +623,14 @@
               const sp = rows ? BY[kn] - BY[k] : BX[kn] - BX[k];
               const d = (pv / C - (rows ? BY[k] : BX[k])) / sp; // in local cells
               if (Math.abs(d) > reach) continue; // the line gives up here
+              // Gradually: from 60 % of the reach, the vertex follows the line
+              // less and less, so it lets go smoothly instead of at once.
+              const fade = 1 - smoothstep(0.6 * reach, reach, Math.abs(d));
+              if (fade < 0.02) continue;
               ct.within++;
               const cur = best[slot];
               if (!cur || fm.prio > cur.prio || Math.abs(d) < Math.abs(cur.dl)) {
-                best[slot] = { prio: fm.prio, L, dl: d, d: d * sp, w: w * wo, rows, fm, along, own, s0, reach };
+                best[slot] = { prio: fm.prio, L, dl: d, d: d * sp, w: w * wo * fade, rows, fm, along, own, s0, reach };
               }
             }
           }
@@ -701,16 +708,39 @@
     for (let b = 0; b <= N; b++) {
       for (let a = 0; a <= N; a++) {
         const k = at(a, b), o = b * row + a;
-        const dy = RW.on[k] ? RW.S[k] : (between(k - 1, R, RW) + 2 * between(k, R, RW) + between(k + 1, R, RW)) / 4;
-        const dx = CL.on[k] ? CL.S[k] : (between(k - R, 1, CL) + 2 * between(k, 1, CL) + between(k + R, 1, CL)) / 4;
+        let dyOut = RW.on[k] ? RW.S[k] : (between(k - 1, R, RW) + 2 * between(k, R, RW) + between(k + 1, R, RW)) / 4;
+        let dxOut = CL.on[k] ? CL.S[k] : (between(k - R, 1, CL) + 2 * between(k, 1, CL) + between(k + R, 1, CL)) / 4;
         snappedR[o] = RW.lvl[k];
         snappedC[o] = CL.lvl[k];
         if (RW.on[k] || CL.on[k]) snapped[o] = RW.on[k] ? RW.lvl[k] : CL.lvl[k];
+        // Grid lines near a ridge or steep valley close in on it: a vertex up to
+        // `attractCells` away (across the ridge) moves a share of the way toward
+        // it, more the closer it is. Order is kept, so no cells cross.
+        if (attract > 0) {
+          for (const [ln, dk, base, cur] of [[CL, 1, BX, () => BX[k] + dxOut], [RW, R, BY, () => BY[k] + dyOut]]) {
+            if (ln.on[k] && ln.pri[k] >= 2) continue;
+            let best = null;
+            for (let sgn = -1; sgn <= 1; sgn += 2) {
+              for (let st = 1; st <= attractCells; st++) {
+                const kr = k + sgn * st * dk;
+                if (ln.on[kr] && ln.pri[kr] >= 2) {
+                  if (!best || st < best.st) best = { kr, st };
+                  break;
+                }
+              }
+            }
+            if (!best) continue;
+            const f = attract * (1 - best.st / (attractCells + 1));
+            const delta = f * (base[best.kr] + ln.S[best.kr] - cur());
+            if (ln === CL) dxOut += delta;
+            else dyOut += delta;
+          }
+        }
         // Along-shifts (smaller cells at jumps) spread to the rows beside, too.
         const ax = RW.on[k] ? RW.A[k] : between(k, R, RW, RW.A);
         const ay = CL.on[k] ? CL.A[k] : between(k, 1, CL, CL.A);
-        X[o] = BX[k] + dx + ax;
-        Y[o] = BY[k] + dy + ay;
+        X[o] = BX[k] + dxOut + ax;
+        Y[o] = BY[k] + dyOut + ay;
       }
     }
 

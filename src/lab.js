@@ -12,7 +12,7 @@
     mode: 'global', buffer: 16, iters: 300, contour: 10,
     method: 'jumps', step: 50, minSlope: 0.06, pull: 1, showSnaps: true, run: 4, reach: 0.9,
     coastRun: 4, coastReach: 1.3, reachOut: 6, run: 6, reach: 1.1,
-    ridges: 1, ridgeRun: 6, ridgeReach: 1.1, curvature: 0.003, startKind: 'rugged', rough: 0.7,
+    ridges: 1, ridgeRun: 6, ridgeReach: 1.5, attract: 0.6, attractCells: 3, curvature: 0.003, startKind: 'rugged', rough: 0.7,
     slopeLines: 0.6, slopeSpacing: 3, slopeReach: 0.6, narrow: 1, gap: 0.3, sizeStrength: 3, minRidge: 100,
     blendAngle: 15, transBoost: 0.6, minCell: 3, splitSlope: 1, splitRatio: 2.6, dense: true, stagger: false, denseSmooth: 48,
     showContours: true, showGrid: true, showField: false, showSections: true, showFolds: true, fillCells: false,
@@ -110,7 +110,7 @@
             ridges: state.ridges, ridgeRun: state.ridgeRun, ridgeReach: state.ridgeReach, curvature: state.curvature,
             slopeLines: state.slopeLines, slopeSpacing: state.slopeSpacing, slopeReach: state.slopeReach,
             narrow: state.narrow, gap: state.gap, sizeStrength: state.sizeStrength,
-            blendAngle: state.blendAngle, transBoost: state.transBoost, minCell: state.minCell, dense: state.dense, stagger: state.stagger,
+            blendAngle: state.blendAngle, transBoost: state.transBoost, minCell: state.minCell, dense: state.dense, stagger: state.stagger, attract: state.attract, attractCells: state.attractCells,
           }))
         : M.buildGrid(field, Object.assign(o, { buffer: state.buffer, mode: state.mode, align: state.align, size: state.size, anchor: state.anchor, iters: state.iters }));
     document.body.dataset.method = state.method;
@@ -605,6 +605,8 @@
   range('minCell', 'minCell', (v) => `${v} m`, rebuildGrid);
   range('splitSlope', 'splitSlope', (v) => `${Math.round(Math.atan(v) * 57.3)}°`, rebuildGrid);
   range('splitRatio', 'splitRatio', (v) => (v ? `× ${v.toFixed(2)}` : 'av'), rebuildGrid);
+  range('attract', 'attract', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
+  range('attractCells', 'attractCells', (v) => `${v} ruter`, rebuildGrid);
   range('ridges', 'ridges', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
   range('ridgeRun', 'ridgeRun', (v) => `${v} ruter`, rebuildGrid);
   range('ridgeReach', 'ridgeReach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
