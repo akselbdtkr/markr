@@ -13,7 +13,8 @@
     method: 'jumps', step: 50, minSlope: 0.06, pull: 1, showSnaps: true, run: 4, reach: 0.9,
     coastRun: 4, coastReach: 1.3, reachOut: 6, run: 6, reach: 1.1,
     ridges: 1, ridgeRun: 6, ridgeReach: 1.1, curvature: 0.003, startKind: 'rugged', rough: 0.7,
-    slopeLines: 0.6, slopeSpacing: 3, slopeReach: 0.6, narrow: 0.6, gap: 0.3, sizeStrength: 3, minRidge: 100,
+    slopeLines: 0.6, slopeSpacing: 3, slopeReach: 0.6, narrow: 1, gap: 0.3, sizeStrength: 3, minRidge: 100,
+    blendAngle: 15, transBoost: 0.6, minCell: 3, splitSlope: 1, splitRatio: 2,
     showContours: true, showGrid: true, showField: false, showSections: true, showFolds: true, fillCells: false,
   };
   let terrain, field, grid, start, stats = {};
@@ -39,12 +40,16 @@
           if (h < 0) water++;
           lo = Math.min(lo, h);
           hi = Math.max(hi, h);
-          if (state.startKind === 'rugged' && h > 0) steep += Math.abs(t.elevation(px + 30, py) - t.elevation(px - 30, py)) / 60;
+          // Rugged, but still land people could use: each point counts up to 0.6.
+          if (state.startKind === 'rugged' && h > 0) {
+            const sl = Math.abs(t.elevation(px + 30, py) - t.elevation(px - 30, py)) / 60;
+            steep += Math.min(0.6, sl) - 2 * Math.max(0, sl - 0.8); // alpine cliffs count against
+          }
         }
         // Rugged: the most relief, with a little coast. Varied: sea and slopes.
         const score =
           state.startKind === 'rugged'
-            ? (water >= 2 && water <= 8 ? 150 : 0) + Math.min(hi - lo, 700) + 40 * steep - Math.hypot(gx, gy)
+            ? (water >= 2 && water <= 8 ? 150 : 0) + Math.min(hi - lo, 400) + 40 * steep - (hi > 900 ? 300 : 0) - Math.hypot(gx, gy)
             : (water >= 3 && water <= 10 ? 200 : 0) + Math.min(hi, 200) - Math.hypot(gx, gy);
         if (score > bs) {
           bs = score;
@@ -68,8 +73,8 @@
         const h = base.elevation(x, y, mw);
         if (!extra || h <= 0 || mw > 400) return h;
         const patch = M.util.smoothstep(-0.1, 0.6, fbm(nP, x / 1800, y / 1800, 2) / 0.2);
-        const r = ridged(nR, x / 420, y / 420, 4) - 0.55;
-        const hn = h + extra * patch * Math.min(1, h / 30) * 260 * r;
+        const r = ridged(nR, x / 420, y / 420, 2) - 0.55;
+        const hn = h + extra * patch * Math.min(1, h / 30) * 90 * r;
         return Math.max(hn, Math.min(h, 2));
       },
     };
@@ -105,11 +110,44 @@
             ridges: state.ridges, ridgeRun: state.ridgeRun, ridgeReach: state.ridgeReach, curvature: state.curvature,
             slopeLines: state.slopeLines, slopeSpacing: state.slopeSpacing, slopeReach: state.slopeReach,
             narrow: state.narrow, gap: state.gap, sizeStrength: state.sizeStrength,
+            blendAngle: state.blendAngle, transBoost: state.transBoost, minCell: state.minCell,
           }))
         : M.buildGrid(field, Object.assign(o, { buffer: state.buffer, mode: state.mode, align: state.align, size: state.size, anchor: state.anchor, iters: state.iters }));
     document.body.dataset.method = state.method;
+    splitCells();
     measure();
     draw();
+  }
+
+  // Splitting. Each cell is compared with the size it should have on its
+  // slope: target side = 16 m / (1 + slope / splitSlope). If the cell's side is
+  // more than splitRatio times the target, it is split in four (bilinear),
+  // and the quarters are checked again, down to 4 m; never below the smallest
+  // usable cell. A hard limit. `splits` holds the quads to draw instead.
+  let splits = [];
+  function splitCells() {
+    splits = [];
+    stats.split = 0;
+    if (!state.splitRatio) return;
+    const bil = (q, u, v) => {
+      const t = [q[0][0] + (q[1][0] - q[0][0]) * u, q[0][1] + (q[1][1] - q[0][1]) * u];
+      const d = [q[3][0] + (q[2][0] - q[3][0]) * u, q[3][1] + (q[2][1] - q[3][1]) * u];
+      return [t[0] + (d[0] - t[0]) * v, t[1] + (d[1] - t[1]) * v];
+    };
+    const area = (q) => Math.abs((q[0][0] - q[2][0]) * (q[1][1] - q[3][1]) - (q[1][0] - q[3][0]) * (q[0][1] - q[2][1])) / 2;
+    const visit = (q, level) => {
+      const cx = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4, cy = (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4;
+      const slope = field.sample(cx, cy)[2];
+      const side = Math.sqrt(area(q)), target = C / (1 + slope / state.splitSlope);
+      if (level < 2 && side > state.splitRatio * target && side / 2 >= state.minCell) {
+        stats.split++;
+        const m = (u, v) => bil(q, u, v);
+        for (const [u0, v0] of [[0, 0], [0.5, 0], [0.5, 0.5], [0, 0.5]]) {
+          visit([m(u0, v0), m(u0 + 0.5, v0), m(u0 + 0.5, v0 + 0.5), m(u0, v0 + 0.5)], level + 1);
+        }
+      } else if (level > 0) splits.push(q);
+    };
+    for (let b = 0; b < grid.N; b++) for (let a = 0; a < grid.N; a++) visit([vtx(a, b), vtx(a + 1, b), vtx(a + 1, b + 1), vtx(a, b + 1)], 0);
   }
 
   // Vertex (a, b) of the map, in metres.
@@ -175,7 +213,8 @@
     const rows = [
       ['Avvik fra høydekurvene', `${r(stats.err)}° (rett rutenett: ${r(stats.base)}°)`],
       ['Brettede ruter', `${stats.folds}`],
-      ...(grid.collapsed !== undefined ? [['Sammenslått i hopp', `${grid.collapsed} ruter til linjer, ${grid.points} til punkter`]] : []),
+      ...(grid.collapsed !== undefined ? [['Sammenslått', `${grid.collapsed} ruter til linjer, ${grid.points} til punkter`]] : []),
+      ['Delt i fire', `${stats.split || 0} ruter`],
       ...(state.method === 'jumps' ? [['Kanter på linjene', `${r(stats.onLine / 1000, 2)} km (kyst ${r(stats.onCoast / 1000, 2)} km)`]] : []),
       ['Største søm', state.method === 'jumps' ? '0 m (hvert hjørne regnes lokalt)' : state.mode === 'global' ? 'ingen (hele kartet samlet)' : `${r(stats.seam * C, 2)} m`],
       ['Tid', `felt ${Math.round(stats.field)} ms, rutenett ${Math.round(stats.grid)} ms`],
@@ -340,6 +379,18 @@
       ctx.beginPath();
       for (let b = 0; b <= grid.N; b++) line((k) => vtx(k, b));
       for (let a = 0; a <= grid.N; a++) line((k) => vtx(a, k));
+      ctx.stroke();
+      // Split cells: their quarters, thinner.
+      ctx.lineWidth *= 0.6;
+      ctx.beginPath();
+      for (const q of splits) {
+        q.forEach((p, n) => {
+          const [x, y] = toScreen(p[0], p[1]);
+          if (n) ctx.lineTo(x, y);
+          else ctx.moveTo(x, y);
+        });
+        ctx.closePath();
+      }
       ctx.stroke();
     }
     // Section borders
@@ -549,6 +600,11 @@
   range('reachOut', 'reachOut', (v) => `${v} ruter`, rebuildGrid);
 
   range('reach', 'reach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
+  range('blendAngle', 'blendAngle', (v) => `±${v}°`, rebuildGrid);
+  range('transBoost', 'transBoost', (v) => v.toFixed(2), rebuildGrid);
+  range('minCell', 'minCell', (v) => `${v} m`, rebuildGrid);
+  range('splitSlope', 'splitSlope', (v) => `${Math.round(Math.atan(v) * 57.3)}°`, rebuildGrid);
+  range('splitRatio', 'splitRatio', (v) => (v ? `× ${v.toFixed(2)}` : 'av'), rebuildGrid);
   range('ridges', 'ridges', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
   range('ridgeRun', 'ridgeRun', (v) => `${v} ruter`, rebuildGrid);
   range('ridgeReach', 'ridgeReach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);

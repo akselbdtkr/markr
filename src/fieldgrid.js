@@ -556,6 +556,7 @@
     const [RW, CL] = lines;
     const counts = {}; // per kind: vertices weighted, owning a line, within reach
     const narrow = opts.narrow;
+    const blendAngle = opts.blendAngle ?? 15, transBoost = opts.transBoost ?? 0.6;
     const lim = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     for (let b = -MG; b < N + MG; b++) {
       for (let a = -MG; a < N + MG; a++) {
@@ -566,31 +567,40 @@
           const [v, gx, gy] = fm.f(x, y);
           const g = Math.hypot(gx, gy);
           if (g < 1e-6) continue;
-          const rows = Math.abs(gy) >= Math.abs(gx);
-          const slot = rows ? 0 : 1;
-          if (best[slot] && best[slot].prio > fm.prio) continue; // a stronger kind holds
-          const along = rows ? a : b, own = rows ? b : a;
-          const s0 = Math.floor(along / fm.run) * fm.run, mid = lim(s0 + fm.run / 2, -MG, N + MG - 1);
-          const reach = fm.reachFor ? fm.reachFor(g) : fm.reach;
-          for (const L of fm.levels(v, g, x, y)) {
-            if (ownerAt(fm, L, rows, mid, own) !== own) continue;
-            ct.owned++;
-            const pv = crossing(fm.f, x, y, L, rows);
-            if (pv === null) continue;
-            // How clear the line is, where it crosses this grid line.
-            const px = rows ? x : pv, py = rows ? pv : y;
-            const [, cgx, cgy] = fm.f(px, py);
-            const w = fm.weight(px, py, Math.hypot(cgx, cgy));
-            if (w < 0.05) continue;
-            ct.weighted++;
-            const kn = rows ? at(a, b + 1) : at(a + 1, b);
-            const sp = rows ? BY[kn] - BY[k] : BX[kn] - BX[k];
-            const d = (pv / C - (rows ? BY[k] : BX[k])) / sp; // in local cells
-            if (Math.abs(d) > reach) continue; // the line gives up here
-            ct.within++;
-            const cur = best[slot];
-            if (!cur || fm.prio > cur.prio || Math.abs(d) < Math.abs(cur.dl)) {
-              best[slot] = { prio: fm.prio, L, dl: d, d: d * sp, w, rows, fm, along, own, s0, reach };
+          // Rows take lines running along the rows, columns the others. Around
+          // 45 degrees both take the line, with weights that slide from one to
+          // the other, so the line passes smoothly from a column to a row; the
+          // reach is larger there, so the cells deform more in the hand-over.
+          const r = (Math.atan2(Math.abs(gy), Math.abs(gx)) * 180) / Math.PI;
+          const wr = smoothstep(45 - blendAngle, 45 + blendAngle, r);
+          const boost = 1 + transBoost * 4 * wr * (1 - wr);
+          for (const [rows, wo] of [[true, wr], [false, 1 - wr]]) {
+            if (wo < 0.02) continue;
+            const slot = rows ? 0 : 1;
+            if (best[slot] && best[slot].prio > fm.prio) continue; // a stronger kind holds
+            const along = rows ? a : b, own = rows ? b : a;
+            const s0 = Math.floor(along / fm.run) * fm.run, mid = lim(s0 + fm.run / 2, -MG, N + MG - 1);
+            const reach = (fm.reachFor ? fm.reachFor(g) : fm.reach) * boost;
+            for (const L of fm.levels(v, g, x, y)) {
+              if (ownerAt(fm, L, rows, mid, own) !== own) continue;
+              ct.owned++;
+              const pv = crossing(fm.f, x, y, L, rows);
+              if (pv === null) continue;
+              // How clear the line is, where it crosses this grid line.
+              const px = rows ? x : pv, py = rows ? pv : y;
+              const [, cgx, cgy] = fm.f(px, py);
+              const w = fm.weight(px, py, Math.hypot(cgx, cgy));
+              if (w * wo < 0.05) continue;
+              ct.weighted++;
+              const kn = rows ? at(a, b + 1) : at(a + 1, b);
+              const sp = rows ? BY[kn] - BY[k] : BX[kn] - BX[k];
+              const d = (pv / C - (rows ? BY[k] : BX[k])) / sp; // in local cells
+              if (Math.abs(d) > reach) continue; // the line gives up here
+              ct.within++;
+              const cur = best[slot];
+              if (!cur || fm.prio > cur.prio || Math.abs(d) < Math.abs(cur.dl)) {
+                best[slot] = { prio: fm.prio, L, dl: d, d: d * sp, w: w * wo, rows, fm, along, own, s0, reach };
+              }
             }
           }
         }
@@ -602,8 +612,6 @@
           ln.lvl[k] = bs.prio * 100000 + L;
           ln.on[k] = 1;
           ln.pri[k] = bs.prio;
-          // Narrower cells at a jump: if the line belongs to another grid line in
-          // the strip before (or after), move this vertex toward the jump.
           // Cells get smaller toward a jump: the further the vertex has moved off
           // its place to follow the line (its deviation), the more it is pushed
           // along the line toward the jump at the near end of the strip, if the
@@ -688,7 +696,9 @@
     // way; both ways, all four corners join in a point. Neighbouring cells share
     // the corners, so they end on the line or the point. Repeated until no cell
     // is inside out; one cell is lost each time, never an overlap.
-    const minH = opts.minCell ?? 0.04;
+    // Smallest usable width of a cell (metres): narrower cells become lines,
+    // cells too small both ways become points. A hard limit.
+    const minH = (opts.minCell ?? 3) / C;
     const P = (a, b) => b * row + a;
     const join = (ks) => {
       let sx = 0, sy = 0;
@@ -702,7 +712,8 @@
       }
     };
     let collapsed = 0, points = 0;
-    for (let round = 0; round < 12; round++) {
+    const rounds = [];
+    for (let round = 0; round < 40; round++) {
       let changed = false;
       for (let b = 0; b < N; b++) {
         for (let a = 0; a < N; a++) {
@@ -719,9 +730,18 @@
           const wB = (vx * (Y[p11] - Y[p01]) - vy * (X[p11] - X[p01])) / -lv;
           // A side already joined to nothing (length 0) is fine: that is a
           // collapsed neighbour, not a crossing.
-          const bad = (h) => h < minH && Math.abs(h) > 1e-6;
-          let rowsBad = bad(hL) || bad(hR);
-          let colsBad = bad(wT) || bad(wB);
+          // Crossed (a side turned inside out), or too narrow. A side
+          // already joined to nothing (length 0) is a collapsed neighbour.
+          const bad = (h1, h2) => {
+            const z1 = Math.abs(h1) < 1e-6, z2 = Math.abs(h2) < 1e-6;
+            if (z1 && z2) return false;
+            if ((!z1 && h1 < 0) || (!z2 && h2 < 0)) return true;
+            // Too narrow along its whole length. (A neighbour that collapsed
+            // leaves one side at 0; the other side still decides.)
+            return Math.max(h1, h2) < minH;
+          };
+          let rowsBad = bad(hL, hR);
+          let colsBad = bad(wT, wB);
           // A corner pushed inwards (the cell no longer convex) is also an
           // overlap: such a cell becomes a point.
           if (!rowsBad && !colsBad) {
@@ -749,6 +769,7 @@
           changed = true;
         }
       }
+      rounds.push(collapsed + points);
       if (!changed) break;
     }
     // Section corners in index units, and each section's rotation (degrees,
@@ -763,7 +784,7 @@
         rotations.push({ cx, cy, angle: th - (Math.PI / 2) * Math.round(th / (Math.PI / 2)), slope: Math.hypot(gx, gy) });
       }
     }
-    return { X, Y, row, N, i0, j0, time: performance.now() - t0, seam: 0, snapped, snappedR, snappedC, rotations, counts, collapsed, points };
+    return { X, Y, row, N, i0, j0, time: performance.now() - t0, seam: 0, snapped, snappedR, snappedC, rotations, counts, collapsed, points, rounds };
   }
 
   M.snapGrid = snapGrid;
