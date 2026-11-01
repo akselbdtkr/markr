@@ -91,21 +91,37 @@
     <h2>Terskler</h2>
     <div id="curves"></div>
 
-    <h2>Hjørner</h2>
+    <h2>Seksjoner og hopp</h2>
+    <label>Seksjonens rotasjon <output id="secStrength-out"></output></label>
+    <input id="secStrength" type="range" min="0" max="2" step="0.05">
     <label>Rotasjon <output id="strength-out"></output></label>
     <input id="strength" type="range" min="0" max="1.5" step="0.05">
     <label>Største rotasjon <output id="maxRot-out"></output></label>
     <input id="maxRot" type="range" min="5" max="45" step="1">
+    <label>Hopphøyde (1 = radene møtes) <output id="jumpReach-out"></output></label>
+    <input id="jumpReach" type="range" min="0.5" max="1" step="0.05">
+    <label>Myke hopp <output id="jumpSoft-out"></output></label>
+    <input id="jumpSoft" type="range" min="0" max="0.5" step="0.05">
+    <label>Hoppene spres over inntil <output id="jumpMix-out"></output></label>
+    <input id="jumpMix" type="range" min="0" max="1" step="0.05">
+
+    <h2>Kyst</h2>
+    <label>Kystrute: høyde innenfor <output id="coastBand-out"></output></label>
+    <input id="coastBand" type="range" min="0" max="30" step="1">
+    <label>Dragning mot kystlinja <output id="coastPull-out"></output></label>
+    <input id="coastPull" type="range" min="0" max="1" step="0.05">
+
+    <h2>Størrelse</h2>
     <label>Mindre ruter i bratt <output id="sizeAmount-out"></output></label>
     <input id="sizeAmount" type="range" min="0" max="0.9" step="0.05">
     <label>Dragning mot egger og daler <output id="edgePull-out"></output></label>
     <input id="edgePull" type="range" min="0" max="1" step="0.05">
-    <label>Del i to, langs kurven, når ønsket størrelse er <output id="split2-out"></output></label>
-    <input id="split2" type="range" min="0" max="1" step="0.01">
-    <label>Del i fire når ønsket størrelse er <output id="split4-out"></output></label>
-    <input id="split4" type="range" min="0" max="1" step="0.01">
-    <label>Hoppene spres over inntil <output id="jumpMix-out"></output></label>
-    <input id="jumpMix" type="range" min="0" max="1" step="0.05">
+    <label>Del i to, langs kurven, når ruta er større enn ønsket <output id="split2-out"></output></label>
+    <input id="split2" type="range" min="1" max="4" step="0.05">
+    <label>Del i fire når den er større enn ønsket <output id="split4-out"></output></label>
+    <input id="split4" type="range" min="1" max="5" step="0.05">
+    <label>Minste rute (mindre blir trekant, linje eller punkt) <output id="minCell-out"></output></label>
+    <input id="minCell" type="range" min="0" max="8" step="0.5">
 
     <details>
       <summary>Landskap og visning</summary>
@@ -124,6 +140,8 @@
       <input id="smooth" type="range" min="8" max="96" step="8">
       <label>Overgang rad/kolonne <output id="blend-out"></output></label>
       <input id="blend" type="range" min="0" max="30" step="1">
+      <label>Tykkere linjer langs landskapet <output id="lineWeight-out"></output></label>
+      <input id="lineWeight" type="range" min="0" max="1" step="0.05">
       <label>Høydekurver hver <output id="contour-out"></output></label>
       <input id="contour" type="range" min="2" max="50" step="1">
       <div class="check"><input id="showContours" type="checkbox"><label for="showContours">Vis høydekurver</label></div>

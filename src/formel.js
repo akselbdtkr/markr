@@ -11,11 +11,13 @@
   const CURVES = [
     { id: 'follow', label: 'Følge høydekurvene', unit: '° helning', min: 0, max: 40, step: 0.5, from: 3, to: 12, hint: 'Hvor bratt det må være før rutene roterer etter kurvene.' },
     { id: 'edge', label: 'Egg eller dal', unit: ' m forskjell', min: 0, max: 12, step: 0.25, from: 1, to: 4, hint: 'Hvor mye lavere (egg) eller høyere (dal) naboene langs kurven må ligge.' },
+    { id: 'sec', label: 'Seksjonens retning', unit: '° helning', min: 0, max: 30, step: 0.5, from: 1, to: 6, hint: 'Hvor bratt seksjonen som helhet må være før den roterer rutene sine.' },
     { id: 'size', label: 'Mindre ruter i bratt', unit: '° helning', min: 0, max: 70, step: 1, from: 25, to: 50, hint: 'Hvor bratt det må være før rutene krymper.' },
   ];
   const state = {
     seed: 1848, region: -1, rough: 0.25, startKind: 'rugged', smooth: 32, contour: 10,
-    strength: 1, maxRot: 30, blend: 15, sizeAmount: 0.5, edgeSize: 0.6, edgePull: 0.5, split2: 0.54, split4: 0.3, jumpMix: 1,
+    strength: 1, maxRot: 30, blend: 20, sizeAmount: 0.4, edgeSize: 0.6, edgePull: 0.5, split2: 1.8, split4: 2.8, jumpMix: 1,
+    secStrength: 1, jumpSoft: 0, jumpReach: 1, coastBand: 8, coastPull: 1, minCell: 3, lineWeight: 1,
     layer: 'grid', showContours: true, showSections: false,
   };
   for (const c of CURVES) {
@@ -90,7 +92,7 @@
 
   function params() {
     const p = { seed: state.seed };
-    for (const k of ['strength', 'maxRot', 'blend', 'sizeAmount', 'edgeSize', 'edgePull', 'split2', 'split4', 'jumpMix']) p[k] = state[k];
+    for (const k of ['strength', 'maxRot', 'blend', 'sizeAmount', 'edgeSize', 'edgePull', 'split2', 'split4', 'jumpMix', 'secStrength', 'jumpSoft', 'jumpReach', 'coastBand', 'coastPull', 'minCell']) p[k] = state[k];
     for (const c of CURVES) {
       p[c.id + 'From'] = state[c.id + 'From'];
       p[c.id + 'To'] = state[c.id + 'To'];
@@ -120,6 +122,7 @@
       for (let a = 0; a < N; a++) {
         const q = [vtx(a, b), vtx(a + 1, b), vtx(a + 1, b + 1), vtx(a, b + 1)];
         const c = grid.cells[b * N + a];
+        if (c.collapse === 1) continue; // a point
         const parts = c.split === 4 ? [[0, 0, 0.5, 0.5], [0.5, 0, 1, 0.5], [0.5, 0.5, 1, 1], [0, 0.5, 0.5, 1]] : c.split === 2 ? (c.rowsW >= 0.5 ? [[0, 0, 1, 0.5], [0, 0.5, 1, 1]] : [[0, 0, 0.5, 1], [0.5, 0, 1, 1]]) : [[0, 0, 1, 1]];
         if (c.split === 4) s4++;
         else if (c.split === 2) s2++;
@@ -142,13 +145,15 @@
     let folds = 0;
     const kinds = { ridge: 0, valley: 0, peak: 0, pit: 0 };
     for (let b = 0; b < N; b++) for (let a = 0; a < N; a++) if (!convex([vtx(a, b), vtx(a + 1, b), vtx(a + 1, b + 1), vtx(a, b + 1)])) folds++;
-    for (const c of grid.cells) if (c.edge > 0.5 && kinds[c.kind] !== undefined) kinds[c.kind]++;
+    kinds.coast = 0;
+    for (const c of grid.cells) if ((c.edge > 0.5 || c.kind === 'coast') && kinds[c.kind] !== undefined) kinds[c.kind]++;
     for (const c of grid.cells) if (c.kind === 'peak' || c.kind === 'pit') kinds[c.kind]++;
     const rows = [
       ['Brettede ruter', `${folds}`],
       ['Hopp langs radene', `${grid.jumps}`],
       ['Delt', `${grid.s2} i to, ${grid.s4} i fire`],
-      ['Egger / daler', `${kinds.ridge} / ${kinds.valley} ruter`],
+      ['Egger / daler / kyst', `${kinds.ridge} / ${kinds.valley} / ${kinds.coast} ruter`],
+      ['Sammenslått', `${grid.counts.triangle} trekanter, ${grid.counts.line} linjer, ${grid.counts.point} punkter`],
       ['Topper / bunner', `${kinds.peak} / ${kinds.pit}`],
       ['Tid', `${Math.round(grid.time)} ms`],
     ];
@@ -231,7 +236,7 @@
     ctx.closePath();
   }
 
-  const KIND_COLOUR = { ridge: [200, 70, 110], valley: [40, 140, 160], peak: [230, 120, 40], pit: [40, 90, 200] };
+  const KIND_COLOUR = { ridge: [200, 70, 110], valley: [40, 140, 160], peak: [230, 120, 40], pit: [40, 90, 200], coast: [30, 90, 210] };
 
   function draw() {
     const dpr = window.devicePixelRatio || 1, r = canvas.getBoundingClientRect();
@@ -254,7 +259,7 @@
         let col = terrainColour(h, -gx, -gy, 0.25);
         if (state.layer === 'kinds') {
           const k = KIND_COLOUR[c.kind];
-          const w = c.kind === 'peak' || c.kind === 'pit' ? 1 : c.edge;
+          const w = c.kind === 'peak' || c.kind === 'pit' || c.kind === 'coast' ? 1 : c.edge;
           if (k) col = mix(mix(col, PAPER, 0.5), k, 0.85 * w);
           else col = mix(col, PAPER, 0.5);
         }
@@ -271,20 +276,33 @@
       seg(L.major, 'rgba(110,80,40,0.75)', 1.3);
       seg(L.coast, 'rgba(30,80,150,0.95)', 2);
     }
-    // Grid
-    ctx.strokeStyle = 'rgba(25,30,35,0.8)';
-    const lw = Math.max(0.5, Math.min(1.2, view.scale * C * 0.05));
-    ctx.lineWidth = lw;
-    ctx.beginPath();
-    for (const { q } of quads) {
-      q.forEach((p, n) => {
-        const [x, y] = toScreen(p[0], p[1]);
-        if (n) ctx.lineTo(x, y);
-        else ctx.moveTo(x, y);
-      });
-      ctx.closePath();
+    // Grid. Each edge is drawn thicker the closer it lies to the direction of
+    // the land (the contour, or the section's direction) where the cell
+    // follows it, so the lines the grid makes are easy to see.
+    const lw = Math.max(0.4, Math.min(1, view.scale * C * 0.04));
+    const buckets = [[], [], [], []];
+    for (const { q, c } of quads) {
+      const ca = Math.cos(c.aEff ?? 0), sa = Math.sin(c.aEff ?? 0);
+      for (let e = 0; e < 4; e++) {
+        const A = q[e], B = q[(e + 1) % 4];
+        const dx = B[0] - A[0], dy = B[1] - A[1], l = Math.hypot(dx, dy);
+        if (l < 1e-6) continue;
+        const align = Math.abs((dx * ca + dy * sa) / l);
+        const t = M.scurve(0.9, 1, align) * Math.min(1, (c.followEff ?? 0) * 1.2) * state.lineWeight;
+        buckets[Math.min(3, Math.floor(t * 4))].push(A, B);
+      }
     }
-    ctx.stroke();
+    buckets.forEach((list, k) => {
+      ctx.strokeStyle = `rgba(25,30,35,${0.55 + 0.12 * k})`;
+      ctx.lineWidth = lw * (1 + k * 0.9);
+      ctx.beginPath();
+      for (let m = 0; m < list.length; m += 2) {
+        const [ax, ay] = toScreen(list[m][0], list[m][1]), [bx, by] = toScreen(list[m + 1][0], list[m + 1][1]);
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+      }
+      ctx.stroke();
+    });
     // Folded cells
     ctx.fillStyle = 'rgba(220,40,40,0.6)';
     for (let b = 0; b < N; b++) for (let a = 0; a < N; a++) {
@@ -311,6 +329,18 @@
       }
       ctx.stroke();
       ctx.setLineDash([]);
+      // Each section's direction, as a stroke as long as its weight.
+      ctx.strokeStyle = 'rgba(200,50,50,0.9)';
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (const sc of grid.sections) {
+        const [cx, cy] = toScreen((sc.si + 0.5) * 8 * C, (sc.sj + 0.5) * 8 * C);
+        const l = 8 * C * view.scale * 0.35 * sc.weight;
+        ctx.moveTo(cx - Math.cos(sc.a) * l, cy - Math.sin(sc.a) * l);
+        ctx.lineTo(cx + Math.cos(sc.a) * l, cy + Math.sin(sc.a) * l);
+      }
+      ctx.stroke();
     }
     if (hover) {
       poly(hover.q);
@@ -351,22 +381,23 @@
     }
     return r;
   }
-  const NAMES = { ridge: 'egg', valley: 'dal', peak: 'topp', pit: 'bunn', water: 'vann' };
+  const NAMES = { ridge: 'egg', valley: 'dal', peak: 'topp', pit: 'bunn', water: 'vann', coast: 'kyst' };
   function showCell(h) {
     if (!h) {
       $('cell').innerHTML = '<p class="muted">Hold over en rute.</p>';
       return;
     }
     const c = h.c, r = (v, d = 0) => v.toLocaleString('nb-NO', { maximumFractionDigits: d });
-    const kind = c.kind === 'peak' || c.kind === 'pit' || c.kind === 'water' ? NAMES[c.kind] : `${NAMES[c.kind]} ${r(c.edge * 100)} %`;
+    const kind = c.kind === 'peak' || c.kind === 'pit' || c.kind === 'water' || c.kind === 'coast' ? NAMES[c.kind] : `${NAMES[c.kind]} ${r(c.edge * 100)} %`;
     const rows = [
       ['Rute', `(${h.a}, ${h.b})`],
       ['Helning', `${r(c.slope, 1)}°`],
-      ['Rotasjon', `${r((c.theta * 180) / Math.PI)}°, følger ${r(c.follow * 100)} %`],
+      ['Rotasjon', `${r((c.theta * 180) / Math.PI)}°, følger ${r(c.followEff * 100)} % (egen ${r(c.follow * 100)} %)`],
+      ['Linjene går', c.rowsW > 0.75 ? 'langs radene' : c.rowsW < 0.25 ? 'langs kolonnene' : `i overgang (${r(c.rowsW * 100)} % rader)`],
       ['Type', kind],
       ['Forskjell langs kurven', `${r(c.d2 || 0, 1)} m`],
       ['Ønsket størrelse', `${r(c.size * 100)} %`],
-      ['Deling', c.split ? `i ${c.split}` : 'ingen'],
+      ['Deling', c.collapse ? ['', 'slått sammen til punkt', 'slått sammen til linje', 'slått sammen til trekant'][c.collapse] : c.split ? `i ${c.split}` : 'ingen'],
     ];
     $('cell').innerHTML = '<dl>' + rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('') + '</dl>';
   }
@@ -475,9 +506,16 @@
   range('strength', (v) => v.toFixed(2), rebuildGrid);
   range('maxRot', (v) => `${v}°`, rebuildGrid);
   range('sizeAmount', pct, rebuildGrid);
+  range('secStrength', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
+  range('jumpSoft', (v) => (v ? pct(v) : 'brå'), rebuildGrid);
+  range('jumpReach', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
+  range('coastBand', (v) => `±${v} m`, rebuildGrid);
+  range('coastPull', pct, rebuildGrid);
+  range('minCell', (v) => `${v} m`, rebuildGrid);
+  range('lineWeight', (v) => (v ? v.toFixed(2) : 'av'), draw);
   range('edgePull', (v) => v.toFixed(2), rebuildGrid);
-  range('split2', (v) => `under ${pct(v)}`, rebuildGrid);
-  range('split4', (v) => `under ${pct(v)}`, rebuildGrid);
+  range('split2', (v) => `× ${v.toFixed(2)}`, rebuildGrid);
+  range('split4', (v) => `× ${v.toFixed(2)}`, rebuildGrid);
   range('jumpMix', (v) => (v ? `${Math.round(v * 16)} ruter` : 'på rekke'), rebuildGrid);
   range('blend', (v) => `±${v}°`, rebuildGrid);
   range('smooth', (v) => `${v} m`, rebuildField);
