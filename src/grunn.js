@@ -7,10 +7,10 @@
 
   const state = {
     seed: 1848,
-    contSize: 2400, contW: 0.7, basinSize: 1008, basinW: 0.5, baseSize: 240, baseW: 0.5, s1Size: 144, s1W: 0.65, s1Width: 0.26,
+    contSize: 3010, contW: 2.6, basinSize: 940, basinW: 1.75, baseSize: 240, baseW: 1.2, s1Size: 710, s1W: 2.8, s1Width: 0.26,
     tSea: -0.55, tHigh: 0.6, tDivide: 1.8,
     lowTop: 260, highTop: 1600, shelf: 320, deep: 3500,
-    midSize: 150, midW: 0.5, midStretch: 3,
+    midSize: 185, midW: 0.9, midStretch: 10,
     show: 'map',
   };
 
@@ -71,9 +71,10 @@
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
         const x = x0 + (i + 0.5) * d, y = y0 + (j + 0.5) * d;
-        if (state.show === 'mid') {
-          // The middle layer alone, as a height-like grey field.
-          hs[j * nx + i] = 1200 + 600 * layer.mid(x, y);
+        if (state.show !== 'map') {
+          // One layer alone, as a height-like grey field.
+          const val = layer.single(state.show, x, y);
+          hs[j * nx + i] = state.show === 's1' ? 2400 * val : 1200 + 600 * val;
           cl[j * nx + i] = 1;
           continue;
         }
@@ -272,6 +273,23 @@
     });
     return el;
   }
+  // An eye per layer: show that layer alone; again to go back to the map.
+  const eyes = [];
+  const EYE = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  function eye(id, name) {
+    const b = document.createElement('button');
+    b.className = 'eye';
+    b.innerHTML = EYE;
+    b.title = `Vis bare ${name.toLowerCase()}`;
+    b.setAttribute('aria-pressed', 'false');
+    b.addEventListener('click', () => {
+      state.show = state.show === id ? 'map' : id;
+      for (const [k, e] of eyes) e.setAttribute('aria-pressed', String(state.show === k));
+      render();
+    });
+    eyes.push([id, b]);
+    return b;
+  }
   function row(table, name, type, cells) {
     const n = document.createElement('div');
     n.className = 'cell-name';
@@ -284,7 +302,7 @@
     }
   }
   const head = (table) => {
-    for (const t of ['', 'km', 'vekt']) {
+    for (const t of ['', 'km', 'vekt', '']) {
       const d = document.createElement('div');
       d.className = 'col-head';
       d.textContent = t;
@@ -294,18 +312,13 @@
   const baseTable = document.getElementById('layers');
   head(baseTable);
   for (const L of M.BaseLayer.LAYERS) {
-    row(baseTable, L.name, L.type, [numInput(L.id + 'Size', 10, 20, 10000), numInput(L.id + 'W', 0.05, 0, 3)]);
+    row(baseTable, L.name, L.type, [numInput(L.id + 'Size', 10, 20, 10000), numInput(L.id + 'W', 0.05, 0, 3), eye(L.id, L.name)]);
   }
   const midTable = document.getElementById('midlayers');
   head(midTable);
-  row(midTable, 'Mellomlag', 'fbm', [numInput('midSize', 5, 10, 1000), numInput('midW', 0.05, 0, 3)]);
-  row(midTable, 'Strekking', 'langs helningen', [null, numInput('midStretch', 0.5, 1, 10)]);
+  row(midTable, 'Mellomlag', 'fbm', [numInput('midSize', 5, 10, 1000), numInput('midW', 0.05, 0, 3), eye('mid', 'Mellomlaget')]);
+  row(midTable, 'Strekking', 'langs helningen', [null, numInput('midStretch', 0.5, 1, 20), null]);
   for (const d of document.querySelectorAll('details.sec')) d.addEventListener('toggle', () => d.open && drawProfile());
-  const showMid = document.getElementById('showMid');
-  showMid.addEventListener('change', () => {
-    state.show = showMid.checked ? 'mid' : 'map';
-    render();
-  });
 
   // --- the point under the pointer ------------------------------------------
 

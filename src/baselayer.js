@@ -112,6 +112,17 @@
       return sum / Math.sqrt(sw2);
     }
 
+    // One layer alone, for viewing: fbm layers about normal, straits 0..1.
+    single(id, x, y) {
+      const p = this.p, L = (p[id + 'Size'] || 1) * 1000;
+      if (id === 'cont') return fbm(this.nc, x / L, y / L, 2) / STD[2];
+      if (id === 'basin') return fbm(this.nm, x / L, y / L, 3) / STD[3];
+      if (id === 'base') return fbm(this.nb, x / L, y / L, 3) / STD[3];
+      if (id === 's1') return S(1 - p.s1Width, 1 - p.s1Width * 0.3, ridged(this.ns1, x / L, y / L, 1));
+      if (id === 'mid') return this.mid(x, y);
+      return 0;
+    }
+
     // The final value: base, then the middle layer on land.
     value(x, y) {
       const p = this.p;
