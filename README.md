@@ -34,16 +34,24 @@ lokalt terreng. Hvert lag arver fra laget over.
 
 ### Grunnforskyvning (100–500 km)
 
+- **Av/på:** hvert lag kan skrus av og på uten å endre verdiene, og øyet viser laget alene.
 - **Verdi:** tre fbm-lag blandes etter vekt: kontinenter (2400 km), havbasseng (1008 km) og
   grunnlaget (240 km). Størrelse og vekt skrives inn for hvert lag.
 - **Sund:** ridged noise (144 km) gjør lavland nær kysten til åpent hav, så havbassenger
   knyttes sammen. Sundene skjærer aldri gjennom høyland.
+- **Innland:** verdien deles i en stor del (kontinenter og første oktav av havbassenget) og
+  detaljer (resten av havbassenget og grunnlaget). Der den store delen ligger over
+  innlandsterskelen (stiplet strek i profilen), er detaljene vektet positivt: de legger til
+  fritt, men trekker aldri landet under havterskelen. Sund virker ikke der. Slik oppstår
+  ikke hav som små sjøer inne i et kontinent.
 - **Terskler:** hav | lavland | høyland | vanndeling, på samme verdi. Profilen viser høyden
   etter verdien, med andelen av kartet bak i flate klassefarger. Strekene under dras.
 
 ### Mellomlaget
 
 - **Arver fra grunnlaget:** det flytter verdien bare på land, økende fra kysten og innover.
+  Det er vektet positivt: det kan løfte fritt, men aldri senke landet under havterskelen,
+  så det lager ikke sjøer.
   Kysten blir der grunnlaget satte den, mens høyland og vanndeling løftes eller senkes, så
   noen fjellområder blir høye og andre lave.
 - **Strukket langs helningen, lokalt** (`stretched` i `src/baselayer.js`, gjenbrukes for

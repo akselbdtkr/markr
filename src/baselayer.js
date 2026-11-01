@@ -20,6 +20,9 @@
     return t * t * (3 - 2 * t);
   };
   const frac = (v) => v - Math.floor(v);
+  // A change d added to something with room m above a floor: positive d
+  // passes as is; negative d is bent softly so it never takes more than m.
+  const keepAbove = (d, m) => (d >= 0 ? d : m <= 0 ? 0 : -m * (1 - Math.exp(d / m)));
   const CLASSES = ['hav', 'lavland', 'høyland', 'vanndeling'];
 
   // The base noise layers, largest first: size in km, weight.
@@ -42,17 +45,27 @@
       this.nm = P(6);
       this.nc = P(7);
       this.nmid = P(8);
-      this.norm = Math.hypot(p.contW, p.basinW, p.baseW) || 1;
+      // The normalisation can be given, so turning a layer off removes only
+      // its share instead of rescaling the others.
+      this.norm = p.norm || Math.hypot(p.contW, p.basinW, p.baseW) || 1;
+      this.normCB = p.normCB || Math.hypot(p.contW, p.basinW) || 1;
     }
 
-    // The smooth mix of the three fbm layers, without straits.
-    mix(x, y) {
+    // The mix of the three fbm layers, without straits, split in two parts
+    // (both in units of v): [large, detail]. Large is the continents and the
+    // first octave of the basins; it says what is inland. Detail is the finer
+    // basin octaves and the base layer.
+    mixParts(x, y) {
       const p = this.p, LC = p.contSize * 1000, LB = p.basinSize * 1000, L = p.baseSize * 1000;
-      return (
-        (p.contW * fbm(this.nc, x / LC, y / LC, 2)) / STD[2] +
-        (p.basinW * fbm(this.nm, x / LB, y / LB, 3)) / STD[3] +
-        (p.baseW * fbm(this.nb, x / L, y / L, 3)) / STD[3]
-      ) / this.norm;
+      const k = p.basinW / (1.75 * STD[3]);
+      const b1 = this.nm(x / LB, y / LB), b3 = fbm(this.nm, x / LB, y / LB, 3) * 1.75;
+      const large = ((p.contW * fbm(this.nc, x / LC, y / LC, 2)) / STD[2] + k * b1) / this.norm;
+      const detail = (k * (b3 - b1) + (p.baseW * fbm(this.nb, x / L, y / L, 3)) / STD[3]) / this.norm;
+      return [large, detail];
+    }
+    mix(x, y) {
+      const [a, b] = this.mixParts(x, y);
+      return a + b;
     }
 
     // The smooth part of the mix (continents and basins, two octaves each):
@@ -60,16 +73,23 @@
     // along it stays valid over hundreds of km.
     smoothMix(x, y) {
       const p = this.p, LC = p.contSize * 1000, LB = p.basinSize * 1000;
-      const nrm = Math.hypot(p.contW, p.basinW) || 1;
+      const nrm = this.normCB;
       return ((p.contW * fbm(this.nc, x / LC, y / LC, 2)) / STD[2] + (p.basinW * fbm(this.nm, x / LB, y / LB, 2)) / STD[2]) / nrm;
     }
 
-    // The base value: the mix with straits.
+    // The base value: large + detail, with straits. Inland (large above the
+    // inland threshold) the detail is weighted to the positive side: it adds
+    // freely, but takes away at most what keeps the land above the sea
+    // threshold. A neutral layer there would dig as deep as it lifts and make
+    // inland seas; this one cannot make sea inside a continent.
     baseValue(x, y) {
       const p = this.p;
-      let v = this.mix(x, y);
-      // Straits: only in lowland close to the sea, never through highland.
-      const near = 1 - S(p.tSea, p.tSea + 0.5 * (p.tHigh - p.tSea), v);
+      const [large, detail] = this.mixParts(x, y);
+      const inland = Number.isFinite(p.tInland) ? S(p.tInland - 0.2, p.tInland + 0.2, large) : 0;
+      let v = large + (inland > 0 ? (1 - inland) * detail + inland * keepAbove(detail, large - p.tSea - 0.05) : detail);
+      // Straits: only in lowland close to the sea, never through highland,
+      // and never inland.
+      const near = (1 - S(p.tSea, p.tSea + 0.5 * (p.tHigh - p.tSea), v)) * (1 - inland);
       if (p.s1W > 0 && near > 0 && v > p.tSea - 0.6) {
         const LS = p.s1Size * 1000, w = p.s1Width;
         const s = p.s1W * S(1 - w, 1 - w * 0.3, ridged(this.ns1, x / LS, y / LS, 1));
@@ -160,6 +180,7 @@
       if (id === 'base') return fbm(this.nb, x / L, y / L, 3) / STD[3];
       if (id === 's1') return S(1 - p.s1Width, 1 - p.s1Width * 0.3, ridged(this.ns1, x / L, y / L, 1));
       if (id === 'mid') return this.mid(x, y);
+      if (id === 'inland') return this.mixParts(x, y)[0];
       return 0;
     }
 
@@ -168,7 +189,9 @@
       const p = this.p;
       const v = this.baseValue(x, y);
       if (!(p.midW > 0) || v <= p.tSea) return v;
-      return v + p.midW * this.mid(x, y) * S(p.tSea, p.tHigh, v);
+      // The middle layer never makes sea: it takes away at most what keeps
+      // the land above the sea threshold.
+      return v + keepAbove(p.midW * this.mid(x, y) * S(p.tSea, p.tHigh, v), v - p.tSea - 0.05);
     }
 
     // Height in metres from v: the profile.

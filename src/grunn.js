@@ -10,7 +10,7 @@
     contSize: 3010, contW: 2.6, basinSize: 940, basinW: 1.75, baseSize: 240, baseW: 1.2, s1Size: 710, s1W: 2.8, s1Width: 0.26,
     tSea: -0.55, tHigh: 0.6, tDivide: 1.8,
     lowTop: 260, highTop: 1600, shelf: 320, deep: 3500,
-    midSize: 185, midW: 0.9, midStretch: 10,
+    midSize: 185, midW: 0.9, midStretch: 10, tInland: -0.3,
     show: 'map',
   };
 
@@ -21,8 +21,15 @@
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
+  // Layers can be turned off without changing their values: their weight
+  // goes to 0, while the normalisation stays as if they were on.
+  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true };
   function newLayer() {
-    layer = new M.BaseLayer(state.seed, { ...state });
+    const p = { ...state, norm: Math.hypot(state.contW, state.basinW, state.baseW) || 1, normCB: Math.hypot(state.contW, state.basinW) || 1 };
+    for (const id of ['cont', 'basin', 'base', 's1', 'mid']) if (!on[id]) p[id + 'W'] = 0;
+    if (!on.inland) p.tInland = Infinity;
+    if (!on.stretch) p.midStretch = 1;
+    layer = new M.BaseLayer(state.seed, p);
   }
   function rebuild() {
     newLayer();
@@ -152,7 +159,7 @@
   };
   // Height axis: square root, so lowland shows beside 5000 m.
   const Yof = (h, plotH) => plotH / 2 - Math.sign(h) * Math.sqrt(Math.abs(h) / 5000) * (plotH / 2 - 6);
-  const THRESHOLDS = ['tSea', 'tHigh', 'tDivide'];
+  const THRESHOLDS = ['tSea', 'tInland', 'tHigh', 'tDivide'];
 
   function drawProfile() {
     const dpr = window.devicePixelRatio || 1, g = geom();
@@ -195,10 +202,13 @@
       const x = Math.round(g.X(state[t])) + 0.5;
       pctx.strokeStyle = accent;
       pctx.lineWidth = 1;
+      // The inland threshold reads the large layers, not v: dashed.
+      pctx.setLineDash(t === 'tInland' ? [3, 3] : []);
       pctx.beginPath();
       pctx.moveTo(x, 0);
       pctx.lineTo(x, g.H - 6);
       pctx.stroke();
+      pctx.setLineDash([]);
       pctx.fillStyle = accent;
       pctx.fillRect(x - 6, g.H - 16, 12, 12);
     }
@@ -242,7 +252,7 @@
   prof.addEventListener('pointercancel', endDrag);
   function setThreshold(t, v) {
     const gap = 0.05, k = THRESHOLDS.indexOf(t);
-    const lo = k > 0 ? state[THRESHOLDS[k - 1]] + gap : VMIN, hi = k < 2 ? state[THRESHOLDS[k + 1]] - gap : VMAX;
+    const lo = k > 0 ? state[THRESHOLDS[k - 1]] + gap : VMIN, hi = k < THRESHOLDS.length - 1 ? state[THRESHOLDS[k + 1]] - gap : VMAX;
     state[t] = Math.round(Math.max(lo, Math.min(hi, v)) * 100) / 100;
     newLayer();
     drawProfile();
@@ -252,7 +262,7 @@
   let keyT = 0;
   prof.addEventListener('keydown', (e) => {
     if (e.key === 'Tab') return;
-    if (e.key === ' ' || e.key === 'Enter') keyT = (keyT + 1) % 3;
+    if (e.key === ' ' || e.key === 'Enter') keyT = (keyT + 1) % THRESHOLDS.length;
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') setThreshold(THRESHOLDS[keyT], state[THRESHOLDS[keyT]] + (e.key === 'ArrowLeft' ? -0.05 : 0.05));
     else return;
     e.preventDefault();
@@ -290,7 +300,23 @@
     eyes.push([id, b]);
     return b;
   }
-  function row(table, name, type, cells) {
+  function toggle(id, name) {
+    const c = document.createElement('input');
+    c.type = 'checkbox';
+    c.className = 'onoff';
+    c.checked = on[id];
+    c.title = `${name} av/på`;
+    c.setAttribute('aria-label', `${name} av/på`);
+    c.addEventListener('change', () => {
+      on[id] = c.checked;
+      rebuild();
+    });
+    return c;
+  }
+  function row(table, name, type, cells, id) {
+    const t = document.createElement('div');
+    if (id) t.appendChild(toggle(id, name));
+    table.appendChild(t);
     const n = document.createElement('div');
     n.className = 'cell-name';
     n.innerHTML = `${name}<span class="type">${type}</span>`;
@@ -302,7 +328,7 @@
     }
   }
   const head = (table) => {
-    for (const t of ['', 'km', 'vekt', '']) {
+    for (const t of ['', '', 'km', 'vekt', '']) {
       const d = document.createElement('div');
       d.className = 'col-head';
       d.textContent = t;
@@ -312,12 +338,13 @@
   const baseTable = document.getElementById('layers');
   head(baseTable);
   for (const L of M.BaseLayer.LAYERS) {
-    row(baseTable, L.name, L.type, [numInput(L.id + 'Size', 10, 20, 10000), numInput(L.id + 'W', 0.05, 0, 3), eye(L.id, L.name)]);
+    row(baseTable, L.name, L.type, [numInput(L.id + 'Size', 10, 20, 10000), numInput(L.id + 'W', 0.05, 0, 3), eye(L.id, L.name)], L.id);
   }
+  row(baseTable, 'Innland', 'terskel', [null, null, eye('inland', 'Innland')], 'inland');
   const midTable = document.getElementById('midlayers');
   head(midTable);
-  row(midTable, 'Mellomlag', 'fbm', [numInput('midSize', 5, 10, 1000), numInput('midW', 0.05, 0, 3), eye('mid', 'Mellomlaget')]);
-  row(midTable, 'Strekking', 'langs helningen', [null, numInput('midStretch', 0.5, 1, 20), null]);
+  row(midTable, 'Mellomlag', 'fbm', [numInput('midSize', 5, 10, 1000), numInput('midW', 0.05, 0, 3), eye('mid', 'Mellomlaget')], 'mid');
+  row(midTable, 'Strekking', 'langs helningen', [null, numInput('midStretch', 0.5, 1, 20), null], 'stretch');
   for (const d of document.querySelectorAll('details.sec')) d.addEventListener('toggle', () => d.open && drawProfile());
 
   // --- the point under the pointer ------------------------------------------
@@ -446,7 +473,7 @@
       sizes.push(size);
     }
     sizes.sort((a, b) => b - a);
-    return { mean: sum / (n * n), lo, hi, share: share.map((s) => s / (n * n)), seas: sizes.length, largestSea: share[0] ? sizes[0] / share[0] : 0 };
+    return { mean: sum / (n * n), lo, hi, share: share.map((s) => s / (n * n)), seas: sizes.length, small: sizes.filter((z) => z < 10).length, largestSea: share[0] ? sizes[0] / share[0] : 0 };
   }
 
   M.grunn = { state, view, rebuild, render, stats, get layer() { return layer; } };
