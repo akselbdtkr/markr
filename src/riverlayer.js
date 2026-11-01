@@ -4,7 +4,7 @@
 // set of lines (spaced by `scale`). From any point on such a line, the line is
 // followed in coarse steps (256 m) both ways, using only noise and coarse
 // terrain, never the cells of other sections:
-//   - downstream is where the coast value falls; it ends in the sea, or where
+//   - downstream is the way that reaches the sea (else the one ending lowest);
 //     it ends in the sea, or where the line fades;
 //   - upstream it must reach rugged, high ground (the head); a line that only
 //     runs over flat land is no river.
