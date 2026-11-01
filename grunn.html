@@ -32,8 +32,8 @@
     #map { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; background: #3d6fa8; }
     aside { background: var(--panel); border-left: 1px solid var(--border); padding: 18px 16px; overflow-y: auto; }
     h1 { font-size: 16px; font-weight: 600; margin: 0 0 10px; }
-    #profile { width: 100%; height: 150px; margin-top: 10px; display: block; touch-action: none; outline: none; }
-    #profile:focus-visible { outline: 2px solid var(--handle); outline-offset: 2px; }
+    #profile, .profile { width: 100%; height: 150px; margin-top: 10px; display: block; touch-action: none; outline: none; }
+    #profile:focus-visible, .profile:focus-visible { outline: 2px solid var(--handle); outline-offset: 2px; }
     details.sec { border-top: 1px solid var(--border); padding: 10px 0 4px; }
     details.sec > summary { cursor: pointer; font-weight: 600; font-size: 13px; list-style: none; display: flex; justify-content: space-between; }
     details.sec > summary::after { content: "–"; color: var(--muted); }
@@ -56,6 +56,10 @@
     .seed input, .seed button { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; }
     .seed input { width: 0; flex: 1; }
     .seed button { cursor: pointer; }
+    .check { display: flex; gap: 6px; align-items: center; font-size: 13px; margin: 10px 0 6px; }
+    .check input { margin: 0; accent-color: var(--handle); }
+    .wide { width: 100%; font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; cursor: pointer; }
+    .wide:focus-visible { outline: 2px solid var(--handle); }
     #pointbox {
       position: absolute; pointer-events: none; background: var(--panel); color: var(--text);
       border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: 13px;
@@ -88,10 +92,13 @@
     </details>
     <details class="sec" open>
       <summary>Områdelagene</summary>
+      <canvas id="typeprofile" class="profile" tabindex="0" aria-label="Landskapstype: typen etter verdien i typelaget. Dra strekene for å flytte tersklene mellom slette, åser, platå og fjellsk."></canvas>
       <div id="reglayers" class="grid"></div>
       <div id="legend" class="legend"></div>
     </details>
     <div class="seed"><input id="seed" type="number" aria-label="Frø"><button id="reseed">Nytt frø</button></div>
+    <label class="check"><input id="contours" type="checkbox">Høydekurver hver 100 m</label>
+    <button id="copy" class="wide">Kopier innstillinger</button>
   </aside>
 
   <script>window.Markr = { VERSION: 1 };</script>

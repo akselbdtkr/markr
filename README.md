@@ -81,8 +81,13 @@ mellomlaget. Retningen i et punkt regnes én gang og deles av alle strukne lag.
 - **Landskapstype:** slette, åser, platå og fjellsk ligger på én kjede ordnet etter fasthet.
   Typelaget avgjør hvor i kjeden et område ligger, og fastere grunn og høyere land flytter
   det videre mot fjellsk. I hvert nabopar gir fastere grunn den neste typen. Typene glir
-  over i hverandre uten faste terskler, og hver har sin farge på kartet.
+  over i hverandre, og hver har sin farge på kartet. Typeverdien leses med tre terskler som
+  du setter selv i en egen profil: slette | åser | platå | fjellsk. Hver terskel er et mykt
+  steg.
 - **Fuktighet:** regnes fra type og fasthet. Løse sletter er våte, faste fjell er tørre.
+
+**På siden:** høydekurver hver 100 m (mørkere hver 500 m) kan skrus av og på. «Kopier
+innstillinger» kopierer alle verdiene, og hvilke lag som er på, som tekst til chatten.
 
 ## Ruteformler
 

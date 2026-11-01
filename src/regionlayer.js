@@ -8,8 +8,10 @@
 // - Landscape type: slette, åser, platå, fjellsk lie on one chain ordered by
 //   firmness. The type noise picks where on the chain a region lies; firmer
 //   ground and higher base move it up the chain: in every neighbouring pair,
-//   firmer gives the later type (plains → hills → plateau → fjellsk). No set
-//   thresholds: the four weights fade into each other.
+//   firmer gives the later type (plains → hills → plateau → fjellsk). The
+//   type value z is read with three thresholds of your own (slette | åser |
+//   platå | fjellsk), each a soft step, so the four weights fade into each
+//   other across them.
 // - Moisture (fuktighet): from type and firmness. Loose plains are wet, firm
 //   mountains dry.
 (function (M) {
@@ -46,7 +48,7 @@
       const nT = p.typeW > 0 ? b.stretched(this.nt, x, y, p.typeSize * 1000, 2, p.regStretch, 22) : 0;
       // Place on the chain 0..3: type noise, firmness and height.
       const z = 0.8 * p.typeW * nT + p.typeFirm * (2 * firm - 1) * 1.5 + p.typeHeight * (2 * Math.min(1, hrel) - 1);
-      const pos = 3 * S(-2.4, 2.4, z);
+      const pos = this.posOf(z);
       // Soft weights: each type peaks at its place on the chain.
       const w = [0, 0, 0, 0];
       let sum = 0;
@@ -57,7 +59,14 @@
       }
       for (let k = 0; k < 4; k++) w[k] /= sum || 1;
       const moist = Math.max(0, Math.min(1, 0.15 + 0.55 * (1 - firm) + 0.25 * (1 - pos / 3)));
-      return { firm, pos, w, moist };
+      return { firm, z, pos, w, moist };
+    }
+
+    // Place on the chain (0..3) from the type value z: one step at each of
+    // the three thresholds (tT1, tT2, tT3), each soft over ± typeSoft.
+    posOf(z) {
+      const p = this.p, s = Math.max(0.01, p.typeSoft);
+      return S(p.tT1 - s, p.tT1 + s, z) + S(p.tT2 - s, p.tT2 + s, z) + S(p.tT3 - s, p.tT3 + s, z);
     }
 
     // The blended colour of the types at weights w.

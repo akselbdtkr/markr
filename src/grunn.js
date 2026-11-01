@@ -13,13 +13,14 @@
     lowTop: 260, highTop: 1600, shelf: 320, deep: 3500,
     midSize: 185, midW: 0.9, midStretch: 10, tInland: -0.3,
     firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1, typeFirm: 0.6, typeHeight: 0.6, regStretch: 3,
-    show: 'map',
+    tT1: -1, tT2: 0, tT3: 1, typeSoft: 0.25,
+    show: 'map', contours: true,
   };
 
   const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
-  const prof = document.getElementById('profile'), pctx = prof.getContext('2d');
+  const prof = document.getElementById('profile');
   const view = { cx: 0, cy: 0, mpp: 2500 };
-  let layer = null, region = null, job = 0, hover = null, hist = null;
+  let layer = null, region = null, job = 0, hover = null;
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -42,7 +43,7 @@
   const REGION_VIEWS = ['firm', 'moist', 'type'];
   function rebuild() {
     newLayer();
-    hist = histogram();
+    histograms();
     drawProfile();
     render();
   }
@@ -140,6 +141,14 @@
           const hy = hs[Math.min(ny - 1, j + 1) * nx + i] - hs[Math.max(0, j - 1) * nx + i];
           const sh = Math.max(-0.2, Math.min(0.2, (-(hx + hy) / (4 * d)) * 8));
           c = [c[0] * (1 + sh), c[1] * (1 + sh), c[2] * (1 + sh)];
+          // Contours every 100 m.
+          if (state.contours && h > 0) {
+            const lv = Math.floor(h / 100);
+            if ((i + 1 < nx && hs[k + 1] > 0 && Math.floor(hs[k + 1] / 100) !== lv) || (j + 1 < ny && hs[k + nx] > 0 && Math.floor(hs[k + nx] / 100) !== lv)) {
+              const t = Math.floor(lv / 5) * 5 === lv || Math.floor(Math.max(hs[k + 1] || 0, hs[k + nx] || 0) / 100) % 5 === 0 ? 0.62 : 0.8;
+              c = [c[0] * t, c[1] * t, c[2] * t];
+            }
+          }
           // The divide field: a dashed outline.
           const edge = (cl[k] === 3) !== ((i + 1 < nx && cl[k + 1] === 3) || false) || (cl[k] === 3) !== ((j + 1 < ny && cl[k + nx] === 3) || false);
           if (edge && Math.floor((i + j) / dash) % 2 === 0) c = [40, 40, 44];
@@ -173,136 +182,163 @@
     return (f < 2 ? 1 : f < 5 ? 2 : 5) * e;
   };
 
-  // --- profile: height against v, with the share of land at each v behind ---
+  // --- profiles: a curve over the value of a layer, the share of the map at
+  // each value behind it as flat bars, and a dragged streak per threshold ---
 
-  const VMIN = -3, VMAX = 3.5, BINS = 65;
-  function histogram() {
-    const n = 140, span = 8e6, d = span / n, bins = new Float32Array(BINS);
+  const PAD = 8, RAIL = 22, BINS = 65;
+  // o: { canvas, keys (thresholds in state, in order), min, max, dashed,
+  //      hist() -> bins, binColour(v), curve(v, plotH) -> y, base(ctx, g),
+  //      point() -> [v, y] or null }
+  function makeProfile(o) {
+    const cv = o.canvas, c2 = cv.getContext('2d');
+    const geom = () => {
+      const W = cv.clientWidth, H = cv.clientHeight;
+      return { W, H, plotH: H - RAIL, X: (v) => PAD + ((v - o.min) / (o.max - o.min)) * (W - 2 * PAD), V: (x) => o.min + ((x - PAD) / (W - 2 * PAD)) * (o.max - o.min) };
+    };
+    const P = { bins: null };
+    P.draw = () => {
+      const dpr = window.devicePixelRatio || 1, g = geom();
+      if (!g.W) return;
+      cv.width = Math.round(g.W * dpr);
+      cv.height = Math.round(g.H * dpr);
+      c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c2.clearRect(0, 0, g.W, g.H);
+      const ink = css('--text'), accent = css('--handle');
+      if (P.bins) {
+        const max = Math.max(...P.bins) || 1, bw = (g.W - 2 * PAD) / BINS;
+        for (let b = 0; b < BINS; b++) {
+          const v = o.min + ((b + 0.5) / BINS) * (o.max - o.min), hgt = (P.bins[b] / max) * (g.plotH - 4);
+          c2.fillStyle = `rgb(${o.binColour(v).map((u) => u | 0).join(',')})`;
+          c2.fillRect(PAD + b * bw, g.plotH - hgt, bw + 0.5, hgt);
+        }
+      }
+      if (o.base) o.base(c2, g);
+      c2.strokeStyle = ink;
+      c2.lineWidth = 2;
+      c2.beginPath();
+      for (let x = PAD; x <= g.W - PAD; x++) {
+        const y = o.curve(g.V(x), g.plotH);
+        x === PAD ? c2.moveTo(x, y) : c2.lineTo(x, y);
+      }
+      c2.stroke();
+      for (const t of o.keys) {
+        const x = Math.round(g.X(state[t])) + 0.5;
+        c2.strokeStyle = accent;
+        c2.lineWidth = 1;
+        c2.setLineDash(o.dashed && o.dashed.includes(t) ? [3, 3] : []);
+        c2.beginPath();
+        c2.moveTo(x, 0);
+        c2.lineTo(x, g.H - 6);
+        c2.stroke();
+        c2.setLineDash([]);
+        c2.fillStyle = accent;
+        c2.fillRect(x - 6, g.H - 16, 12, 12);
+      }
+      const pt = o.point && o.point(g);
+      if (pt) {
+        c2.fillStyle = ink;
+        c2.beginPath();
+        c2.arc(g.X(pt[0]), pt[1], 4, 0, 2 * Math.PI);
+        c2.fill();
+      }
+    };
+    // Drag a threshold: grab the nearest streak.
+    let drag = null, keyT = 0;
+    const set = (t, v) => {
+      const gap = 0.05, k = o.keys.indexOf(t);
+      const lo = k > 0 ? state[o.keys[k - 1]] + gap : o.min, hi = k < o.keys.length - 1 ? state[o.keys[k + 1]] - gap : o.max;
+      state[t] = Math.round(Math.max(lo, Math.min(hi, v)) * 100) / 100;
+      newLayer();
+      P.draw();
+      later(rebuild, 250);
+    };
+    cv.addEventListener('pointerdown', (e) => {
+      const g = geom();
+      let best = null, bd = 14;
+      for (const t of o.keys) {
+        const d = Math.abs(g.X(state[t]) - e.offsetX);
+        if (d < bd) {
+          bd = d;
+          best = t;
+        }
+      }
+      if (!best) return;
+      drag = best;
+      cv.setPointerCapture(e.pointerId);
+    });
+    cv.addEventListener('pointermove', (e) => {
+      const g = geom();
+      cv.style.cursor = drag || o.keys.some((t) => Math.abs(g.X(state[t]) - e.offsetX) < 14) ? 'ew-resize' : 'default';
+      if (drag) set(drag, g.V(e.offsetX));
+    });
+    const end = () => {
+      if (drag) later(rebuild);
+      drag = null;
+    };
+    cv.addEventListener('pointerup', end);
+    cv.addEventListener('pointercancel', end);
+    // Keyboard: space or enter picks the next handle, arrows move it.
+    cv.addEventListener('keydown', (e) => {
+      if (e.key === ' ' || e.key === 'Enter') keyT = (keyT + 1) % o.keys.length;
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') set(o.keys[keyT], state[o.keys[keyT]] + (e.key === 'ArrowLeft' ? -0.05 : 0.05));
+      else return;
+      e.preventDefault();
+    });
+    return P;
+  }
+
+  // Sample the map on a coarse grid over 8000 km for the bars.
+  function sampleBins(n, min, max, val) {
+    const span = 8e6, d = span / n, bins = new Float32Array(BINS);
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < n; i++) {
-        const v = layer.value(-span / 2 + (i + 0.5) * d, -span / 2 + (j + 0.5) * d);
-        const b = Math.floor(((v - VMIN) / (VMAX - VMIN)) * BINS);
+        const v = val(-span / 2 + (i + 0.5) * d, -span / 2 + (j + 0.5) * d);
+        if (v === null) continue;
+        const b = Math.floor(((v - min) / (max - min)) * BINS);
         if (b >= 0 && b < BINS) bins[b]++;
       }
     }
     return bins;
   }
 
-  const PAD = 8, RAIL = 22;
-  const geom = () => {
-    const W = prof.clientWidth, H = prof.clientHeight;
-    return { W, H, plotH: H - RAIL, X: (v) => PAD + ((v - VMIN) / (VMAX - VMIN)) * (W - 2 * PAD), V: (x) => VMIN + ((x - PAD) / (W - 2 * PAD)) * (VMAX - VMIN) };
-  };
-  // Height axis: square root, so lowland shows beside 5000 m.
+  // Base profile: height against v. Height axis is a square root, so lowland
+  // shows beside 5000 m.
   const Yof = (h, plotH) => plotH / 2 - Math.sign(h) * Math.sqrt(Math.abs(h) / 5000) * (plotH / 2 - 6);
-  const THRESHOLDS = ['tSea', 'tInland', 'tHigh', 'tDivide'];
-
+  const baseProfile = makeProfile({
+    canvas: prof, keys: ['tSea', 'tInland', 'tHigh', 'tDivide'], min: -3, max: 3.5, dashed: ['tInland'],
+    binColour: (v) => CLASS_COLOUR[layer.cls(v)],
+    curve: (v, plotH) => Yof(layer.height(v), plotH),
+    base: (c2, g) => {
+      c2.strokeStyle = css('--muted');
+      c2.setLineDash([2, 3]);
+      c2.lineWidth = 1;
+      c2.beginPath();
+      c2.moveTo(PAD, Yof(0, g.plotH));
+      c2.lineTo(g.W - PAD, Yof(0, g.plotH));
+      c2.stroke();
+      c2.setLineDash([]);
+    },
+    point: (g) => (hover ? [hover.v, Yof(hover.h, g.plotH)] : null),
+  });
+  // Type profile: place on the chain (0..3) against the type value z.
+  const posY = (pos, plotH) => plotH - 6 - (pos / 3) * (plotH - 14);
+  const typeProfile = makeProfile({
+    canvas: document.getElementById('typeprofile'), keys: ['tT1', 'tT2', 'tT3'], min: -3, max: 3,
+    binColour: (z) => M.RegionLayer.TYPES[Math.round(region.posOf(z))].colour,
+    curve: (z, plotH) => posY(region.posOf(z), plotH),
+    point: (g) => (hover && hover.region ? [hover.region.z, posY(hover.region.pos, g.plotH)] : null),
+  });
   function drawProfile() {
-    const dpr = window.devicePixelRatio || 1, g = geom();
-    prof.width = Math.round(g.W * dpr);
-    prof.height = Math.round(g.H * dpr);
-    pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    pctx.clearRect(0, 0, g.W, g.H);
-    const ink = css('--text'), muted = css('--muted'), accent = css('--handle');
-    // Share of the map at each value, coloured as on the map.
-    if (hist) {
-      const max = Math.max(...hist), bw = (g.W - 2 * PAD) / BINS;
-      for (let b = 0; b < BINS; b++) {
-        const v = VMIN + ((b + 0.5) / BINS) * (VMAX - VMIN), c = layer.cls(v);
-        const hgt = (hist[b] / max) * (g.plotH - 4);
-        const col = CLASS_COLOUR[c];
-        pctx.fillStyle = `rgb(${col.join(',')})`;
-        pctx.fillRect(PAD + b * bw, g.plotH - hgt, bw + 0.5, hgt);
-      }
-    }
-    // Sea level.
-    pctx.strokeStyle = muted;
-    pctx.setLineDash([2, 3]);
-    pctx.lineWidth = 1;
-    pctx.beginPath();
-    pctx.moveTo(PAD, Yof(0, g.plotH));
-    pctx.lineTo(g.W - PAD, Yof(0, g.plotH));
-    pctx.stroke();
-    pctx.setLineDash([]);
-    // The profile.
-    pctx.strokeStyle = ink;
-    pctx.lineWidth = 2;
-    pctx.beginPath();
-    for (let x = PAD; x <= g.W - PAD; x++) {
-      const y = Yof(layer.height(g.V(x)), g.plotH);
-      x === PAD ? pctx.moveTo(x, y) : pctx.lineTo(x, y);
-    }
-    pctx.stroke();
-    // Threshold streaks and their square handles on the rail.
-    for (const t of THRESHOLDS) {
-      const x = Math.round(g.X(state[t])) + 0.5;
-      pctx.strokeStyle = accent;
-      pctx.lineWidth = 1;
-      // The inland threshold reads the large layers, not v: dashed.
-      pctx.setLineDash(t === 'tInland' ? [3, 3] : []);
-      pctx.beginPath();
-      pctx.moveTo(x, 0);
-      pctx.lineTo(x, g.H - 6);
-      pctx.stroke();
-      pctx.setLineDash([]);
-      pctx.fillStyle = accent;
-      pctx.fillRect(x - 6, g.H - 16, 12, 12);
-    }
-    // The point under the pointer.
-    if (hover) {
-      const x = g.X(hover.v), y = Yof(hover.h, g.plotH);
-      pctx.fillStyle = ink;
-      pctx.beginPath();
-      pctx.arc(x, y, 4, 0, 2 * Math.PI);
-      pctx.fill();
-    }
+    baseProfile.draw();
+    typeProfile.draw();
   }
-
-  // Drag a threshold: grab the nearest streak.
-  let dragT = null;
-  prof.addEventListener('pointerdown', (e) => {
-    const g = geom();
-    let best = null, bd = 14;
-    for (const t of THRESHOLDS) {
-      const d = Math.abs(g.X(state[t]) - e.offsetX);
-      if (d < bd) {
-        bd = d;
-        best = t;
-      }
-    }
-    if (!best) return;
-    dragT = best;
-    prof.setPointerCapture(e.pointerId);
-  });
-  prof.addEventListener('pointermove', (e) => {
-    const g = geom();
-    prof.style.cursor = THRESHOLDS.some((t) => Math.abs(g.X(state[t]) - e.offsetX) < 14) || dragT ? 'ew-resize' : 'default';
-    if (!dragT) return;
-    setThreshold(dragT, g.V(e.offsetX));
-  });
-  const endDrag = () => {
-    if (dragT) later(rebuild);
-    dragT = null;
-  };
-  prof.addEventListener('pointerup', endDrag);
-  prof.addEventListener('pointercancel', endDrag);
-  function setThreshold(t, v) {
-    const gap = 0.05, k = THRESHOLDS.indexOf(t);
-    const lo = k > 0 ? state[THRESHOLDS[k - 1]] + gap : VMIN, hi = k < THRESHOLDS.length - 1 ? state[THRESHOLDS[k + 1]] - gap : VMAX;
-    state[t] = Math.round(Math.max(lo, Math.min(hi, v)) * 100) / 100;
-    newLayer();
-    drawProfile();
-    later(rebuild, 250);
+  function histograms() {
+    baseProfile.bins = sampleBins(140, -3, 3.5, (x, y) => layer.value(x, y));
+    typeProfile.bins = sampleBins(90, -3, 3, (x, y) => {
+      const v = layer.value(x, y);
+      return v >= state.tSea ? region.at(x, y, v).z : null;
+    });
   }
-  // Keyboard: focus the profile, Tab-free: arrows move the selected handle.
-  let keyT = 0;
-  prof.addEventListener('keydown', (e) => {
-    if (e.key === 'Tab') return;
-    if (e.key === ' ' || e.key === 'Enter') keyT = (keyT + 1) % THRESHOLDS.length;
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') setThreshold(THRESHOLDS[keyT], state[THRESHOLDS[keyT]] + (e.key === 'ArrowLeft' ? -0.05 : 0.05));
-    else return;
-    e.preventDefault();
-  });
 
   // --- layers: one compact row each, with typed size and weight -------------
 
@@ -392,6 +428,34 @@
   row(regTable, 'Fuktighet', 'type og fasthet', [null, null, eye('moist', 'Fuktighet')]);
   row(regTable, 'Strekking', 'langs helningen', [null, numInput('regStretch', 0.5, 1, 20), null], 'regStretch');
   document.getElementById('legend').innerHTML = M.RegionLayer.TYPES.map((t) => `<span><i style="background:rgb(${t.colour.join(',')})"></i>${t.name}</span>`).join('');
+  const contEl = document.getElementById('contours');
+  contEl.checked = state.contours;
+  contEl.addEventListener('change', () => {
+    state.contours = contEl.checked;
+    render();
+  });
+  // Copy every setting (and which layers are on) as text to paste in a chat.
+  const copyBtn = document.getElementById('copy');
+  copyBtn.addEventListener('click', async () => {
+    const { show, ...rest } = state;
+    const text = 'Markr grunnlag, innstillinger:\n' + JSON.stringify({ ...rest, på: on }, null, 1);
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        ok = document.execCommand('copy');
+      } catch (e2) {}
+      ta.remove();
+    }
+    copyBtn.textContent = ok ? 'Kopiert' : 'Kunne ikke kopiere';
+    setTimeout(() => (copyBtn.textContent = 'Kopier innstillinger'), 1500);
+  });
   for (const d of document.querySelectorAll('details.sec')) d.addEventListener('toggle', () => d.open && drawProfile());
 
   // --- the point under the pointer ------------------------------------------
