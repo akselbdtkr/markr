@@ -12,21 +12,22 @@
     tSea: -0.55, tHigh: 0.6, tDivide: 1.8,
     lowTop: 260, highTop: 1600, shelf: 320, deep: 3500,
     midSize: 185, midW: 0.9, midStretch: 10, tInland: -0.3,
-    firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1, typeFirm: 0.6, typeHeight: 0.6, regStretch: 3,
-    tT1: -1, tT2: 0, tT3: 1, typeSoft: 0.25,
+    firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1.05, typeFirm: 0.4, typeHeight: 0.3, regStretch: 3,
+    tT1: -0.86, tT2: 1.01, tT3: 1.84, typeSoft: 0.25,
+    depMode: 'median', depSize: 60, depDepth: 0.5, depWidth: 0.2, depStretch: 3, depAlign: 0.7,
     show: 'map', contours: true,
   };
 
   const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
   const prof = document.getElementById('profile');
   const view = { cx: 0, cy: 0, mpp: 2500 };
-  let layer = null, region = null, job = 0, hover = null;
+  let layer = null, region = null, dep = null, job = 0, hover = null;
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
   // Layers can be turned off without changing their values: their weight
   // goes to 0, while the normalisation stays as if they were on.
-  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true };
+  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true, dep: true, depStretch: true };
   function newLayer() {
     const p = { ...state, norm: Math.hypot(state.contW, state.basinW, state.baseW) || 1, normCB: Math.hypot(state.contW, state.basinW) || 1 };
     for (const id of ['cont', 'basin', 'base', 's1', 'mid']) if (!on[id]) p[id + 'W'] = 0;
@@ -37,10 +38,25 @@
     if (!on.firm) pr.firmW = 0;
     if (!on.regStretch) pr.regStretch = 1;
     region = new M.RegionLayer(layer, state.seed, pr);
+    const pd = { ...state };
+    if (!on.depStretch) pd.depStretch = 1;
+    dep = on.dep ? new M.DepressionLayer(layer, state.seed, pd) : null;
+  }
+  // The whole chain at a point: base, middle layer, regions, depression.
+  function full(x, y) {
+    const [vb, v0, inland] = layer.valueParts(x, y);
+    const r = regionAt(x, y, v0);
+    let v = v0, band = 0;
+    if (dep) {
+      const d = dep.at(x, y, v0, vb, inland, r ? r.firm : 0.5);
+      v = d.v;
+      band = d.band;
+    }
+    return { v, h: layer.height(v), cls: layer.cls(v), region: r, band };
   }
   // Region at a point (land only), or null.
   const regionAt = (x, y, v) => (v >= state.tSea ? region.at(x, y, v) : null);
-  const REGION_VIEWS = ['firm', 'moist', 'type'];
+  const REGION_VIEWS = ['firm', 'moist', 'type', 'dep'];
   function rebuild() {
     newLayer();
     histograms();
@@ -106,6 +122,7 @@
           }
           cl[k] = 1;
           if (state.show === 'type') setCol(k, M.RegionLayer.colour(r.w), 2);
+          else if (state.show === 'dep') hs[k] = dep ? 2400 * dep.band(x, y, r.firm) : 0;
           else hs[k] = 2400 * r[state.show];
           continue;
         }
@@ -116,10 +133,10 @@
           cl[j * nx + i] = 1;
           continue;
         }
-        const v = layer.value(x, y);
-        hs[k] = layer.height(v);
-        cl[k] = layer.cls(v);
-        if (on.type && cl[k] > 0) setCol(k, M.RegionLayer.colour(regionAt(x, y, v).w), 1);
+        const f = full(x, y);
+        hs[k] = f.h;
+        cl[k] = f.cls;
+        if (on.type && cl[k] > 0 && f.region) setCol(k, M.RegionLayer.colour(f.region.w), 1);
       }
     }
     const img = ctx.createImageData(canvas.width, canvas.height), px = img.data;
@@ -428,6 +445,20 @@
   row(regTable, 'Fuktighet', 'type og fasthet', [null, null, eye('moist', 'Fuktighet')]);
   row(regTable, 'Strekking', 'langs helningen', [null, numInput('regStretch', 0.5, 1, 20), null], 'regStretch');
   document.getElementById('legend').innerHTML = M.RegionLayer.TYPES.map((t) => `<span><i style="background:rgb(${t.colour.join(',')})"></i>${t.name}</span>`).join('');
+  const depTable = document.getElementById('deplayers');
+  head(depTable);
+  row(depTable, 'Nedsenk', 'strukket', [numInput('depSize', 5, 5, 1000), numInput('depDepth', 0.05, 0, 3), eye('dep', 'Nedsenk')], 'dep');
+  row(depTable, 'Bredde', 'løs grunn: bredere', [null, numInput('depWidth', 0.01, 0.01, 1), null]);
+  row(depTable, 'Retning', 'grunt på tvers av helningen', [null, numInput('depAlign', 0.05, 0, 1), null]);
+  row(depTable, 'Strekking', 'langs helningen', [null, numInput('depStretch', 0.5, 1, 20), null], 'depStretch');
+  for (const b of document.querySelectorAll('#depmode button')) {
+    b.setAttribute('aria-pressed', String(b.dataset.mode === state.depMode));
+    b.addEventListener('click', () => {
+      state.depMode = b.dataset.mode;
+      for (const o of document.querySelectorAll('#depmode button')) o.setAttribute('aria-pressed', String(o === b));
+      rebuild();
+    });
+  }
   const contEl = document.getElementById('contours');
   contEl.checked = state.contours;
   contEl.addEventListener('change', () => {
@@ -498,8 +529,7 @@
     const prev = pointers.get(e.pointerId);
     if (!prev) {
       const x = view.cx + (e.offsetX - W / 2) * view.mpp, y = view.cy + (e.offsetY - H / 2) * view.mpp;
-      hover = layer.at(x, y);
-      hover.region = regionAt(x, y, hover.v);
+      hover = full(x, y);
       showPoint(e.offsetX, e.offsetY);
       drawProfile();
       return;
@@ -562,7 +592,7 @@
     let sum = 0, lo = Infinity, hi = -Infinity;
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < n; i++) {
-        const r = layer.at(-span / 2 + (i + 0.5) * d, -span / 2 + (j + 0.5) * d);
+        const r = full(-span / 2 + (i + 0.5) * d, -span / 2 + (j + 0.5) * d);
         sum += r.h;
         lo = Math.min(lo, r.h);
         hi = Math.max(hi, r.h);

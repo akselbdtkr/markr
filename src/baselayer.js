@@ -14,7 +14,7 @@
   'use strict';
 
   const { createPerlin, fbm, ridged } = M.noise;
-  const STD = { 2: 0.197, 3: 0.173 };
+  const STD = { 1: 0.22, 2: 0.197, 3: 0.173 };
   const S = (a, b, v) => {
     const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
     return t * t * (3 - 2 * t);
@@ -86,6 +86,7 @@
       const p = this.p;
       const [large, detail] = this.mixParts(x, y);
       const inland = Number.isFinite(p.tInland) ? S(p.tInland - 0.2, p.tInland + 0.2, large) : 0;
+      this._inland = inland; // read by valueParts
       let v = large + (inland > 0 ? (1 - inland) * detail + inland * keepAbove(detail, large - p.tSea - 0.05) : detail);
       // Straits: only in lowland close to the sea, never through highland,
       // and never inland.
@@ -204,6 +205,14 @@
     }
 
     // The final value: base, then the middle layer on land.
+    // [base value, final value (with the middle layer), inland weight].
+    valueParts(x, y) {
+      const p = this.p;
+      const vb = this.baseValue(x, y), inland = this._inland;
+      if (!(p.midW > 0) || vb <= p.tSea) return [vb, vb, inland];
+      return [vb, vb + keepAbove(p.midW * this.mid(x, y) * S(p.tSea, p.tHigh, vb), vb - p.tSea - 0.05), inland];
+    }
+
     value(x, y) {
       const p = this.p;
       const v = this.baseValue(x, y);
@@ -239,6 +248,7 @@
   }
 
   BaseLayer.CLASSES = CLASSES;
+  BaseLayer.keepAbove = keepAbove;
   BaseLayer.LAYERS = LAYERS;
   M.BaseLayer = BaseLayer;
 })(window.Markr = window.Markr || {});

@@ -86,6 +86,23 @@ mellomlaget. Retningen i et punkt regnes én gang og deles av alle strukne lag.
   steg.
 - **Fuktighet:** regnes fra type og fasthet. Løse sletter er våte, faste fjell er tørre.
 
+### Nedsenkslaget (`src/depressionlayer.js`)
+
+Et bånd der et strukket noise-lag passerer en midtverdi, senker landet mot grunnforskyvningen
+(grunnverdien uten mellomlaget, minus en dybde). Inne i båndet jevnes mellomlaget nesten
+ut. Nær kysten kan bunnen gå under havterskelen og bli fjord. Innenfor innlandsterskelen
+kan den ikke det, så det blir ikke innlandssjøer.
+
+- **To metoder, valgt med knapp:**
+  - **Medianterskel:** båndet ligger der en strukket fbm passerer medianen (0). Linjene er
+    lange og buktende, og de krysser eller forgreiner seg aldri.
+  - **Ridged:** linjer fra to oktaver, der den andre er halvparten så stor, smalere og
+    grunnere. Linjene møtes og krysser, så det blir grener, men også løkker.
+- **Fasthet:** løs grunn gir bredere bånd med flat bunn og bratte sider. Fast grunn gir
+  smale bånd med myke, V-formede sider.
+- **Retning:** deler av båndet som går på tvers av helningen, blir grunne. Dype,
+  sammenhengende nedsenkninger går derfor med helningen.
+
 **På siden:** høydekurver hver 100 m (mørkere hver 500 m) kan skrus av og på. «Kopier
 innstillinger» kopierer alle verdiene, og hvilke lag som er på, som tekst til chatten.
 

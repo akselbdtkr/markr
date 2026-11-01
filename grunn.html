@@ -44,6 +44,11 @@
     .cell-name { display: flex; flex-direction: column; line-height: 1.2; }
     .type { color: var(--muted); font-size: 11px; }
     .grid input { width: 100%; font: inherit; font-size: 12px; text-align: right; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font-variant-numeric: tabular-nums; }
+    .seg { display: flex; margin: 10px 0 2px; }
+    .seg button { flex: 1; font: inherit; font-size: 12px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 4px 6px; cursor: pointer; }
+    .seg button + button { border-left: none; }
+    .seg button[aria-pressed="true"] { color: #fff; background: var(--handle); border-color: var(--handle); }
+    .seg button:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
     .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
     .legend span { display: flex; align-items: center; gap: 5px; }
     .legend i { width: 10px; height: 10px; display: inline-block; }
@@ -96,6 +101,13 @@
       <div id="reglayers" class="grid"></div>
       <div id="legend" class="legend"></div>
     </details>
+    <details class="sec" open>
+      <summary>Nedsenkslaget</summary>
+      <div id="depmode" class="seg" role="group" aria-label="Metode for båndet">
+        <button data-mode="median">Medianterskel</button><button data-mode="ridged">Ridged</button>
+      </div>
+      <div id="deplayers" class="grid"></div>
+    </details>
     <div class="seed"><input id="seed" type="number" aria-label="Frø"><button id="reseed">Nytt frø</button></div>
     <label class="check"><input id="contours" type="checkbox">Høydekurver hver 100 m</label>
     <button id="copy" class="wide">Kopier innstillinger</button>
@@ -105,6 +117,7 @@
   <script src="src/noise.js"></script>
   <script src="src/baselayer.js"></script>
   <script src="src/regionlayer.js"></script>
+  <script src="src/depressionlayer.js"></script>
   <script src="src/grunn.js"></script>
 </body>
 </html>
