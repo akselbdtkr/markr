@@ -46,9 +46,22 @@ lokalt terreng. Hvert lag arver fra laget over.
 - **Arver fra grunnlaget:** det flytter verdien bare på land, økende fra kysten og innover.
   Kysten blir der grunnlaget satte den, mens høyland og vanndeling løftes eller senkes, så
   noen fjellområder blir høye og andre lave.
-- **Strukket langs helningen:** et gitter (2 × lagets størrelse) gir hvert hjørne en retning
-  fra helningen i grunnlaget, målt over grunnlagets egen størrelse. Støyen leses i hvert av
-  de fire nærmeste hjørnenes retning og blandes. Strekkingen avtar der grunnlaget er flatt.
+- **Strukket langs helningen, lokalt** (`stretched` i `src/baselayer.js`, gjenbrukes for
+  nedsenk-laget):
+  - Den glatte delen av grunnlaget (kontinenter og havbasseng, to oktaver) deles i nivåer
+    med fast avstand ΔB.
+  - Fra et punkt tas ett Newton-steg langs helningen ned til nivået under og ett opp til
+    nivået over. Støyen leses der, og de to blandes etter hvor punktet ligger mellom
+    nivåene.
+  - Alle punkter på samme helningslinje mellom to nivåer leser samme sted. Laget jevnes
+    da ut langs helningen og varierer fullt på tvers. Nivålinjene bøyer seg med
+    grunnlaget, så dragene gjør det også.
+- **Grenser:** steget er bare riktig så lenge helningen holder retningen.
+  - Det begrenses mykt til en firedel av havbassenget og til halve krumningsradiusen der
+    punktet står, og avtar der grunnlaget er nesten flatt.
+  - Uten grensene oppstår bretter, skarpe kanter der nabopunkter lander på samme sted.
+  - Målt strekking (endring på tvers delt på endring langs) er ca. 1,5 med 185 km bredde
+    og ca. 1,8 med 60 km.
 
 ## Ruteformler
 

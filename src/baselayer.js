@@ -6,7 +6,7 @@
 // sea | lowland | highland | divide.
 //
 // Middle layer (mellomlaget): inherits from the base. It is stretched along
-// the slope of the base value, so its shapes run downhill, and it shifts v on
+// the slope of the base value (see `stretched`), and it shifts v on
 // land only, growing from the coast inland: it lifts and sinks the highland
 // and the divide, so some mountain areas are high and others low, while the
 // coast stays where the base put it.
@@ -43,7 +43,6 @@
       this.nc = P(7);
       this.nmid = P(8);
       this.norm = Math.hypot(p.contW, p.basinW, p.baseW) || 1;
-      this.frames = new Map(); // middle-layer lattice corner -> frame
     }
 
     // The smooth mix of the three fbm layers, without straits.
@@ -54,6 +53,15 @@
         (p.basinW * fbm(this.nm, x / LB, y / LB, 3)) / STD[3] +
         (p.baseW * fbm(this.nb, x / L, y / L, 3)) / STD[3]
       ) / this.norm;
+    }
+
+    // The smooth part of the mix (continents and basins, two octaves each):
+    // the field that stretching follows. Its slope turns slowly, so a step
+    // along it stays valid over hundreds of km.
+    smoothMix(x, y) {
+      const p = this.p, LC = p.contSize * 1000, LB = p.basinSize * 1000;
+      const nrm = Math.hypot(p.contW, p.basinW) || 1;
+      return ((p.contW * fbm(this.nc, x / LC, y / LC, 2)) / STD[2] + (p.basinW * fbm(this.nm, x / LB, y / LB, 2)) / STD[2]) / nrm;
     }
 
     // The base value: the mix with straits.
@@ -71,45 +79,77 @@
       return v;
     }
 
-    // --- middle layer --------------------------------------------------------
-    // Stretched noise needs a direction, and a direction that turns from place
-    // to place would twist a single noise. So each corner of a lattice (2 ×
-    // the layer size) gets its own frame from the slope of the base there, the
-    // noise is read in each of the four nearest frames, and they are blended.
-    frame(i, j, G) {
-      const k = i + ',' + j;
-      let f = this.frames.get(k);
-      if (f) return f;
-      const x = i * G, y = j * G;
-      // The slope of the base over its own size: a smooth direction, so
-      // neighbouring frames agree and the blend shows no weave.
-      const h = this.p.baseSize * 1000;
-      const gx = (this.mix(x + h, y) - this.mix(x - h, y)) / (2 * h);
-      const gy = (this.mix(x, y + h) - this.mix(x, y - h)) / (2 * h);
-      const g = Math.hypot(gx, gy);
-      // Stretch only where the base clearly slopes.
-      const e = 1 + (this.p.midStretch - 1) * S(0.15, 0.6, g * this.p.baseSize * 1000);
-      const ax = g > 0 ? gx / g : 1, ay = g > 0 ? gy / g : 0;
-      f = { x, y, ax, ay, e, ox: frac(Math.sin(i * 127.1 + j * 311.7) * 43758.5) * 1000, oy: frac(Math.sin(i * 269.5 + j * 183.3) * 43758.5) * 1000 };
-      this.frames.set(k, f);
-      if (this.frames.size > 200000) this.frames.clear();
-      return f;
+    // --- stretching ----------------------------------------------------------
+    // Stretch a noise along the slope of the base, locally. The base value B
+    // is cut into levels ΔB apart. From a point, one Newton step along the
+    // slope lands on the level below and one on the level above; the noise is
+    // read there, not at the point. Every point on the same slope line
+    // between two levels reads the same spot, so the noise is smoothed out
+    // along the slope: two peaks one behind the other merge into one line,
+    // while across the slope (along the level lines) it varies fully. The two
+    // levels are blended by where the point lies between them, and each level
+    // has its own offset. Level lines bend with the base, so the streaks do
+    // too. The step is capped (maxLen) where the base is nearly flat.
+    //
+    // n: noise function, L: noise size (m), oct: octaves, dB: level spacing,
+    // maxLen: longest step (m), key: offset seed. Returns about normal.
+    stretched(n, x, y, L, oct, dB, maxLen, key) {
+      const h = 4000, F = (a, b) => this.smoothMix(a, b);
+      const B = F(x, y), Bx1 = F(x + h, y), Bx0 = F(x - h, y), By1 = F(x, y + h), By0 = F(x, y - h);
+      const gx = (Bx1 - Bx0) / (2 * h), gy = (By1 - By0) / (2 * h), g = Math.hypot(gx, gy);
+      // Curvature here. A step longer than about half its radius would fold
+      // neighbouring points onto each other (a crease).
+      const bxx = (Bx1 - 2 * B + Bx0) / (h * h), byy = (By1 - 2 * B + By0) / (h * h);
+      const bxy = (F(x + h, y + h) - F(x + h, y - h) - F(x - h, y + h) + F(x - h, y - h)) / (4 * h * h);
+      // Both curvatures count: of the level line (points along it pressed
+      // together) and of the slope line (the step turning sideways).
+      const kLevel = Math.abs(bxx * gy * gy - 2 * bxy * gx * gy + byy * gx * gx);
+      const kSlope = Math.abs((bxx - byy) * gx * gy + bxy * (gy * gy - gx * gx));
+      const kappa = g > 0 ? (kLevel + kSlope) / (g * g * g) : 0;
+      // Near tops and bottoms of the field the slope turns fast: fade out.
+      const fade = S(0.15, 0.5, g / this.typicalSlope());
+      const read = (qx, qy, k) => {
+        const ox = frac(Math.sin(k * 127.1 + key * 311.7) * 43758.5) * 1000, oy = frac(Math.sin(k * 269.5 + key * 183.3) * 43758.5) * 1000;
+        return fbm(n, qx / L + ox, qy / L + oy, oct) / STD[oct];
+      };
+      if (!(dB > 0) || g < 1e-12) return read(x, y, 0);
+      const ax = gx / g, ay = gy / g, u = B / dB, k = Math.floor(u), f = u - k;
+      // Distance along the slope down to level k and up to level k + 1,
+      // softly capped so flat ground does not throw the point far away.
+      // A soft minimum of the step, maxLen and half the curvature radius: it
+      // leaves the step untouched well below the limits (so points along the
+      // slope still land on the same spot) and bends only near them.
+      const lim = kappa > 0 ? Math.min(maxLen, 0.5 / kappa) : maxLen;
+      const cap = (d) => (d <= 0 ? 0 : 1 / Math.pow(Math.pow(d, -4) + Math.pow(lim, -4), 0.25));
+      const d0 = fade * cap((f * dB) / g), d1 = fade * cap(((1 - f) * dB) / g);
+      const n0 = read(x - ax * d0, y - ay * d0, k), n1 = read(x + ax * d1, y + ay * d1, k + 1);
+      const w1 = f * f * (3 - 2 * f), w0 = 1 - w1;
+      return (w0 * n0 + w1 * n1) / Math.hypot(w0, w1);
     }
 
-    // The middle-layer value at (x, y), about normal (mean 0, sd 1).
-    mid(x, y) {
-      const p = this.p, Lm = p.midSize * 1000, G = 2 * Lm;
-      const u = x / G, w = y / G, i = Math.floor(u), j = Math.floor(w);
-      const fu = u - i, fv = w - j, su = fu * fu * (3 - 2 * fu), sv = fv * fv * (3 - 2 * fv);
-      let sum = 0, sw2 = 0;
-      for (const [di, dj, wt] of [[0, 0, (1 - su) * (1 - sv)], [1, 0, su * (1 - sv)], [0, 1, (1 - su) * sv], [1, 1, su * sv]]) {
-        if (wt <= 0) continue;
-        const f = this.frame(i + di, j + dj, G), dx = x - f.x, dy = y - f.y;
-        const along = (dx * f.ax + dy * f.ay) / (Lm * f.e), across = (-dx * f.ay + dy * f.ax) / Lm;
-        sum += (wt * fbm(this.nmid, along + f.ox, across + f.oy, 2)) / STD[2];
-        sw2 += wt * wt;
+    // Typical slope of the smooth field (per metre), measured once per layer, so the
+    // stretch can be given as a length: ΔB = stretch × size × typical slope.
+    typicalSlope() {
+      if (this._gTyp) return this._gTyp;
+      let sum = 0, n = 0;
+      const h = 2000;
+      for (let j = 0; j < 24; j++) {
+        for (let i = 0; i < 24; i++) {
+          const x = (i - 11.5) * 250000, y = (j - 11.5) * 250000, B = this.smoothMix(x, y);
+          sum += Math.hypot(this.smoothMix(x + h, y) - B, this.smoothMix(x, y + h) - B) / h;
+          n++;
+        }
       }
-      return sum / Math.sqrt(sw2);
+      return (this._gTyp = sum / n);
+    }
+
+    // --- middle layer: noise stretched along the slope of the base ------------
+    mid(x, y) {
+      // A step is valid only while the slope keeps its direction: at most a
+      // quarter of the basin size, and shorter where the field curves (see
+      // stretched).
+      const p = this.p, Lm = p.midSize * 1000, len = Math.min(p.midStretch * Lm, 0.25 * p.basinSize * 1000);
+      return this.stretched(this.nmid, x, y, Lm, 2, p.midStretch > 1 ? len * this.typicalSlope() : 0, len, 8);
     }
 
     // One layer alone, for viewing: fbm layers about normal, straits 0..1.
