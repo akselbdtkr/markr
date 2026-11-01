@@ -341,8 +341,9 @@
         for (let a = 0; a < grid.N; a++) {
           const q = [vtx(a, b), vtx(a + 1, b), vtx(a + 1, b + 1), vtx(a, b + 1)];
           const cx = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4, cy = (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4;
-          const [, , slope, h] = field.sample(cx, cy);
-          const col = terrainColour(h, 0, 0);
+          // The terrain colour with the same hill shading as the layer below.
+          const [h, gx, gy] = field.heightGrad(cx, cy);
+          const col = terrainColour(h, gx, gy);
           poly(q);
           ctx.fillStyle = ctx.strokeStyle = `rgb(${col[0] | 0},${col[1] | 0},${col[2] | 0})`;
           ctx.lineWidth = 1;

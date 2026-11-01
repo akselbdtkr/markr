@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Markr ruteformler</title>
+  <style>
+    :root {
+      --bg: #f4f2ec; --panel: #ffffff; --text: #22262b; --muted: #6b7178;
+      --border: #dcd8ce; --accent: #3f6f4a; --canvas-bg: #e7e3d9;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #16181b; --panel: #1f2226; --text: #e6e6e3; --muted: #9aa0a6;
+        --border: #33373c; --accent: #8cc49a; --canvas-bg: #121417;
+        color-scheme: dark;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #16181b; --panel: #1f2226; --text: #e6e6e3; --muted: #9aa0a6;
+      --border: #33373c; --accent: #8cc49a; --canvas-bg: #121417;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--bg); color: var(--text);
+      font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      display: grid; grid-template-columns: 1fr 300px; height: 100%; overflow: hidden;
+    }
+    main { position: relative; min-width: 0; }
+    #map { width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+    aside { background: var(--panel); border-left: 1px solid var(--border); padding: 16px; overflow-y: auto; }
+    h1 { font-size: 18px; margin: 0 0 2px; }
+    h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 18px 0 8px; }
+    .muted { color: var(--muted); }
+    label { display: block; margin: 8px 0 2px; }
+    label output { float: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+    input[type=range] { width: 100%; accent-color: var(--accent); }
+    select, input[type=number], button { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+    select { width: 100%; }
+    button { cursor: pointer; }
+    .row { display: flex; gap: 6px; }
+    .row input { flex: 1; min-width: 0; }
+    .check { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+    .check input { margin: 0; accent-color: var(--accent); }
+    .check label { margin: 0; }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; font-variant-numeric: tabular-nums; }
+    dt { color: var(--muted); }
+    dd { margin: 0; text-align: right; }
+    .hint { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+    .curve { border: 1px solid var(--border); border-radius: 8px; padding: 8px; margin: 8px 0; }
+    .curve-head { display: flex; justify-content: space-between; font-weight: 600; }
+    .curve-head output { font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .curve-plot { width: 100%; height: 46px; display: block; margin: 6px 0; }
+    .curve-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .curve-pair label { margin: 0; font-size: 12px; color: var(--muted); }
+    details { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 10px; }
+    summary { cursor: pointer; font-weight: 600; }
+    summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .top { position: absolute; left: 12px; top: 12px; display: flex; gap: 6px; }
+    .top button, .top select { background: var(--panel); width: auto; }
+    @media (max-width: 720px) {
+      body { grid-template-columns: 1fr; grid-template-rows: 58vh 1fr; height: auto; min-height: 100vh; overflow: auto; }
+      aside { border-left: none; border-top: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <canvas id="map"></canvas>
+    <div class="top">
+      <button id="fit">Tilpass</button>
+      <select id="layer" aria-label="Lag">
+        <option value="grid">Terreng og rutenett</option>
+        <option value="filled">Fylte ruter med skygge</option>
+        <option value="kinds">Egger, daler, topper</option>
+      </select>
+    </div>
+  </main>
+  <aside>
+    <h1>Markr ruteformler</h1>
+    <div class="muted">To lokale formler: én for hver rute, én for hvert hjørne.</div>
+
+    <h2>Måling</h2>
+    <div id="stats"></div>
+
+    <h2>Rute</h2>
+    <div id="cell"></div>
+
+    <h2>Terskler</h2>
+    <div id="curves"></div>
+
+    <h2>Hjørner</h2>
+    <label>Rotasjon <output id="strength-out"></output></label>
+    <input id="strength" type="range" min="0" max="1.5" step="0.05">
+    <label>Største rotasjon <output id="maxRot-out"></output></label>
+    <input id="maxRot" type="range" min="5" max="45" step="1">
+    <label>Mindre ruter i bratt <output id="sizeAmount-out"></output></label>
+    <input id="sizeAmount" type="range" min="0" max="0.9" step="0.05">
+    <label>Dragning mot egger og daler <output id="edgePull-out"></output></label>
+    <input id="edgePull" type="range" min="0" max="1" step="0.05">
+    <label>Del i to, langs kurven, når ønsket størrelse er <output id="split2-out"></output></label>
+    <input id="split2" type="range" min="0" max="1" step="0.01">
+    <label>Del i fire når ønsket størrelse er <output id="split4-out"></output></label>
+    <input id="split4" type="range" min="0" max="1" step="0.01">
+    <label>Hoppene spres over inntil <output id="jumpMix-out"></output></label>
+    <input id="jumpMix" type="range" min="0" max="1" step="0.05">
+
+    <details>
+      <summary>Landskap og visning</summary>
+      <label for="seed">Frø</label>
+      <div class="row"><input id="seed" type="number"><button id="reseed">Nytt</button></div>
+      <label for="region">Landskapsområde</label>
+      <select id="region"><option value="-1">Alle, styrt av områdelaget</option></select>
+      <label for="startKind">Startsted</label>
+      <select id="startKind">
+        <option value="rugged">Ulendt, med litt kyst</option>
+        <option value="varied">Variert: hav og lier</option>
+      </select>
+      <label>Ekstra ulendthet <output id="rough-out"></output></label>
+      <input id="rough" type="range" min="0" max="1.5" step="0.05">
+      <label>Glatting av høyden rutene leser <output id="smooth-out"></output></label>
+      <input id="smooth" type="range" min="8" max="96" step="8">
+      <label>Overgang rad/kolonne <output id="blend-out"></output></label>
+      <input id="blend" type="range" min="0" max="30" step="1">
+      <label>Høydekurver hver <output id="contour-out"></output></label>
+      <input id="contour" type="range" min="2" max="50" step="1">
+      <div class="check"><input id="showContours" type="checkbox"><label for="showContours">Vis høydekurver</label></div>
+      <div class="check"><input id="showSections" type="checkbox"><label for="showSections">Vis seksjonsgrenser</label></div>
+    </details>
+  </aside>
+
+  <script>window.Markr = { VERSION: 1 };</script>
+  <script src="src/noise.js"></script>
+  <script src="src/terrain.js"></script>
+  <script src="src/fieldgrid.js"></script>
+  <script src="src/formula.js"></script>
+  <script src="src/formel.js"></script>
+</body>
+</html>
