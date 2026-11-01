@@ -92,6 +92,9 @@
       // neighbours, the section's rotation.
       const rc = Math.max(1, Math.round((opts.coarse ?? 128) / res / 2));
       this.hc = blur(blur(this.h, nx, ny, rc), nx, ny, rc);
+      // Height smoothed over about `denseSmooth` metres: the curves every row follows.
+      const rm = Math.max(1, Math.round((opts.denseSmooth ?? 48) / res / 2));
+      this.hm = blur(blur(this.h, nx, ny, rm), nx, ny, rm);
       // Slope smoothed the same way, for cell sizes at section level.
       this.slopeC = blur(blur(this.slope, nx, ny, rc), nx, ny, rc);
 
@@ -482,7 +485,17 @@
         },
       });
     }
-    fams.push({
+    // Direction for every row: instead of a few important contours, every row
+    // (and column) follows the contour through the middle of its own strip, so
+    // the whole slope deforms evenly. Contours are parallel, so neighbouring
+    // rows follow nearly parallel curves and hand over to each other at jumps.
+    if (opts.dense) {
+      fams.push({
+        prio: 1, run: opts.run, reach: opts.reach, f: (x, y) => field.gradOf(field.hm, x, y), dense: true,
+        weight: (x, y, g) => smoothstep(minSlope * 0.5, minSlope * 1.5, g),
+        reachFor: (g) => opts.reach * (0.7 + 0.5 * smoothstep(minSlope, 0.6, g)),
+      });
+    } else fams.push({
       prio: 1, run: opts.run, reach: opts.reach, f: heightGrad,
       // Which contours count is chosen from the general slope of the section
       // (the coarse height), which changes slowly, so a contour does not drop in
@@ -579,9 +592,20 @@
             const slot = rows ? 0 : 1;
             if (best[slot] && best[slot].prio > fm.prio) continue; // a stronger kind holds
             const along = rows ? a : b, own = rows ? b : a;
-            const s0 = Math.floor(along / fm.run) * fm.run, mid = lim(s0 + fm.run / 2, -MG, N + MG - 1);
+            // Dense rows start their strips at staggered places, so the jumps
+            // of neighbouring rows do not line up into a fault.
+            const phase = fm.dense && opts.stagger ? (((own * 5) % fm.run) + fm.run) % fm.run : 0;
+            const s0 = Math.floor((along - phase) / fm.run) * fm.run + phase, mid = lim(s0 + fm.run / 2, -MG, N + MG - 1);
             const reach = (fm.reachFor ? fm.reachFor(g) : fm.reach) * boost;
-            for (const L of fm.levels(v, g, x, y)) {
+            let levels;
+            if (fm.dense) {
+              // The level of this row's own contour: the height at the middle
+              // of its strip (on the base grid).
+              const km = rows ? at(Math.floor(mid), own) : at(own, Math.floor(mid));
+              const [vm, mx, my] = fm.f(BX[km] * C, BY[km] * C);
+              levels = vm > 0 && Math.hypot(mx, my) > minSlope * 0.5 ? [vm] : [];
+            } else levels = fm.levels(v, g, x, y);
+            for (const L of levels) {
               if (ownerAt(fm, L, rows, mid, own) !== own) continue;
               ct.owned++;
               const pv = crossing(fm.f, x, y, L, rows);

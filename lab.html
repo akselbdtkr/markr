@@ -92,6 +92,7 @@
 
     <div class="jumps">
     <h2>Linjer og hopp</h2>
+    <div class="check"><input id="dense" type="checkbox"><label for="dense">Retning for hver rad (i stedet for viktige høydekurver)</label></div>
     <label>Viktige høydekurver hver <output id="step-out"></output></label>
     <input id="step" type="range" min="10" max="100" step="10">
     <label>Terskel: minste helning for å trekke <output id="minSlope-out"></output></label>
@@ -131,7 +132,7 @@
     <label>Deling: helning der ruta skal være halv <output id="splitSlope-out"></output></label>
     <input id="splitSlope" type="range" min="0.05" max="1" step="0.05">
     <label>Deling: del når ruta er større enn målet <output id="splitRatio-out"></output></label>
-    <input id="splitRatio" type="range" min="0" max="3" step="0.05">
+    <input id="splitRatio" type="range" min="0" max="4" step="0.05">
     <label>Mindre ruter mot hopp <output id="narrow-out"></output></label>
     <input id="narrow" type="range" min="0" max="1.6" step="0.05">
     <label>Minste avstand mellom linjer <output id="gap-out"></output></label>

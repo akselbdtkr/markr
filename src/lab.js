@@ -14,7 +14,7 @@
     coastRun: 4, coastReach: 1.3, reachOut: 6, run: 6, reach: 1.1,
     ridges: 1, ridgeRun: 6, ridgeReach: 1.1, curvature: 0.003, startKind: 'rugged', rough: 0.7,
     slopeLines: 0.6, slopeSpacing: 3, slopeReach: 0.6, narrow: 1, gap: 0.3, sizeStrength: 3, minRidge: 100,
-    blendAngle: 15, transBoost: 0.6, minCell: 3, splitSlope: 1, splitRatio: 2,
+    blendAngle: 15, transBoost: 0.6, minCell: 3, splitSlope: 1, splitRatio: 2.6, dense: true, stagger: false, denseSmooth: 48,
     showContours: true, showGrid: true, showField: false, showSections: true, showFolds: true, fillCells: false,
   };
   let terrain, field, grid, start, stats = {};
@@ -92,7 +92,7 @@
     const { N, i0, j0 } = mapCells();
     const m = Math.max(state.buffer, 3 * state.cells + 8) + 6;
     const t0 = performance.now();
-    field = new M.TerrainField(terrain, (i0 - m) * C, (j0 - m) * C, (N + 2 * m) * C, (N + 2 * m) * C, 8, { smoothing: state.smoothing, coarse: state.cells * C, curvature: state.curvature, minRidge: state.minRidge });
+    field = new M.TerrainField(terrain, (i0 - m) * C, (j0 - m) * C, (N + 2 * m) * C, (N + 2 * m) * C, 8, { smoothing: state.smoothing, coarse: state.cells * C, curvature: state.curvature, minRidge: state.minRidge, denseSmooth: state.denseSmooth });
     stats.field = performance.now() - t0;
     bg = null;
     contours = null;
@@ -110,7 +110,7 @@
             ridges: state.ridges, ridgeRun: state.ridgeRun, ridgeReach: state.ridgeReach, curvature: state.curvature,
             slopeLines: state.slopeLines, slopeSpacing: state.slopeSpacing, slopeReach: state.slopeReach,
             narrow: state.narrow, gap: state.gap, sizeStrength: state.sizeStrength,
-            blendAngle: state.blendAngle, transBoost: state.transBoost, minCell: state.minCell,
+            blendAngle: state.blendAngle, transBoost: state.transBoost, minCell: state.minCell, dense: state.dense, stagger: state.stagger,
           }))
         : M.buildGrid(field, Object.assign(o, { buffer: state.buffer, mode: state.mode, align: state.align, size: state.size, anchor: state.anchor, iters: state.iters }));
     document.body.dataset.method = state.method;
@@ -615,6 +615,11 @@
   range('narrow', 'narrow', (v) => (v ? v.toFixed(2) : 'av'), rebuildGrid);
   range('gap', 'gap', (v) => `${v.toFixed(2)} rute`, rebuildGrid);
   range('sizeStrength', 'sizeStrength', (v) => (v ? v.toFixed(1) : 'av'), rebuildGrid);
+  $('dense').checked = state.dense;
+  $('dense').addEventListener('change', (e) => {
+    state.dense = e.target.checked;
+    rebuildGrid();
+  });
   $('method').value = state.method;
   $('method').addEventListener('change', (e) => {
     state.method = e.target.value;
