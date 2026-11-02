@@ -76,7 +76,7 @@
     if (river && v >= state.tSea && !small) {
       const mask = withSections && sections ? sections.waterAt(x, y) : undefined;
       const rv = river.at(x, y, v, mask);
-      if (mask && !mask.water) tint = mask.cover;
+      if (mask && !mask.water && !rv.water) tint = mask.cover;
       v = rv.v;
       water = rv.water;
       sea = !!rv.sea;

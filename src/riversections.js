@@ -27,7 +27,10 @@
 //    lakes when they find no way to the sea. Links taper between the two
 //    ends' widths and swing a little, in whole half waves.
 // 5. A chain whose ends both open onto the sea is a sound, at sea level.
-// 6. Draw: the section's cells (16 m) in a channel or lake are water.
+// 6. Draw: the section's cells (16 m) in a channel or lake are water. This
+//    adds to the river drawn point by point, it does not replace it, so a
+//    river that is already whole is never broken up; only rings are taken
+//    away.
 (function (M) {
   'use strict';
 
@@ -486,7 +489,26 @@
           }
         }
       }
-      mask = { water, surf, sea, cover };
+      // Removed water: cells along rings and ring pieces, which the river
+      // drawn point by point would otherwise still show.
+      const remove = new Uint8Array(N * N);
+      for (const r of rings) {
+        const ns = r.poly;
+        for (let q = 0; q < ns.length; q++) {
+          const a = ns[q], b = ns[(q + 1) % ns.length], R = Math.max(a.W, b.W) / 2 + cell;
+          const i0 = Math.max(0, Math.floor((Math.min(a.x, b.x) - R - x0) / cell)), i1 = Math.min(N - 1, Math.floor((Math.max(a.x, b.x) + R - x0) / cell));
+          const j0 = Math.max(0, Math.floor((Math.min(a.y, b.y) - R - y0) / cell)), j1 = Math.min(N - 1, Math.floor((Math.max(a.y, b.y) + R - y0) / cell));
+          const ex = b.x - a.x, ey = b.y - a.y, l2 = ex * ex + ey * ey;
+          for (let j = j0; j <= j1; j++) {
+            for (let i = i0; i <= i1; i++) {
+              const cx = x0 + (i + 0.5) * cell, cy = y0 + (j + 0.5) * cell;
+              const t = l2 > 0 ? Math.max(0, Math.min(1, ((cx - a.x) * ex + (cy - a.y) * ey) / l2)) : 0;
+              if (Math.hypot(cx - a.x - ex * t, cy - a.y - ey * t) < R && !water[j * N + i]) remove[j * N + i] = 1;
+            }
+          }
+        }
+      }
+      mask = { water, surf, sea, cover, remove };
       this.masks.set(k, mask);
       return mask;
     }
@@ -499,7 +521,7 @@
       if (!mask) return undefined;
       const i = Math.min(N - 1, Math.floor((x - si * this.size) / this.p.cell)), j = Math.min(N - 1, Math.floor((y - sj * this.size) / this.p.cell));
       const o = j * N + i;
-      return { water: mask.water[o] === 1, vSurf: mask.surf[o], sea: mask.sea[o] === 1, cover: mask.cover[o] };
+      return { water: mask.water[o] === 1, vSurf: mask.surf[o], sea: mask.sea[o] === 1, cover: mask.cover[o], remove: mask.remove[o] === 1 };
     }
   }
 

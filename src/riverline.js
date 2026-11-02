@@ -154,7 +154,9 @@
           water = d < half * (1 - 0.7 * nearSea) || Math.abs(m) < 0.25 + 0.3 * nearSea;
         }
       } else water = d < half;
-      if (mask) water = false; // the section step has said no
+      // The section step adds water (links, lakes) and removes rings; it does
+      // not take away a river that is already whole here.
+      if (mask && mask.remove) water = false;
       if (water) return { v: Math.min(v, vSurf), water: true };
       // The zone around: the land slopes down toward the water. Its size
       // follows firmness (loose is wider) and a slow noise.

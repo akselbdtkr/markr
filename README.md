@@ -187,6 +187,10 @@ seksjon tegnes, lagres elvene der, og funksjoner går gjennom dem.
    stedet en blåtone etter hvor stor del av den elva dekker, så smale elver ikke brytes opp.
 7. **Sund:** en kjede der begge ender åpner mot havet, blir et sund med vannflate på 0 m.
 
+Steget per seksjon legger til vann (koblinger, sideelver, innsjøer) til elva som regnes
+punkt for punkt, men tar ikke bort noe. En elv som allerede er sammenhengende, brytes derfor
+aldri opp. Bare ringer og ringbiter fjernes.
+
 «Elvenes bunnpunkter og koblinger» viser dette med tegnforklaring.
 
 **Målestokk:** simuleringen har sine egne enheter. På skjermen er én enhet 1/50 m
