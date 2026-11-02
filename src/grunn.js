@@ -17,7 +17,7 @@
     depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depLow: 0.8, depPlain: 0.5,
     riverAlign: 0.6, riverWidth: 50000, riverDeep: 4, riverZone: 4,
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
-    secZoom: 5000, riverGap: 30000, riverWalk: 50000, riverShort: 40000, riverMeander: 1, showNodes: false,
+    secZoom: 5000, riverGap: 30000, riverWalk: 150000, riverShort: 40000, riverMeander: 1, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 50, scaleV: 10,
@@ -53,7 +53,7 @@
       ? new M.RiverSections(river, (x, y) => {
           const f = fullCore(x, y, false);
           return { h: f.h, cls: f.cls };
-        }, { cell: 16 * state.scaleH, gap: state.riverGap, walk: state.riverWalk, short: state.riverShort, meander: state.riverMeander, tSea: state.tSea })
+        }, { cell: 16 * state.scaleH, gap: state.riverGap, walk: state.riverWalk, short: state.riverShort, meander: state.riverMeander, tSea: state.tSea, minW: state.riverMin, rise: 5 * state.scaleV })
       : null;
   }
   // The whole chain at a point: base, middle layer, regions, depression.
@@ -252,7 +252,7 @@
   // dark blue, bridges red, downhill walks orange, rings violet.
   function drawNodes(W, H, dpr) {
     const X = (x) => ((x - view.cx) / view.mpp + W / 2) * dpr, Y = (y) => ((y - view.cy) / view.mpp + H / 2) * dpr;
-    const colour = { line: '#1d3f7a', bridge: '#d4302a', tributary: '#2fa84a', walk: '#e08a1e' };
+    const colour = { line: '#1d3f7a', bridge: '#d4302a', tributary: '#2fa84a', walk: '#e08a1e', source: '#1fa6c9', lake: '#5b6b7a', loose: '#8c9aa8' };
     ctx.save();
     ctx.lineWidth = 1.5 * dpr;
     for (const [, gr] of sections.graphs) {

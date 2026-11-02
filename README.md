@@ -139,37 +139,33 @@ båndet fyllere, og retningen teller mindre, så det brytes ikke opp. Innlandsgr
 i samme grad. Elvene ligger lavt: vannflaten beholder bare en andel («Høyde beholdt») av
 høyden over havet, og lavlandet trenger mindre retning for å holde elva sammen.
 
-### Elvene per seksjon (`src/riversections.js`)
+### Elvene per seksjon: elvetrær (`src/riversections.js`)
 
-Et eget steg som kjører per seksjon (32 × 32 ruter, 512 m), og bare når utsnittet er mindre
-enn «Per seksjon» (5 km). Første gang en seksjon tegnes, lagres elvene i den, og funksjoner
-går gjennom dem:
+Et eget steg som kjører når utsnittet er mindre enn «Per seksjon» (5 km). Første gang en
+seksjon tegnes, lagres elvene der, og funksjoner går gjennom dem.
 
-1. **Lagre:** fra hver andre rute finnes bunnen av snittet. Bunnpunktet må ligge på linja
-   (et ekstra Newton-steg) og være nær elva. Det lagres med indeks i et rutenett på to ruter,
-   og høyst ett punkt per 1,5 rute, sammen med bredde, vannflate og retning. Ellers ga
-   punkter fra begge breddene to parallelle kjeder (doble linjer). Elver under havet, i
-   fjorder, lagres ikke.
-2. **Kjeder:** hvert bunnpunkt kobles til nærmeste foran og bak langs linja. Kjedene kan gås
-   opp og ned, og en kjede som kommer tilbake til seg selv, er en ring.
-3. **Koble:** fra hver løse ende kobles nærmeste løse ende i en annen kjede innen
-   «Koble ender», om den ligger foran og vender tilbake. Finnes ingen, kobles enden midt på
-   en annen elv foran og munner ut i den (sideelv). Koblinger og veier nedover beholder
-   elvas bredde: den største av de siste punktene inn i elva.
-4. **Nedover:** den laveste enden i en kjede som ikke når vann, følger landet nedover
-   («Følg nedover») til hav eller en annen elv. En grop stopper den.
-5. **Ringer, korte kjeder og sund:** ringer fjernes, så de tegner ikke vann. Korte løse kjeder
-   («Kort kjede») blir innsjøer. En kjede der begge løse ender åpner mot havet, blir et sund
-   med vannflate på 0 m hele veien.
-6. **Slyng:** bare koblingene slynger seg, med hele halvbølger mellom endene. Selve elva
-   ligger der nedsenket går.
-7. **Tegne:** rutene i seksjonen som ligger i et løp eller en innsjø, er vann.
+1. **Lagre:** fra hver andre rute finnes bunnen av snittet, flyttet nøyaktig på linja.
+   Bunnpunktene lagres i et rutenett på to ruter. Av to punkter nærmere enn 1,5 rute blir
+   det med lavest indeks stående, uansett hvilken seksjon som fant det. Resultatet avhenger
+   derfor ikke av rekkefølgen seksjonene lastes i. Elver under havet lagres ikke.
+2. **Kjeder:** hvert bunnpunkt kobles til nærmeste foran og bak langs linja. En kjede gås
+   fra ende til ende. En kjede som kommer tilbake til seg selv, er en ring, og den fjernes.
+3. **Trær:** fra en kjede følges elva nedstrøms til havet. Fra den nedre enden går den til
+   nærmeste ende av en annen kjede som vender tilbake (kobling), ellers midt inn i en annen
+   elv foran (sideelv), ellers nedover landet (vei nedover). Når den når havet, lagres hele
+   veien som ett tre, og en kjede som når et tre som finnes, legges til det. Kilden til en
+   lang kjede følges oppover til vanndelingen. Trærne er spillets vannveier. Bare kjeder
+   nær det som tegnes, følges.
+4. **Ingen vei til havet ennå:** kjeden tegnes som elv, men er ingen vannvei. En kort kjede
+   blir en liten innsjø. Dette gjelder særlig langt inne i landet der veien nedover møter
+   en grop. Neste steg er å fylle gropa til en innsjø og finne utløpet.
+5. **Bredde:** en kjede beholder bredden etter lengden. Lange kjeder er like brede der de
+   kobles. Korte blir smalere, så en lang elv renner gjennom, mens små innsjøer ved siden av
+   ikke slår seg sammen. Koblinger tar den smaleste av de to endene og slynger seg høyst en
+   halv bredde.
+6. **Sund:** en kjede der begge ender åpner mot havet, blir et sund med vannflate på 0 m.
 
-En seksjon leser sine egne og de åtte nabo-seksjonenes bunnpunkter, så elvene kobles over
-seksjonsgrensene. «Elvenes bunnpunkter og koblinger» viser kjedene: mørkeblå langs linja,
-røde koblinger, grønne sideelver, oransje veier nedover og fiolette ringer. Seksjonene
-bygges alltid på samme oppløsning (én rute), så resultatet ikke avhenger av hva som ble tegnet
-før.
+«Elvenes bunnpunkter og koblinger» viser dette med tegnforklaring.
 
 **Målestokk:** simuleringen har sine egne enheter. På skjermen er én enhet 1/50 m
 bortover og 1/10 m i høyden (justerbart: «Målestokk 1:» og «Høyde 1:»). Laget er laget i stor
