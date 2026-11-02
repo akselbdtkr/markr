@@ -25,6 +25,96 @@
   const keepAbove = (d, m) => (d >= 0 ? d : m <= 0 ? 0 : -m * (1 - Math.exp(d / m)));
   const CLASSES = ['hav', 'lavland', 'høyland', 'vanndeling'];
 
+  // A coarse lattice for slow, smooth layers: fn(x, y) -> array of numbers is
+  // computed once per node (spacing G metres, kept across redraws) and blended
+  // smoothly between nodes. Layers that vary over tens of km lose nothing,
+  // and a redraw reads few nodes instead of every pixel.
+  // Catmull-Rom weights for t in [0, 1), into w.
+  const cr = (t, w) => {
+    w[0] = (((-t + 2) * t - 1) * t) / 2;
+    w[1] = ((3 * t - 5) * t * t + 2) / 2;
+    w[2] = (((-3 * t + 4) * t + 1) * t) / 2;
+    w[3] = ((t - 1) * t * t) / 2;
+  };
+  class Lattice {
+    constructor(G, fn) {
+      this.G = G;
+      this.fn = fn;
+      this.tiles = new Map(); // 64 × 64 nodes each, in typed arrays
+      this.nv = 0; // values per node
+      this.lastKey = NaN;
+      this.lastTile = null;
+      this.wa = [0, 0, 0, 0];
+      this.wb = [0, 0, 0, 0];
+      this.out = [];
+    }
+    tile(ti, tj) {
+      const key = ti * 100003 + tj;
+      if (key === this.lastKey) return this.lastTile;
+      let t = this.tiles.get(key);
+      if (!t) {
+        if (this.tiles.size > 400) this.tiles.clear();
+        t = { v: new Float64Array(4096 * this.nv), f: new Uint8Array(4096) };
+        this.tiles.set(key, t);
+      }
+      this.lastKey = key;
+      this.lastTile = t;
+      return t;
+    }
+    at(x, y) {
+      // Scattered samples far apart (the profiles' bars) gain nothing from
+      // the lattice: each would build many nodes. They read directly.
+      if (Lattice.direct) return this.fn(x, y);
+      if (!this.nv) {
+        this.nv = this.fn(0, 0).length;
+        this.out = new Array(this.nv).fill(0);
+      }
+      // Catmull-Rom over 4 × 4 nodes: smooth in value and slope, so shading
+      // and narrow bands show no lattice.
+      const G = this.G, nv = this.nv, u = x / G, w = y / G, i = Math.floor(u), j = Math.floor(w);
+      const wa = this.wa, wb = this.wb, out = this.out;
+      cr(u - i, wa);
+      cr(w - j, wb);
+      for (let k = 0; k < nv; k++) out[k] = 0;
+      for (let dj = 0; dj < 4; dj++) {
+        const nj = j + dj - 1, tj = nj >> 6, lj = nj & 63;
+        for (let di = 0; di < 4; di++) {
+          const ni = i + di - 1, t = this.tile(ni >> 6, tj), idx = lj * 64 + (ni & 63), o = idx * nv;
+          if (!t.f[idx]) {
+            const v = this.fn(ni * G, nj * G);
+            for (let k = 0; k < nv; k++) t.v[o + k] = v[k];
+            t.f[idx] = 1;
+          }
+          const wt = wa[di] * wb[dj];
+          for (let k = 0; k < nv; k++) out[k] += wt * t.v[o + k];
+        }
+      }
+      // The result array is reused: read it at once (callers destructure).
+      return out;
+    }
+  }
+  // The map never needs finer detail than the points it draws (at most the
+  // 16 m cells). So a lattice's spacing follows the drawing: a section width
+  // (128 m) times a power of two: about as coarse as the drawn points
+  // (Lattice.pixel, set by the page), but never coarser than a sixteenth of
+  // the layer (maxG).
+  // One lattice is kept per spacing, so zooming back reuses earlier work.
+  const SECTION_M = 128;
+  Lattice.pixel = 4000;
+  // fine: follow the drawn points (for layers with narrow features); else
+  // always the coarsest allowed spacing (smooth layers).
+  Lattice.pick = (store, maxG, fn, fine) => {
+    let G = SECTION_M;
+    while ((!fine || G < Lattice.pixel) && G * 2 <= maxG) G *= 2;
+    let l = store.get(G);
+    if (!l) {
+      l = new Lattice(G, fn);
+      store.set(G, l);
+    }
+    return l;
+  };
+  M.Lattice = Lattice;
+
   // The base noise layers, largest first: size in km, weight.
   const LAYERS = [
     { id: 'cont', name: 'Kontinenter', type: 'fbm' },
@@ -188,8 +278,13 @@
     }
 
     // --- middle layer: noise stretched along the slope of the base ------------
+    // The middle layer, on a lattice (see Lattice.pick).
     mid(x, y) {
-      return this.stretched(this.nmid, x, y, this.p.midSize * 1000, 2, this.p.midStretch, 8);
+      if (!this.midLats) {
+        this.midLats = new Map();
+        this.midFn = (a, b) => [this.stretched(this.nmid, a, b, this.p.midSize * 1000, 2, this.p.midStretch, 8)];
+      }
+      return Lattice.pick(this.midLats, (this.p.midSize * 1000) / 16, this.midFn).at(x, y)[0];
     }
 
     // One layer alone, for viewing: fbm layers about normal, straits 0..1.

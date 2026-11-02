@@ -45,27 +45,39 @@
     }
 
     // The band at a point (0 outside, 1 at the centre), given firmness.
+    // The slow part, on a lattice (see Lattice.pick): the noise, how
+    // much its lines run with the slope, and the second octave (ridged).
+    // Only the band's shape is worked out per point, so narrow bands stay
+    // sharp while the costly reads are shared.
+    lines(x, y) {
+      const p = this.p, L = p.depSize * 1000, median = p.depMode !== 'ridged', oct = median ? 3 : 1;
+      if (!this.lats) {
+        this.lats = new Map();
+        this.latFn = (a, c) => {
+          const fr = this.base.slopeFrame(a, c), h = 2000;
+          const n = this.read(fr, 0, 0, this.n1, L, oct, 31);
+          // Align: the band runs along the level lines of n, so it runs with
+          // the slope where n hardly changes along the slope.
+          const nA = this.read(fr, fr.ax * h, fr.ay * h, this.n1, L, oct, 31), nB = this.read(fr, -fr.ay * h, fr.ax * h, this.n1, L, oct, 31);
+          const dA = Math.abs(nA - n), dC = Math.abs(nB - n);
+          return [n, dC / (Math.hypot(dA, dC) || 1), median ? 0 : this.read(fr, 0, 0, this.n2, L / 2, 1, 32)];
+        };
+      }
+      return M.Lattice.pick(this.lats, L / 16, this.latFn, true).at(x, y);
+    }
+
     band(x, y, firm) {
-      const p = this.p, L = p.depSize * 1000, fr = this.base.slopeFrame(x, y);
-      const median = p.depMode !== 'ridged';
-      const oct = median ? 3 : 1;
-      const n = this.read(fr, 0, 0, this.n1, L, oct, 31);
+      const p = this.p, median = p.depMode !== 'ridged';
+      const [n, par, n2] = this.lines(x, y);
       // Width and sides from firmness: loose is wider with a flat floor and
       // steep sides, firm is narrow with soft sides.
       // depSoft widens the S-curve outward from the line: softer edges.
       const w = p.depWidth * (1.5 - firm), a = 0.5 * (1 - firm) / (1 + p.depSoft);
       const prof = (t) => 1 - S(a, 1 + p.depSoft, t);
-      // Align: how much the band runs with the slope. The band runs along the
-      // level lines of n, so it runs with the slope where n hardly changes
-      // along the slope.
-      const h = 2000;
-      const nA = this.read(fr, fr.ax * h, fr.ay * h, this.n1, L, oct, 31), nB = this.read(fr, -fr.ay * h, fr.ax * h, this.n1, L, oct, 31);
-      const dA = Math.abs(nA - n), dC = Math.abs(nB - n), par = dC / (Math.hypot(dA, dC) || 1);
       const align = 1 - p.depAlign * (1 - S(0.3, 0.95, par));
       let band = prof(Math.abs(n) / w) * align;
       if (!median) {
         // Second octave: half the size, narrower and shallower, its own lines.
-        const n2 = this.read(fr, 0, 0, this.n2, L / 2, 1, 32);
         band = Math.max(band, 0.6 * prof(Math.abs(n2) / (0.5 * w)) * align);
       }
       return band;

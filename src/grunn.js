@@ -15,7 +15,7 @@
     firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1.05, typeFirm: 0.4, typeHeight: 0.3, regStretch: 3,
     tT1: -0.34, tT2: 1.01, tT3: 1.84, typeSoft: 0.6,
     depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7,
-    show: 'map', contours: true, mono: false,
+    show: 'map', contours: false, lineDivide: false, lineDep: false, mono: false,
   };
 
   const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
@@ -111,6 +111,8 @@
       how[k] = mode;
     };
     const x0 = view.cx - (W / 2) * view.mpp, y0 = view.cy - (H / 2) * view.mpp, d = block * view.mpp;
+    // Lattices need no finer detail than the points drawn now.
+    M.Lattice.pixel = d;
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
         const x = x0 + (i + 0.5) * d, y = y0 + (j + 0.5) * d;
@@ -172,9 +174,9 @@
             }
           }
           // Depressions: a thin dashed blue outline.
-          if (state.show === 'map' && ((i + 1 < nx && inDep[k + 1] !== inDep[k]) || (j + 1 < ny && inDep[k + nx] !== inDep[k])) && Math.floor((i + j) / dash) % 2 === 0) c = [45, 105, 200];
+          if (state.lineDep && state.show === 'map' && ((i + 1 < nx && inDep[k + 1] !== inDep[k]) || (j + 1 < ny && inDep[k + nx] !== inDep[k])) && Math.floor((i + j) / dash) % 2 === 0) c = [45, 105, 200];
           // The divide field: a dashed outline.
-          const edge = (cl[k] === 3) !== ((i + 1 < nx && cl[k + 1] === 3) || false) || (cl[k] === 3) !== ((j + 1 < ny && cl[k + nx] === 3) || false);
+          const edge = state.lineDivide && ((cl[k] === 3) !== ((i + 1 < nx && cl[k + 1] === 3) || false) || (cl[k] === 3) !== ((j + 1 < ny && cl[k + nx] === 3) || false));
           if (edge && Math.floor((i + j) / dash) % 2 === 0) c = [40, 40, 44];
         }
         const sx0 = Math.floor(i * bs), sy0 = Math.floor(j * bs);
@@ -365,8 +367,16 @@
     typeProfile.draw();
   }
   function histograms() {
-    baseProfile.bins = sampleBins(140, -3, 3.5, (x, y) => layer.value(x, y));
-    typeProfile.bins = sampleBins(90, -3, 3, (x, y) => {
+    M.Lattice.direct = true;
+    try {
+      histogramsDirect();
+    } finally {
+      M.Lattice.direct = false;
+    }
+  }
+  function histogramsDirect() {
+    baseProfile.bins = sampleBins(100, -3, 3.5, (x, y) => layer.value(x, y));
+    typeProfile.bins = sampleBins(64, -3, 3, (x, y) => {
       const v = layer.value(x, y);
       return v >= state.tSea ? region.at(x, y, v).z : null;
     });
@@ -484,12 +494,14 @@
       rebuild();
     });
   }
-  const contEl = document.getElementById('contours');
-  contEl.checked = state.contours;
-  contEl.addEventListener('change', () => {
-    state.contours = contEl.checked;
-    render();
-  });
+  for (const [id, key] of [['contours', 'contours'], ['lineDivide', 'lineDivide'], ['lineDep', 'lineDep']]) {
+    const el = document.getElementById(id);
+    el.checked = state[key];
+    el.addEventListener('change', () => {
+      state[key] = el.checked;
+      render();
+    });
+  }
   // Copy every setting (and which layers are on) as text to paste in a chat.
   const copyBtn = document.getElementById('copy');
   copyBtn.addEventListener('click', async () => {

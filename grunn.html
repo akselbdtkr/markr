@@ -61,7 +61,8 @@
     .seed input, .seed button { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; }
     .seed input { width: 0; flex: 1; }
     .seed button { cursor: pointer; }
-    .check { display: flex; gap: 6px; align-items: center; font-size: 13px; margin: 10px 0 6px; }
+    .checks { margin: 10px 0 8px; }
+    .check { display: flex; gap: 6px; align-items: center; font-size: 13px; margin: 4px 0; }
     .check input { margin: 0; accent-color: var(--handle); }
     .wide { width: 100%; font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; cursor: pointer; }
     .wide:focus-visible { outline: 2px solid var(--handle); }
@@ -112,7 +113,11 @@
     <div id="viewmode" class="seg" role="group" aria-label="Visning">
       <button data-mono="false">Farger</button><button data-mono="true">Gråtoner</button>
     </div>
-    <label class="check"><input id="contours" type="checkbox">Høydekurver hver 100 m</label>
+    <div class="checks">
+      <label class="check"><input id="contours" type="checkbox">Høydekurver hver 100 m</label>
+      <label class="check"><input id="lineDivide" type="checkbox">Omriss av vanndelingsfelt</label>
+      <label class="check"><input id="lineDep" type="checkbox">Omriss av nedsenksfelt</label>
+    </div>
     <button id="copy" class="wide">Kopier innstillinger</button>
   </aside>
 

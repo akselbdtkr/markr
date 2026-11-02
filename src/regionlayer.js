@@ -43,9 +43,16 @@
       const p = this.p, b = this.base, bp = b.p;
       // Height in the base, 0 at the coast and 1 at the divide.
       const hrel = Math.max(0, Math.min(1.2, (v - bp.tSea) / (bp.tDivide - bp.tSea)));
-      const nF = p.firmW > 0 ? b.stretched(this.nf, x, y, p.firmSize * 1000, 2, p.regStretch, 21) : 0;
+      // Both noises on a lattice (see Lattice.pick).
+      if (!this.lats) {
+        this.lats = new Map();
+        this.latFn = (a, c) => [
+          p.firmW > 0 ? b.stretched(this.nf, a, c, p.firmSize * 1000, 2, p.regStretch, 21) : 0,
+          p.typeW > 0 ? b.stretched(this.nt, a, c, p.typeSize * 1000, 2, p.regStretch, 22) : 0,
+        ];
+      }
+      const [nF, nT] = M.Lattice.pick(this.lats, (Math.min(p.firmSize, p.typeSize) * 1000) / 16, this.latFn).at(x, y);
       const firm = S(-2, 2, p.firmInherit * (2 * hrel - 1) * 1.5 + p.firmW * nF);
-      const nT = p.typeW > 0 ? b.stretched(this.nt, x, y, p.typeSize * 1000, 2, p.regStretch, 22) : 0;
       // Place on the chain 0..3: type noise, firmness and height.
       const z = 0.8 * p.typeW * nT + p.typeFirm * (2 * firm - 1) * 1.5 + p.typeHeight * (2 * Math.min(1, hrel) - 1);
       const pos = this.posOf(z), w = this.weights(z);

@@ -106,9 +106,17 @@ kan den ikke det, så det blir ikke innlandssjøer.
 - **Retning:** deler av båndet som går på tvers av helningen, blir grunne. Dype,
   sammenhengende nedsenkninger går derfor med helningen.
 
+**Oppløsning:** kartet trenger aldri finere detalj enn punktene det tegner (høyst rutene på
+16 m). Mellomlaget, områdelagene og nedsenkslaget varierer over titalls km. De regnes derfor
+på et grovt rutenett av noder med seksjonsbredde (128 m) ganget med en toerpotens, lagres
+på tvers av tegninger og blandes kubisk (Catmull-Rom), så skygger ikke viser rutenettet.
+De glatte lagene bruker en sekstendedel av lagets størrelse. Nedsenkslaget har smale renner
+og følger punktene som tegnes. Hele kartet tegnes på ca. 0,6 s.
+
 **På siden:** alle seksjonene er lukket fra start. Kartet kan vises i farger eller i
-gråtoner med kraftigere skygge. Lyset kommer alltid fra øverst til venstre. Nedsenkene har
-tynne, stiplede blå omriss. Høydekurver hver 100 m (mørkere hver 500 m) kan skrus av og på. «Kopier
+gråtoner med kraftigere skygge. Lyset kommer alltid fra øverst til venstre. Høydekurver,
+omriss av vanndelingsfelt og stiplede blå omriss av nedsenksfelt er av som standard og kan
+skrus på. Høydekurver hver 100 m (mørkere hver 500 m) kan skrus av og på. «Kopier
 innstillinger» kopierer alle verdiene, og hvilke lag som er på, som tekst til chatten.
 
 ## Ruteformler
