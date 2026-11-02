@@ -106,7 +106,10 @@
       const p = this.p, bp = this.base.p;
       if (vb < bp.tSea - 0.6) return { band: 0, v };
       const low = 1 - S(bp.tSea, bp.tHigh, large);
-      const band = this.band(x, y, firm, low, w); // w: the place among the types (pos)
+      let band = this.band(x, y, firm, low, w); // w: the place among the types (pos)
+      // In fjellsk the mountains lead: depressions are shallower there, so
+      // they do not draw clear lines through the mountains.
+      if (w !== null && p.depMtn > 0) band *= 1 - p.depMtn * Math.max(0, Math.min(1, w - 2));
       if (band <= 0) return { band, v };
       const pull = Math.min(1, low * (p.depLow + p.depPlain * plain));
       const floor = (1 - pull) * (vb - p.depDepth) + pull * (bp.tSea - 0.15);

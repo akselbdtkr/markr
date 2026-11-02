@@ -255,7 +255,8 @@ skjermens km og m. En rute på 16 m er 800 enheter.
 gult 15°, oransje 25°, rødt 35° og mørkerødt fra 45°. Det meste av brattheten kom fra de lokale
 lagene, fordi høyden ikke fulgte størrelsen. De har derfor en grense for hvor bratte de kan bli:
 høyden begrenses ut fra størrelse og oktaver, så de bratteste flatene holder seg nær «Brattest,
-detaljer» (25°) og «Brattest, fjell og skar» (40°). Mot elva blir sonen bredere med fallet ned
+detaljer» (25°) og «Brattest, fjell og skar» (75°). I fjellsk dempes nedsenkene
+(«Svakere i fjellsk»), så fjellene leder og nedsenkene ikke tegner tydelige linjer gjennom dem. Mot elva blir sonen bredere med fallet ned
 til vannet, så breddene ikke blir brattere enn «Brattest mot elva» (15°). Nedsenkene har også en
 grense («Brattest side»): dybden begrenses av halve bredden.
 

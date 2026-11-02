@@ -14,13 +14,13 @@
     midSize: 185, midW: 0.9, midStretch: 10, tInland: 0,
     firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1.05, typeFirm: 0.4, typeHeight: 0.3, regStretch: 3,
     tT1: -0.34, tT2: 1.01, tT3: 1.85, typeSoft: 0.6,
-    depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depLow: 0.8, depPlain: 0.5, depSlope: 30,
+    depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depLow: 0.8, depPlain: 0.5, depSlope: 30, depMtn: 0.6,
     vA1: 0.27, vA2: 1.17, vA3: 1.8, vB1: 0.15, vB2: 0.55, vB3: 0.74, vH: 0.4,
     riverAlign: 0.15, riverWidth: 50000, riverDeep: 10, riverZone: 4, riverSlope: 15, riverReach: 30000,
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 900, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
     secZoom: 1200, lodRiver: 16, lodDep: 150, lodRegion: 300, lodLocal: 25,
     lcH: [0.05, 0.54, 0.2, 0.72], lcS: [0.2, 0.54, 0.48, 0.25], lcR: [0, 0.15, 0.44, 1], lcT: [0.2, 0.62, 0.4, 0.3], lcU: [0.2, 0.15, 0.35, 0.8],
-    locFlat: 0.8, locSide: 0.25, bank: 1800, locBank: 10000, mtH: 1500, mtS: 810, mtDiv: 1, mtFirm: 0.8, locFirm: 0.8, cutH: 1200, cutS: 510, mtT: 4, locK: 1, locW: 3, locSlope: 25, mtSlope: 40, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 2, showNodes: false,
+    locFlat: 0.8, locSide: 0.25, bank: 1800, locBank: 10000, mtH: 1500, mtS: 810, mtDiv: 1, mtFirm: 0.8, locFirm: 0.8, cutH: 1200, cutS: 510, mtT: 4, locK: 1, locW: 3, locSlope: 25, mtSlope: 75, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 2, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 50, scaleV: 2,
@@ -787,6 +787,7 @@
   row(depTable, 'Retning', 'grunt på tvers av helningen', [null, numInput('depAlign', 0.05, 0, 1), null]);
   row(depTable, 'Strekking', 'langs helningen', [null, numInput('depStretch', 0.5, 1, 20), null], 'depStretch');
   row(depTable, 'Vises', 'når utsnittet er under, km', [null, numInput('lodDep', 10, 1, 100000, () => render()), null]);
+  row(depTable, 'Svakere i fjellsk', '0–1', [null, numInput('depMtn', 0.05, 0, 1), null]);
   row(depTable, 'Brattest side', 'grader på skjermen', [null, numInput('depSlope', 1, 0, 89), null]);
   row(depTable, 'Høyden teller', 'i dalprofilen, 0–1', [null, numInput('vH', 0.05, 0, 1), null]);
   row(depTable, 'Mot havnivå', 'i lavland: fjorder', [null, numInput('depLow', 0.05, 0, 3), null]);
