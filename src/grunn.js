@@ -7,24 +7,24 @@
   'use strict';
 
   const state = {
-    seed: 7844,
+    seed: 51597,
     contSize: 3010, contW: 2.6, basinSize: 940, basinW: 1.75, baseSize: 240, baseW: 1.2, s1Size: 710, s1W: 2.8, s1Width: 0.26,
     tSea: -0.33, tHigh: 1.15, tDivide: 1.98, divSteep: 2.5,
     lowTop: 260, highTop: 1600, shelf: 320, deep: 3500,
     midSize: 185, midW: 0.9, midStretch: 10, tInland: 0,
     firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1.05, typeFirm: 0.4, typeHeight: 0.3, regStretch: 3,
     tT1: -0.34, tT2: 1.01, tT3: 1.85, typeSoft: 0.6,
-    depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depLow: 0.8, depPlain: 0.5,
+    depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depLow: 0.8, depPlain: 0.5, depSlope: 30,
     vA1: 0.27, vA2: 1.17, vA3: 1.8, vB1: 0.15, vB2: 0.55, vB3: 0.74, vH: 0.4,
-    riverAlign: 0.6, riverWidth: 50000, riverDeep: 4, riverZone: 4,
-    rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
-    secZoom: 5000, lodRiver: 60, lodDep: 150, lodRegion: 300, lodLocal: 25,
+    riverAlign: 0.15, riverWidth: 50000, riverDeep: 10, riverZone: 4, riverSlope: 15, riverReach: 30000,
+    rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 900, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
+    secZoom: 1200, lodRiver: 16, lodDep: 150, lodRegion: 300, lodLocal: 25,
     lcH: [0.05, 0.54, 0.2, 0.72], lcS: [0.2, 0.54, 0.48, 0.25], lcR: [0, 0.15, 0.44, 1], lcT: [0.2, 0.62, 0.4, 0.3], lcU: [0.2, 0.15, 0.35, 0.8],
-    locFlat: 0.8, locSide: 0.6, bank: 3000, locBank: 10000, mtH: 1500, mtS: 810, mtDiv: 1, mtFirm: 0.8, locFirm: 0.8, cutH: 1200, cutS: 510, mtT: 4, locK: 8.9, locW: 13.8, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
+    locFlat: 0.8, locSide: 0.25, bank: 1800, locBank: 10000, mtH: 1500, mtS: 810, mtDiv: 1, mtFirm: 0.8, locFirm: 0.8, cutH: 1200, cutS: 510, mtT: 4, locK: 1, locW: 3, locSlope: 25, mtSlope: 40, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 2, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 50, scaleV: 2,
-    show: 'map', contours: false, lineDivide: false, lineDep: false, mono: false,
+    show: 'map', slopeView: false, contours: false, lineDivide: false, lineDep: false, mono: false,
   };
 
   const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
@@ -266,9 +266,20 @@
           const ex = state.mono ? 1.6 : 1, lit = (0.5 * ex * (sx + sy) + 0.707) / Math.hypot(ex * sx, ex * sy, 1);
           const sh = Math.max(-0.6, Math.min(0.35, (lit - 0.707) * (state.mono ? 1.1 : 0.7)));
           c = [c[0] * (1 + sh), c[1] * (1 + sh), c[2] * (1 + sh)];
+          // Steepness view: the real slope on screen in degrees, green flat,
+          // yellow 15°, orange 25°, red 35°, dark red 45° and over.
+          if (state.slopeView) {
+            const deg = (Math.atan(Math.hypot(sx, sy)) * 180) / Math.PI;
+            const ramp = [[0, [150, 190, 120]], [8, [205, 215, 130]], [15, [235, 210, 90]], [25, [235, 150, 60]], [35, [210, 70, 50]], [45, [120, 30, 40]]];
+            let q = 1;
+            while (q < ramp.length - 1 && deg > ramp[q][0]) q++;
+            const [a0, c0] = ramp[q - 1], [a1, c1] = ramp[q], t = Math.max(0, Math.min(1, (deg - a0) / (a1 - a0)));
+            const g = 1 + 0.4 * sh;
+            c = [0, 1, 2].map((i) => (c0[i] + (c1[i] - c0[i]) * t) * g);
+          }
           // The highest peaks are white.
           const snow = state.snowTo > state.snowFrom ? Math.max(0, Math.min(1, (h / state.scaleV - state.snowFrom) / (state.snowTo - state.snowFrom))) : 0;
-          if (snow > 0) {
+          if (snow > 0 && !state.slopeView) {
             const t = snow * snow * (3 - 2 * snow), wv = 246 * (1 + sh);
             c = [c[0] + (wv - c[0]) * t, c[1] + (wv - c[1]) * t, c[2] + (wv + 4 - c[2]) * t];
           }
@@ -757,6 +768,8 @@
   row(locTable, 'Egger, strekking', 'langs landet under', [null, numInput('mtT', 0.5, 0, 20), null]);
   row(locTable, 'Fjell i fast grunn', 'vekt 0–1', [null, numInput('mtFirm', 0.05, 0, 1), null]);
   row(locTable, 'Fasthet → detaljer', 'fast: høyere, skarpere', [null, numInput('locFirm', 0.05, 0, 2), null]);
+  row(locTable, 'Brattest, detaljer', 'grader på skjermen', [null, numInput('locSlope', 1, 0, 89), null]);
+  row(locTable, 'Brattest, fjell og skar', 'grader på skjermen', [null, numInput('mtSlope', 1, 0, 89), null]);
   row(locTable, 'Fjell over vanndeling', 'vekt 0–1', [null, numInput('mtDiv', 0.05, 0, 1), null]);
   row(locTable, 'Snø', 'fra og til, m o.h.', [numInput('snowFrom', 100, 0, 10000, () => render()), numInput('snowTo', 100, 0, 10000, () => render()), null]);
   row(locTable, 'Flat dalbunn', 'demper i bunnen, 0–1', [null, numInput('locFlat', 0.05, 0, 1), null]);
@@ -774,6 +787,7 @@
   row(depTable, 'Retning', 'grunt på tvers av helningen', [null, numInput('depAlign', 0.05, 0, 1), null]);
   row(depTable, 'Strekking', 'langs helningen', [null, numInput('depStretch', 0.5, 1, 20), null], 'depStretch');
   row(depTable, 'Vises', 'når utsnittet er under, km', [null, numInput('lodDep', 10, 1, 100000, () => render()), null]);
+  row(depTable, 'Brattest side', 'grader på skjermen', [null, numInput('depSlope', 1, 0, 89), null]);
   row(depTable, 'Høyden teller', 'i dalprofilen, 0–1', [null, numInput('vH', 0.05, 0, 1), null]);
   row(depTable, 'Mot havnivå', 'i lavland: fjorder', [null, numInput('depLow', 0.05, 0, 3), null]);
   row(depTable, 'Ekstra i sletter', 'mot havnivå', [null, numInput('depPlain', 0.05, 0, 3), null]);
@@ -789,6 +803,7 @@
   row(rivTable, 'Minste bredde', 'm, synlig helt opp', [null, numInput('riverMin', 100, 0, 50000, null, 'h'), null]);
   row(rivTable, 'Dybde, fast mot løs', 'dypere er smalere', [null, numInput('riverDeep', 0.5, 1, 20), null]);
   row(rivTable, 'Dypt nok nedsenk', 'terskel 0–1', [null, numInput('riverAlign', 0.05, 0, 1), null]);
+  row(rivTable, 'Brattest mot elva', 'grader', [null, numInput('riverSlope', 1, 0, 89), null]);
   row(rivTable, 'Område rundt', 'km, formes av elva', [null, numInput('riverZone', 0.5, 0, 50, null, 'h'), null]);
   row(rivTable, 'Elver vises', 'når utsnittet er under, km', [null, numInput('lodRiver', 5, 1, 100000, () => render()), null]);
   row(rivTable, 'Per seksjon', 'når utsnittet er under, m', [null, numInput('secZoom', 500, 200, 100000, () => render()), null], 'sections');
@@ -799,9 +814,10 @@
   row(rivTable, 'Flere løp', 'nær havet', [null, numInput('riverBraid', 0.05, 0, 1), null]);
   row(rivTable, 'Høyde beholdt', 'lavere elver: mindre', [null, numInput('riverRise', 0.05, 0, 1), null]);
   for (const b of document.querySelectorAll('#viewmode button')) {
-    b.setAttribute('aria-pressed', String(b.dataset.mono === String(state.mono)));
+    b.setAttribute('aria-pressed', String(b.dataset.mono === (state.slopeView ? 'slope' : String(state.mono))));
     b.addEventListener('click', () => {
       state.mono = b.dataset.mono === 'true';
+      state.slopeView = b.dataset.mono === 'slope';
       for (const o of document.querySelectorAll('#viewmode button')) o.setAttribute('aria-pressed', String(o === b));
       render();
     });

@@ -251,6 +251,14 @@ skala, men spillet skal spilles i utsnitt på 2 km til 100 m, så kontinentene b
 dalene noen hundre meter og fjellene noen hundre meter høye. Størrelser i panelet vises i
 skjermens km og m. En rute på 16 m er 800 enheter.
 
+**Bratthet:** visningen «Bratthet» farger landet etter virkelig helning på skjermen: grønt flatt,
+gult 15°, oransje 25°, rødt 35° og mørkerødt fra 45°. Det meste av brattheten kom fra de lokale
+lagene, fordi høyden ikke fulgte størrelsen. De har derfor en grense for hvor bratte de kan bli:
+høyden begrenses ut fra størrelse og oktaver, så de bratteste flatene holder seg nær «Brattest,
+detaljer» (25°) og «Brattest, fjell og skar» (40°). Mot elva blir sonen bredere med fallet ned
+til vannet, så breddene ikke blir brattere enn «Brattest mot elva» (15°). Nedsenkene har også en
+grense («Brattest side»): dybden begrenses av halve bredden.
+
 **Forenkling langt ute:** lagene skrus av ett og ett etter hvor stort utsnittet er på
 skjermen: elver over 60 km, nedsenkslaget over 150 km og områdelagene over 300 km. Da står
 bare grunnlagene og mellomlaget igjen. Grensene kan endres i hver seksjon. De glatte lagene

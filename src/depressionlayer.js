@@ -113,6 +113,19 @@
       let d = band * (Math.min(v, floor) - v);
       const keep = inland * (1 - pull);
       if (keep > 0 && v >= bp.tSea) d = (1 - keep) * d + keep * M.BaseLayer.keepAbove(d, v - bp.tSea - 0.05);
+      // Sides no steeper than depSlope degrees on screen: the drop into the
+      // depression is limited by its half width (from the noise and its
+      // gradient), so a narrow band cannot cut a deep, steep trench.
+      if (p.depSlope > 0 && d < 0) {
+        const h = 300, L = (a, c) => this.lines(a, c)[0];
+        const gx = (L(x + h, y) - L(x - h, y)) / (2 * h), gy = (L(x, y + h) - L(x, y - h)) / (2 * h), g = Math.hypot(gx, gy);
+        if (g > 0) {
+          const wd = p.depWidth * (1.5 - firm) * (1 + 0.5 * p.depSoft), half = wd / g;
+          const allowed = ((half / (p.scaleH || 1)) * Math.tan((p.depSlope * Math.PI) / 180) * (p.scaleV || 1)) * 1.5;
+          const h0 = this.base.height(v), h1 = this.base.height(v + d), drop = h0 - Math.max(h1, Math.min(h0, 0));
+          if (drop > allowed) d *= allowed / drop;
+        }
+      }
       return { band, v: v + d };
     }
   }

@@ -106,10 +106,24 @@
       // place to place, x / L drifts in phase far from the origin and draws
       // rings along the type's contours.
       let dz = 0;
-      if (H > 0) {
+      // A noise of height A and size L has slopes of about A·2π/L times the
+      // octaves' share; this caps A so the steepest slopes stay near the
+      // given angle on screen.
+      const cap = (A, Lsim, deg, oct, g) => {
+        if (!(deg > 0)) return A;
+        let num = 0, den = 0;
+        for (let o = 0, a = 1, f = 1; o < oct; o++, a *= g, f *= 2) {
+          num += a * f;
+          den += a;
+        }
+        const max = ((Lsim / p.scaleH) * Math.tan((deg * Math.PI) / 180) * p.scaleV) / (2 * Math.PI * (num / den));
+        return Math.min(A, 2 * max);
+      };
+      const Hc = cap(H, L, p.locSlope, 4, gain);
+      if (Hc > 0) {
         const lg = Math.log2(L), l0 = Math.floor(lg), fl = lg - l0, ts = Math.min(1, (stretch - 1) / 9);
         const one = (Lq) => (1 - ts) * this.stretchedAt(x, y, Lq, 1, sharp, gain) + (ts > 0 ? ts * this.stretchedAt(x, y, Lq, 10, sharp, gain) : 0);
-        dz = H * ((1 - fl) * one(Math.pow(2, l0)) + (fl > 0.02 ? fl * one(Math.pow(2, l0 + 1)) : 0));
+        dz = Hc * ((1 - fl) * one(Math.pow(2, l0)) + (fl > 0.02 ? fl * one(Math.pow(2, l0 + 1)) : 0));
       }
       const parts = (this.parts = [dz, 0, 0]); // detail, arêtes, cols (for viewing)
       // Mountain arêtes: a ridge noise (two octaves, squared: a sharp crest
@@ -123,7 +137,7 @@
           return (r1 * r1 + 0.3 * r2 * r2) / 1.3;
         };
         const r = this.stretchedAt(x, y, Lm, 1 + p.mtT, 1, 0.5, ridge);
-        parts[1] = mount * p.mtH * p.scaleV * (1.6 * r - 0.15);
+        parts[1] = mount * cap(p.mtH * p.scaleV, Lm, p.mtSlope, 2, 0.5) * (1.6 * r - 0.15);
         dz += parts[1];
         this.crest = r;
       } else this.crest = 0;
@@ -137,7 +151,7 @@
         const f = M.noise.fbm(this.nm, x / Lc + 41.3, y / Lc - 7.7, 3) / 0.173;
         const cut = S(0, 1.5, f);
         const high = 0.25 + 0.75 * Math.max(0, Math.min(1, hRel));
-        parts[2] = -cw * p.cutH * p.scaleV * cut * high * (mount > 0 ? 0.4 + 0.6 * this.crest : 0.6);
+        parts[2] = -cw * cap(p.cutH * p.scaleV, Lc, p.mtSlope, 3, 0.5) * cut * high * (mount > 0 ? 0.4 + 0.6 * this.crest : 0.6);
         dz += parts[2];
       }
       if (dz === 0) return 0;
