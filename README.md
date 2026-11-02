@@ -107,7 +107,8 @@ kan den ikke det, så det blir ikke innlandssjøer.
   De to blandes, og «Høyden teller» avgjør hvor mye høyden veier. Den myke terskelen i
   nedsenket tar formen de andre lagene gir den:
   - `[` flat bunn og bratte sider, i løs grunn: løse sletter og løse åser i lavland.
-  - `(` myk og rund, en U-dal, i åser og høyland.
+  - `(` myk og rund, en U-dal, i åser og høyland. Formen er (1 − t²)², flat både i bunnen og
+    ved kanten, så dalen synker mykt ned fra landet.
   - `{` to myke terskler, en flat hylle og en bratt kløft i midten, en kanyon, på platå.
   - `<` rette sider som møtes i en spiss, en V-dal, i fjellsk.
 

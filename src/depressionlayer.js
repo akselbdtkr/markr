@@ -126,7 +126,9 @@
   //   '<'  straight sides meeting in a point: a V-valley (fjellsk)
   DepressionLayer.PROFILES = [
     { sym: '[', name: 'flat bunn, bratte sider', f: (t) => 1 - S(0.8, 1, t) },
-    { sym: '(', name: 'U-dal', f: (t) => (t < 1 ? 1 - t * t : 0) },
+    // (1 − t²)²: flat at the bottom and flat at the rim, so the valley
+    // sinks softly from the land instead of breaking off at its edge.
+    { sym: '(', name: 'U-dal', f: (t) => (t < 1 ? (1 - t * t) * (1 - t * t) : 0) },
     { sym: '{', name: 'kanyon', f: (t) => 0.45 * (1 - S(0.55, 1, t)) + 0.55 * (1 - S(0.12, 0.22, t)) },
     { sym: '<', name: 'V-dal', f: (t) => Math.max(0, 1 - t) },
   ];

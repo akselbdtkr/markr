@@ -139,7 +139,9 @@
         // Floor damped, sides strengthened, by the valley profile.
         const floor = p.locFlat * band * band * (sw[0] + sw[2] + 0.5 * sw[1]);
         const side = p.locSide * 4 * band * (1 - band) * (sw[0] + sw[2] + sw[3]);
-        dz *= (1 - floor) * (1 + side);
+        // On the sides only cuts are deepened; bumps are damped, so the sides
+        // get steeper without a raised rim along the valley.
+        dz *= (1 - floor) * (dz < 0 ? 1 + side : Math.max(0, 1 - side));
       }
       // Near the water the detail fades out, so banks run down to it.
       if (edge < Infinity) dz *= S(0, Math.max(1, p.locBank), edge);

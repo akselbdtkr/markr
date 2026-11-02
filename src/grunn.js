@@ -23,7 +23,7 @@
     locFlat: 0.8, locSide: 0.6, bank: 3000, locBank: 10000, mtH: 1500, mtS: 900, mtDiv: 1, mtFirm: 0.8, locFirm: 0.8, cutH: 700, cutS: 1500, mtT: 4, locK: 3, locW: 2, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
-    scaleH: 100, scaleV: 1,
+    scaleH: 50, scaleV: 2,
     show: 'map', contours: false, lineDivide: false, lineDep: false, mono: false,
   };
 
