@@ -93,11 +93,14 @@
     // distance from a river's water (sim units), or Infinity.
     // mount: how much of a mountain the point is (fjellsk share, and more
     // the higher above the divide threshold).
-    at(x, y, pos, band, sw, edge, mount = 0) {
+    at(x, y, pos, band, sw, edge, mount = 0, firm = 0.5) {
       const p = this.p;
-      const H = this.at4('lcH', pos) * 150 * p.scaleV * (p.locW ?? 1);
+      // Firmness: loose ground is lower and softer, firm ground higher and
+      // sharper (locFirm sets how much).
+      const fk = (p.locFirm ?? 0) * (firm - 0.5);
+      const H = this.at4('lcH', pos) * 150 * p.scaleV * (p.locW ?? 1) * Math.max(0, 1 + 1.2 * fk);
       const L = Math.max(16, this.at4('lcS', pos) * 3000 * (p.locK ?? 1)) * p.scaleH;
-      const sharp = this.at4('lcR', pos), stretch = 1 + this.at4('lcT', pos) * 9, gain = 0.3 + 0.4 * this.at4('lcU', pos);
+      const sharp = Math.max(0, Math.min(1, this.at4('lcR', pos) + fk)), stretch = 1 + this.at4('lcT', pos) * 9, gain = 0.3 + 0.4 * this.at4('lcU', pos);
       // The noise is read only at fixed sizes (powers of two) and fixed
       // stretches, then blended: with a size or stretch that changes from
       // place to place, x / L drifts in phase far from the origin and draws
