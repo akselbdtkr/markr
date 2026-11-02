@@ -78,43 +78,10 @@
       // turns across the slope (where the stretched noise blends between two
       // levels, its zero line can run obliquely from one depression to the
       // next), so the river no longer crosses between depressions there.
-      const divideFade = 1 - S(bp.tDivide + 0.1, bp.tDivide + 0.5, vq); // ends inside the divide field
-      const fadeAt = (px, py) => S(p.riverAlign - tw, p.riverAlign + tw, this.dep.band(px, py, firm, low));
-      let fade = fadeAt(qx, qy);
-      // Along the line: the direction is known (across the gradient of n at
-      // q), so a few points ahead and behind tell whether the river goes on.
-      const L = (s) => this.dep.lines(qx + s[0], qy + s[1])[0];
-      const hq0 = 300;
-      const n0 = L([0, 0]), nxq = (L([hq0, 0]) - L([-hq0, 0])) / (2 * hq0), nyq = (L([0, hq0]) - L([0, -hq0])) / (2 * hq0);
-      const gq = Math.hypot(nxq, nyq) || g, tx = -nyq / gq, ty = nxq / gq;
-      // The step must have landed on the line; from too far away it can land
-      // on another line or miss, and the water would flicker point to point.
-      if (Math.abs(n0) / gq > 0.15 * d + 300) return { v, water: false };
-      // A point a distance along the tangent, stepped back onto the line
-      // (lines bend, and a straight step would miss them).
-      const along = (sDist) => {
-        let ax = qx + tx * sDist, ay = qy + ty * sDist;
-        const m = this.dep.lines(ax, ay)[0];
-        const mx = (this.dep.lines(ax + hq0, ay)[0] - this.dep.lines(ax - hq0, ay)[0]) / (2 * hq0);
-        const my = (this.dep.lines(ax, ay + hq0)[0] - this.dep.lines(ax, ay - hq0)[0]) / (2 * hq0);
-        const m2 = mx * mx + my * my;
-        if (m2 > 1e-16) {
-          const step = m / m2;
-          if (Math.abs(step) * Math.sqrt(m2) < Math.abs(sDist)) {
-            ax -= step * mx;
-            ay -= step * my;
-          }
-        }
-        return fadeAt(ax, ay);
-      };
-      const gap = p.riverGap, len = p.riverShort;
-      const ahead = Math.max(along(gap / 2), along(gap)), behind = Math.max(along(-gap / 2), along(-gap));
-      // Patch: a gap with river on both sides is filled.
-      fade = Math.max(fade, Math.min(ahead, behind)) * divideFade;
+      const bandQ = this.dep.band(qx, qy, firm, low);
+      let fade = S(p.riverAlign - tw, p.riverAlign + tw, bandQ);
+      fade *= 1 - S(bp.tDivide + 0.1, bp.tDivide + 0.5, vq); // ends inside the divide field
       if (fade <= 0.02) return { v, water: false };
-      // Short: no river within the minimum length either way: a lake.
-      const farA = Math.max(ahead, along(len)), farB = Math.max(behind, along(-len));
-      let lake = Math.max(farA, farB) < 0.3;
       // Volume (the cross-section) is a direct function of height and
       // firmness: more water lower down and in loose ground. Depth follows
       // firmness: firm ground cuts a deep channel, loose ground a shallow
@@ -124,35 +91,11 @@
       const volume = (0.08 + 0.92 * (1 - S(0, p.riverHigh, hq))) * Math.pow(0.1 + 0.9 * (1 - firm), 3);
       const depth = 1 + (p.riverDeep - 1) * firm; // 1 (loose) .. riverDeep (firm)
       let W = (p.riverWidth * volume * fade) / depth;
-      if (lake) W = Math.max(W * 2.5, p.riverWidth * 0.15);
       // The surface: the large part of the base at q, kept a little below the
       // land at q, then lowered toward the sea (riverRise keeps that share of
       // the height above it): rivers lie low, near the coast almost at sea
       // level.
-      const surf = (lg, vv) => bp.tSea + 0.005 + Math.max(0, Math.min(lg, vv) - p.riverDrop - bp.tSea) * p.riverRise;
-      let vSurf = surf(largeQ, vq);
-      // A tight loop (its radius, from the curvature of the line at q, under
-      // riverRing or under the width) is filled as one round lake, with no
-      // island in the middle, and a flat surface read at its centre.
-      const nxx = (L([hq0, 0]) - 2 * n0 + L([-hq0, 0])) / (hq0 * hq0), nyy = (L([0, hq0]) - 2 * n0 + L([0, -hq0])) / (hq0 * hq0);
-      const nxy = (L([hq0, hq0]) - L([hq0, -hq0]) - L([-hq0, hq0]) + L([-hq0, -hq0])) / (4 * hq0 * hq0);
-      const kappa = (nxx * nyq * nyq - 2 * nxy * nxq * nyq + nyy * nxq * nxq) / (gq * gq * gq);
-      const radius = kappa !== 0 ? 1 / Math.abs(kappa) : Infinity;
-      const cx = qx - nxq / gq / kappa, cy = qy - nyq / gq / kappa;
-      // A ring, not just a sharp bend: the line is there on the far side of
-      // the centre too.
-      const isRing = radius < Math.max(p.riverRing, 0.75 * W) && Math.abs(this.dep.lines(2 * cx - qx, 2 * cy - qy)[0]) / gq < 0.35 * radius + W / 2;
-      // On the inside of a bend the step is only good up to the centre.
-      const inside = (x - qx) * (cx - qx) + (y - qy) * (cy - qy) > 0;
-      if (!isRing && inside && d > 0.8 * radius) return { v, water: false };
-      if (isRing) {
-        if (Math.hypot(x - cx, y - cy) < radius + W / 2) {
-          const [, vc, , lc] = b.valueParts(cx, cy);
-          vSurf = surf(lc, Math.max(vc, bp.tSea));
-          return { v: Math.min(v, vSurf), water: true };
-        }
-        lake = true;
-      }
+      const vSurf = bp.tSea + 0.005 + Math.max(0, Math.min(largeQ, vq) - p.riverDrop - bp.tSea) * p.riverRise;
       // Near the water: a wider corridor split into channels.
       const nearSea = p.riverBraid * (1 - S(bp.tSea, bp.tSea + 0.35, vq));
       let water = false;
