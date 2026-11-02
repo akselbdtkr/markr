@@ -7,7 +7,7 @@
   'use strict';
 
   const state = {
-    seed: 58942,
+    seed: 7844,
     contSize: 3010, contW: 2.6, basinSize: 940, basinW: 1.75, baseSize: 240, baseW: 1.2, s1Size: 710, s1W: 2.8, s1Width: 0.26,
     tSea: -0.33, tHigh: 1.15, tDivide: 2.63,
     lowTop: 260, highTop: 1600, shelf: 320, deep: 3500,
@@ -16,7 +16,7 @@
     tT1: -0.34, tT2: 1.01, tT3: 1.84, typeSoft: 0.6,
     depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depLow: 0.8, depPlain: 0.5,
     riverAlign: 0.6, riverWidth: 50000, riverDeep: 4, riverZone: 4,
-    rvH: [1, 0.8, 0.55, 0.35, 0.2, 0.1], rvF: [1, 0.6, 0.35, 0.18, 0.08, 0.03], riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
+    rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
     secZoom: 5000, riverGap: 30000, riverWalk: 50000, riverShort: 40000, riverMeander: 1, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
@@ -520,7 +520,7 @@
     });
     return P;
   }
-  const curveH = makeCurve({ canvas: document.getElementById('rvH'), xs: M.RiverLine.CURVE_H, key: 'rvH', label: (x) => `${x} m` });
+  const curveH = makeCurve({ canvas: document.getElementById('rvH'), xs: M.RiverLine.CURVE_H, key: 'rvH', label: (x) => (x ? `vanndeling ${Math.round(layer.height(state.tDivide) / state.scaleV)} m` : '0 m') });
   const curveF = makeCurve({ canvas: document.getElementById('rvF'), xs: M.RiverLine.CURVE_F, key: 'rvF', label: (x) => (x ? 'fast' : 'løs') });
   // Where river bottoms lie, by height on screen and by firmness.
   function riverBins() {
@@ -531,7 +531,7 @@
       const x = (((Math.sin(k * 12.9898) * 43758.5) % 1) - 0.5) * 4e6, y = (((Math.sin(k * 78.233) * 43758.5) % 1) - 0.5) * 4e6;
       const bt = river.bottom(x, y);
       if (!bt) continue;
-      const vq = layer.valueParts(bt.qx, bt.qy)[1], hq = layer.height(vq) / state.scaleV;
+      const vq = layer.valueParts(bt.qx, bt.qy)[1], hq = layer.height(vq) / Math.max(1, layer.height(state.tDivide));
       const n = xh.length - 1;
       bh[Math.min(29, Math.floor((pos(xh, hq) / n) * 30))]++;
       bf[Math.min(29, Math.floor((pos(M.RiverLine.CURVE_F, bt.firm) / n) * 30))]++;
@@ -674,6 +674,7 @@
   }
   row(rivTable, 'Elver', 'langs nedsenkene', [null, null, null], 'river');
   row(rivTable, 'Bredde', 'm, ved havet i løs grunn', [null, numInput('riverWidth', 500, 50, 250000, null, 'h'), null]);
+  row(rivTable, 'Minste bredde', 'm, synlig helt opp', [null, numInput('riverMin', 100, 0, 50000, null, 'h'), null]);
   row(rivTable, 'Dybde, fast mot løs', 'dypere er smalere', [null, numInput('riverDeep', 0.5, 1, 20), null]);
   row(rivTable, 'Dypt nok nedsenk', 'terskel 0–1', [null, numInput('riverAlign', 0.05, 0, 1), null]);
   row(rivTable, 'Område rundt', 'km, formes av elva', [null, numInput('riverZone', 0.5, 0, 50, null, 'h'), null]);
@@ -716,6 +717,7 @@
     el.checked = state[key];
     el.addEventListener('change', () => {
       state[key] = el.checked;
+      document.getElementById('nodeLegend').hidden = !state.showNodes;
       render();
     });
   }

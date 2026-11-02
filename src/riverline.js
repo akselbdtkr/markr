@@ -91,9 +91,14 @@
       // Two curves you set (no threshold): size by height on screen, and size
       // by firmness. Volume is their product.
       const hq = b.height(vq);
-      const volume = curve(RiverLine.CURVE_H, p.rvH, hq / (p.scaleV || 1)) * curve(RiverLine.CURVE_F, p.rvF, firm);
+      // Height runs from the sea to the divide (as a share of the divide's
+      // height), so rivers can be shaped all the way up.
+      const hDiv = Math.max(1, b.height(bp.tDivide));
+      const volume = curve(RiverLine.CURVE_H, p.rvH, hq / hDiv) * curve(RiverLine.CURVE_F, p.rvF, firm);
       const depth = 1 + (p.riverDeep - 1) * firm; // 1 (loose) .. riverDeep (firm)
-      const W = (p.riverWidth * volume * fade) / depth;
+      // Never narrower than riverMin where the river is clear, so it stays
+      // visible right up to the divide.
+      const W = Math.max((p.riverWidth * volume * fade) / depth, (p.riverMin || 0) * S(0.1, 0.35, fade));
       // The surface: the large part of the base at q, kept a little below the
       // land at q, then lowered toward the sea (riverRise keeps that share of
       // the height above it): rivers lie low, near the coast almost at sea
@@ -162,7 +167,7 @@
   }
   // Where the size curves have their points: height on screen (m), firmness.
   // The points lie closer where river bottoms are common: low and loose.
-  RiverLine.CURVE_H = [0, 3, 8, 20, 50, 200];
+  RiverLine.CURVE_H = [0, 0.05, 0.12, 0.25, 0.5, 1]; // share of the divide's height
   RiverLine.CURVE_F = [0, 0.05, 0.1, 0.2, 0.4, 1];
   RiverLine.curve = curve;
   M.RiverLine = RiverLine;

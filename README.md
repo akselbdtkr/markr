@@ -123,7 +123,8 @@ vannflate.
   terskel: størrelse etter høyde og størrelse etter fasthet. Punktene ligger tettest der
   elvebunnene er vanlige (lavt og løst), og søylene bak viser hvor de ligger. Dybden følger
   fastheten: fast grunn gir dypt løp, løs grunn grunt. En grunnere elv blir derfor bredere,
-  opptil «Bredde» (1 km) ved vannet i løs grunn.
+  opptil «Bredde» (1 km) ved vannet i løs grunn. Høydekurven går fra havet til vanndelingen,
+  og «Minste bredde» holder elva synlig helt opp.
 - **Vannflate:** fra den store delen av grunnlaget i bunnpunktet. Den stiger jevnt oppover
   helningen, så vannflaten faller jevnt nedover elva.
 - **Flere løp nær havet:** korridoren blir bredere, og et lite strukket noise-lag deler den i
@@ -145,8 +146,10 @@ enn «Per seksjon» (5 km). Første gang en seksjon tegnes, lagres elvene i den,
 går gjennom dem:
 
 1. **Lagre:** fra hver andre rute finnes bunnen av snittet. Bunnpunktet må ligge på linja
-   (et ekstra Newton-steg) og være nær elva. Det lagres med ruteindeks, bredde, vannflate og
-   retning.
+   (et ekstra Newton-steg) og være nær elva. Det lagres med indeks i et rutenett på to ruter,
+   og høyst ett punkt per 1,5 rute, sammen med bredde, vannflate og retning. Ellers ga
+   punkter fra begge breddene to parallelle kjeder (doble linjer). Elver under havet, i
+   fjorder, lagres ikke.
 2. **Kjeder:** hvert bunnpunkt kobles til nærmeste foran og bak langs linja. Kjedene kan gås
    opp og ned, og en kjede som kommer tilbake til seg selv, er en ring.
 3. **Koble:** fra hver løse ende kobles nærmeste løse ende i en annen kjede innen
@@ -155,7 +158,7 @@ går gjennom dem:
    elvas bredde: den største av de siste punktene inn i elva.
 4. **Nedover:** den laveste enden i en kjede som ikke når vann, følger landet nedover
    («Følg nedover») til hav eller en annen elv. En grop stopper den.
-5. **Ringer, korte kjeder og sund:** ringer fylles til innsjøer uten øy. Korte løse kjeder
+5. **Ringer, korte kjeder og sund:** ringer fjernes, så de tegner ikke vann. Korte løse kjeder
    («Kort kjede») blir innsjøer. En kjede der begge løse ender åpner mot havet, blir et sund
    med vannflate på 0 m hele veien.
 6. **Slyng:** bare koblingene slynger seg, med hele halvbølger mellom endene. Selve elva

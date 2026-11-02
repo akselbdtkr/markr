@@ -3,8 +3,9 @@
 // stored as bottom points; functions then run over them.
 //
 // 1. Store: on a grid of every second cell, each point finds the bottom of
-//    its cross-section (RiverLine.bottom). Bottom points are kept by cell
-//    index, with width, water surface and direction along the line.
+//    its cross-section (RiverLine.bottom). Bottom points are kept by index on
+//    a grid of two cells, at most one per 1.5 cells, with width, water
+//    surface and direction along the line.
 // 2. Chain: each bottom point is linked to the nearest one ahead and behind
 //    along its line. That gives chains that can be walked up and down, and a
 //    chain that comes back to itself is a ring.
@@ -15,9 +16,9 @@
 // 4. Downstream: the lowest end of a chain that does not reach water follows
 //    the land downhill, a step at a time, until it reaches the sea or another
 //    river (or a pit, which becomes a small lake).
-// 5. Rings and short loose chains become lakes; a ring is filled with no
-//    island in the middle. A chain whose ends both open onto the sea is a
-//    sound, at sea level all the way.
+// 5. Rings are removed. Short loose chains become lakes. A chain whose ends
+//    both open onto the sea is a sound, at sea level all the way. Rivers
+//    under the sea (in fjords) are not stored.
 // 6. Meanders: only the links swing (whole half waves between their ends).
 // 7. Draw: the section's cells (16 m) inside a channel or lake are water.
 //
@@ -50,7 +51,7 @@
       const k = this.key(si, sj);
       let out = this.samples.get(k);
       if (out) return out;
-      const { cell } = this.p, x0 = si * this.size, y0 = sj * this.size, seen = new Map();
+      const { cell } = this.p, x0 = si * this.size, y0 = sj * this.size, seen = new Map(), g2 = 2 * cell;
       out = [];
       for (let j = 0; j < N; j += 2) {
         for (let i = 0; i < N; i += 2) {
@@ -61,8 +62,13 @@
           if (b.d > b.W / 2 + 3 * cell) continue;
           const on = this.river.onLine(b.qx, b.qy, cell / 4);
           if (!on) continue;
-          const ci = Math.floor(on[0] / cell), cj = Math.floor(on[1] / cell), ck = ci * 100003 + cj;
-          if (seen.has(ck)) continue;
+          // One bottom point per two cells, and none closer than 1.5 cells to
+          // another: points found from both banks would otherwise make two
+          // parallel chains (a doubled line).
+          const ci = Math.floor(on[0] / g2), cj = Math.floor(on[1] / g2), ck = ci * 100003 + cj;
+          if (seen.has(ck) || near(seen, ci, cj, on[0], on[1], 1.5 * cell)) continue;
+          // A river under the sea (a fjord) is not stored: the sea is there.
+          if (this.ground(on[0], on[1]).cls === 0) continue;
           const node = { ci, cj, ck, x: on[0], y: on[1], W: b.W, vSurf: b.vSurf, tx: on[2], ty: on[3], plain: b.plain };
           seen.set(ck, node);
           out.push(node);
@@ -83,7 +89,7 @@
       for (let dj = -1; dj <= 1; dj++) {
         for (let di = -1; di <= 1; di++) {
           for (const n of this.sample(si + di, sj + dj)) {
-            if (byCell.has(n.ck)) continue;
+            if (byCell.has(n.ck) || near(byCell, n.ci, n.cj, n.x, n.y, 1.5 * cell)) continue;
             const c = { ...n, f: -1, b: -1, comp: -1, idx: nodes.length };
             byCell.set(n.ck, c);
             nodes.push(c);
@@ -91,7 +97,7 @@
         }
       }
       // Chain: nearest neighbour ahead and behind along the line.
-      const R = 3;
+      const R = 2; // in two-cell steps
       for (const n of nodes) {
         let bf = Infinity, bb = Infinity;
         for (let dj = -R; dj <= R; dj++) {
@@ -99,7 +105,9 @@
             if (!di && !dj) continue;
             const o = byCell.get((n.ci + di) * 100003 + (n.cj + dj));
             if (!o) continue;
-            const dist = Math.hypot(di, dj), along = (di * n.tx + dj * n.ty) / dist;
+            const vx = o.x - n.x, vy = o.y - n.y, dist = Math.hypot(vx, vy);
+            if (!dist) continue;
+            const along = (vx * n.tx + vy * n.ty) / dist;
             if (along > 0.5 && dist < bf) {
               bf = dist;
               n.f = o.idx;
@@ -206,7 +214,9 @@
             if (cur === c.nodes[0]) break;
           }
           if (cur === c.nodes[0] && loop.length >= 8) {
-            rings.push({ poly: loop, vSurf: Math.min(...loop.map((n) => n.vSurf)) });
+            // A ring is removed: its points draw no water.
+            rings.push({ poly: loop });
+            for (const n of c.nodes) n.ring = true;
             continue;
           }
         }
@@ -253,7 +263,7 @@
         const node = { x: best.px, y: best.py, W: end.W, vSurf: end.n.vSurf, tx: best.ex, ty: best.ey, plain: end.n.plain, idx: -1 };
         segs.push({ a: prev, b: node, kind: 'walk' });
         if (best.g.cls === 0 || best.g.cls === 4) return true;
-        const near = byCell.get(Math.floor(best.px / cell) * 100003 + Math.floor(best.py / cell));
+        const near = byCell.get(Math.floor(best.px / (2 * cell)) * 100003 + Math.floor(best.py / (2 * cell)));
         if (near && near.comp !== end.n.comp) {
           segs.push({ a: node, b: near, kind: 'walk' });
           return true;
@@ -298,7 +308,7 @@
       const water = new Uint8Array(N * N), surf = new Float32Array(N * N), sea = new Uint8Array(N * N);
       const x0 = si * this.size, y0 = sj * this.size;
       const lakeSet = new Set(gr.lakes);
-      const segs = gr.segs.map((s) => {
+      const segs = gr.segs.filter((s) => !s.a.ring && !s.b.ring).map((s) => {
         const ax = s.a.x, ay = s.a.y, bx = s.b.x, by = s.b.y;
         const grow = (n) => (lakeSet.has(n) ? 2.5 : 1);
         const wa = s.a.W * grow(s.a), wb = s.b.W * grow(s.b);
@@ -319,7 +329,6 @@
               isSea = isSea || s.sea;
             }
           }
-          for (const r of gr.rings) if (inside(cx, cy, r.poly)) vs = Math.min(vs, r.vSurf);
           if (vs < Infinity) {
             water[o] = 1;
             surf[o] = vs;
@@ -342,6 +351,18 @@
       const o = j * N + i;
       return { water: mask.water[o] === 1, vSurf: mask.surf[o], sea: mask.sea[o] === 1 };
     }
+  }
+
+  // Is there a stored point within r of (x, y), among the grid cells around
+  // (ci, cj)?
+  function near(map, ci, cj, x, y, r) {
+    for (let dj = -1; dj <= 1; dj++) {
+      for (let di = -1; di <= 1; di++) {
+        const o = map.get((ci + di) * 100003 + (cj + dj));
+        if (o && Math.hypot(o.x - x, o.y - y) < r) return true;
+      }
+    }
+    return false;
   }
 
   // Point in polygon (nodes with x, y), even-odd rule.
