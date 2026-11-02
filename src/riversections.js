@@ -262,6 +262,7 @@
       if (wk === 'sea') return (ch.next = 'sea');
       if (wk) return (ch.next = this.chain(wk));
       this.why('walk stopped');
+      ch.out = []; // a walk that ends in a pit draws nothing
       return null;
     }
 
@@ -433,11 +434,13 @@
           }
         }
         for (const s of ch.segs) segs.add(s);
-        if (t) {
+        // Its step on (link, tributary, walk) is drawn whether or not the
+        // chain reaches the sea, so rivers inland do not break into pieces.
+        if (!ch.lake) {
           this.step(ch);
           for (const s of ch.out) segs.add(s);
-          if (ch.source) for (const s of ch.source) segs.add(s);
         }
+        if (t && ch.source) for (const s of ch.source) segs.add(s);
       }
       this.graphs.set(k, { segs: [...segs], rings });
       const water = new Uint8Array(N * N), surf = new Float32Array(N * N), sea = new Uint8Array(N * N), cover = new Float32Array(N * N);

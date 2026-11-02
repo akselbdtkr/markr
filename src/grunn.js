@@ -15,6 +15,7 @@
     firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1.05, typeFirm: 0.4, typeHeight: 0.3, regStretch: 3,
     tT1: -0.34, tT2: 1.01, tT3: 1.85, typeSoft: 0.6,
     depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depLow: 0.8, depPlain: 0.5,
+    vA1: 0.6, vA2: 1.6, vA3: 2.4, vB1: 0.25, vB2: 0.7, vB3: 0.9, vH: 0.4,
     riverAlign: 0.6, riverWidth: 50000, riverDeep: 4, riverZone: 4,
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
     secZoom: 5000, riverGap: 30000, riverWalk: 50000, riverShort: 40000, riverMeander: 1, showNodes: false,
@@ -63,7 +64,7 @@
     const r = regionAt(x, y, v0);
     let v = v0, band = 0;
     if (dep) {
-      const d = dep.at(x, y, v0, vb, inland, r ? r.firm : 0.5, large, r ? r.w[0] : 0, r ? r.w : null);
+      const d = dep.at(x, y, v0, vb, inland, r ? r.firm : 0.5, large, r ? r.w[0] : 0, r ? r.pos : null);
       v = d.v;
       band = d.band;
     }
@@ -177,7 +178,7 @@
           }
           cl[k] = 1;
           if (state.show === 'type') setCol(k, M.RegionLayer.colour(r.w), 2);
-          else if (state.show === 'dep') hs[k] = dep ? 2400 * dep.band(x, y, r.firm, 0, r.w) : 0;
+          else if (state.show === 'dep') hs[k] = dep ? 2400 * dep.band(x, y, r.firm, 0, r.pos) : 0;
           else hs[k] = 2400 * r[state.show];
           continue;
         }
@@ -422,7 +423,7 @@
       const hrel = 1 - low;
       const fm = Math.max(0, Math.min(1, 0.5 + 0.5 * Math.tanh(state.firmInherit * (2 * hrel - 1) * 0.75)));
       for (let q = 0; q < cols; q++) {
-        const z = -3 + (6 * (q + 0.5)) / cols, w = region.weights(z), sw = M.DepressionLayer.shapes(w, fm, low);
+        const z = -3 + (6 * (q + 0.5)) / cols, w = region.weights(z), sw = M.DepressionLayer.shapes(region.posOf(z), 1 - low, state);
         const x0 = L + q * cw, y0 = r * ch, col = M.RegionLayer.colour(w);
         c2.fillStyle = `rgba(${col.map((v) => v | 0).join(',')},0.55)`;
         c2.fillRect(x0 + 1, y0 + 1, cw - 2, ch - 2);
@@ -502,7 +503,21 @@
       return [hover.region.z, shareY(w[k], g.plotH)];
     },
   });
+  // Valley profile thresholds: along the types and along the height.
+  const VALLEY_COLOURS = ['#a8823f', '#4f8a48', '#a8552f', '#6c5c94'];
+  const valleyA = makeProfile({
+    canvas: document.getElementById('valleyA'), keys: ['vA1', 'vA2', 'vA3'], min: 0, max: 3,
+    binColour: () => [220, 220, 220],
+    curves: () => VALLEY_COLOURS.map((c, k) => [(v, plotH) => shareY(M.DepressionLayer.split(v, state.vA1, state.vA2, state.vA3, 0.2)[k], plotH), c]),
+  });
+  const valleyB = makeProfile({
+    canvas: document.getElementById('valleyB'), keys: ['vB1', 'vB2', 'vB3'], min: 0, max: 1,
+    binColour: () => [220, 220, 220],
+    curves: () => VALLEY_COLOURS.map((c, k) => [(v, plotH) => shareY(M.DepressionLayer.split(v, state.vB1, state.vB2, state.vB3, 0.08)[k], plotH), c]),
+  });
   function drawProfile() {
+    valleyA.draw();
+    valleyB.draw();
     baseProfile.draw();
     typeProfile.draw();
     curveH.draw();
@@ -735,6 +750,7 @@
   row(depTable, 'Myke kanter', 'S-kurve', [null, numInput('depSoft', 0.05, 0, 3), null]);
   row(depTable, 'Retning', 'grunt på tvers av helningen', [null, numInput('depAlign', 0.05, 0, 1), null]);
   row(depTable, 'Strekking', 'langs helningen', [null, numInput('depStretch', 0.5, 1, 20), null], 'depStretch');
+  row(depTable, 'Høyden teller', 'i dalprofilen, 0–1', [null, numInput('vH', 0.05, 0, 1), null]);
   row(depTable, 'Mot havnivå', 'i lavland: fjorder', [null, numInput('depLow', 0.05, 0, 3), null]);
   row(depTable, 'Ekstra i sletter', 'mot havnivå', [null, numInput('depPlain', 0.05, 0, 3), null]);
   const rivTable = document.getElementById('rivers');

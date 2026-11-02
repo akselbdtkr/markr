@@ -74,13 +74,13 @@
     // In lowland the band is fuller and its direction counts less, so it
     // does not break into pieces. Its cross-section is a blend of four
     // valley profiles (see DepressionLayer.shapes).
-    band(x, y, firm, low = 0, w = null) {
+    band(x, y, firm, low = 0, pos = null) {
       const p = this.p, median = p.depMode !== 'ridged';
       const [n, par, n2] = this.lines(x, y);
       // Width from firmness: loose is wider. depSoft stretches the profile
       // outward from the line: softer edges.
       const wd = p.depWidth * (1.5 - firm) * (1 + 0.5 * p.depSoft);
-      const sw = DepressionLayer.shapes(w, firm, low);
+      const sw = DepressionLayer.shapes(pos === null ? 3 * firm : pos, 1 - low, p);
       const align = 1 - p.depAlign * (1 - 0.8 * low) * (1 - S(0.3, 0.95, par));
       let band = DepressionLayer.profile(Math.abs(n) / wd, sw) * align;
       if (!median) {
@@ -93,7 +93,8 @@
 
     // Sink v at a point. vb: base value (without the middle layer), inland:
     // inland weight, firm: firmness, large: the large part of the base,
-    // plain: the share of plains. Returns { band, v }.
+    // plain: the share of plains, w: the place among the types (pos).
+    // Returns { band, v }.
     //
     // Lowland is read from the large part, which is smooth, so it holds along
     // a whole depression. There the floor is pulled hard toward sea level
@@ -105,7 +106,7 @@
       const p = this.p, bp = this.base.p;
       if (vb < bp.tSea - 0.6) return { band: 0, v };
       const low = 1 - S(bp.tSea, bp.tHigh, large);
-      const band = this.band(x, y, firm, low, w);
+      const band = this.band(x, y, firm, low, w); // w: the place among the types (pos)
       if (band <= 0) return { band, v };
       const pull = Math.min(1, low * (p.depLow + p.depPlain * plain));
       const floor = (1 - pull) * (vb - p.depDepth) + pull * (bp.tSea - 0.15);
@@ -129,19 +130,20 @@
     { sym: '{', name: 'kanyon', f: (t) => 0.45 * (1 - S(0.55, 1, t)) + 0.55 * (1 - S(0.12, 0.22, t)) },
     { sym: '<', name: 'V-dal', f: (t) => Math.max(0, 1 - t) },
   ];
-  // Shares of the four profiles from the landscape types w (slette, åser,
-  // platå, fjellsk), firmness and lowland. The soft threshold of the
-  // depression takes the shape the other layers give it.
-  DepressionLayer.shapes = (w, firm, low) => {
-    const [ws, wa, wp, wf] = w || [1 - firm, 0, 0, firm];
-    const s = [
-      (1 - firm) * (ws + 0.5 * wa * low), // loose plains and loose lowland hills
-      wa * (0.5 + 0.5 * (1 - low)) + ws * (0.5 * (1 - low) + 0.3 * firm), // hills, highland
-      wp, // plateaus
-      wf, // fjellsk
-    ];
-    const sum = s[0] + s[1] + s[2] + s[3] || 1;
-    return s.map((v) => v / sum);
+  // Shares of the four profiles, from two thresholds sets you drag: along
+  // the landscape types (pos, 0 slette .. 3 fjellsk: vA1..vA3) and along the
+  // height (hrel, 0 lowland .. 1 highland: vB1..vB3). Each set is three
+  // S-curves passing a share on from '[' to '(' to '{' to '<'; the two are
+  // blended, the height by vH. The soft threshold of the depression takes the
+  // shape the other layers give it.
+  DepressionLayer.split = (v, t1, t2, t3, soft) => {
+    const s1 = S(t1 - soft, t1 + soft, v), s2 = S(t2 - soft, t2 + soft, v), s3 = S(t3 - soft, t3 + soft, v);
+    return [1 - s1, s1 * (1 - s2), s1 * s2 * (1 - s3), s1 * s2 * s3];
+  };
+  DepressionLayer.shapes = (pos, hrel, p) => {
+    const a = DepressionLayer.split(pos, p.vA1, p.vA2, p.vA3, 0.2), b = DepressionLayer.split(hrel, p.vB1, p.vB2, p.vB3, 0.08);
+    const h = p.vH;
+    return a.map((v, k) => (1 - h) * v + h * b[k]);
   };
   DepressionLayer.profile = (t, sw) => {
     let v = 0;

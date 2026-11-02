@@ -81,7 +81,7 @@
       // turns across the slope (where the stretched noise blends between two
       // levels, its zero line can run obliquely from one depression to the
       // next), so the river does not cross between depressions there.
-      const bandQ = this.dep.band(qx, qy, firm, low, w);
+      const bandQ = this.dep.band(qx, qy, firm, low, r.pos);
       let fade = S(p.riverAlign - tw, p.riverAlign + tw, bandQ);
       fade *= 1 - S(bp.tDivide + 0.1, bp.tDivide + 0.5, vq); // ends inside the divide field
       if (fade <= 0.02) return null;

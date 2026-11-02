@@ -101,15 +101,17 @@ kan den ikke det, så det blir ikke innlandssjøer.
     grunnere. Linjene møtes og krysser, så det blir grener, men også løkker.
 - **Fasthet:** løs grunn gir bredere bånd med flat bunn og bratte sider. Fast grunn gir
   smale bånd med myke, V-formede sider.
-- **Dalprofiler:** tverrsnittet av et nedsenk er en blanding av fire profiler, og andelene
-  kommer fra landskapstype, fasthet og lavland. Den myke terskelen i nedsenket tar formen de
-  andre lagene gir den:
+- **Dalprofiler:** tverrsnittet av et nedsenk er en blanding av fire profiler. Andelene
+  kommer fra to diagrammer der du drar tre terskler, `[` → `(` → `{` → `<`. Det ene går etter
+  landskapstype, fra slette til fjellsk, og det andre etter høyde, fra lavland til høyland.
+  De to blandes, og «Høyden teller» avgjør hvor mye høyden veier. Den myke terskelen i
+  nedsenket tar formen de andre lagene gir den:
   - `[` flat bunn og bratte sider, i løs grunn: løse sletter og løse åser i lavland.
   - `(` myk og rund, en U-dal, i åser og høyland.
   - `{` to myke terskler, en flat hylle og en bratt kløft i midten, en kanyon, på platå.
   - `<` rette sider som møtes i en spiss, en V-dal, i fjellsk.
 
-  Diagrammet «Dalprofiler» viser tverrsnittet og tegnet for hovedprofilen. Bortover går
+  Diagrammet «Dalprofiler samlet» viser tverrsnittet og tegnet for hovedprofilen. Bortover går
   landskapstypen, fra slette til fjellsk med tersklene dine, og oppover fra lavland til
   høyland.
 - **Linjebredde og myke kanter:** bredden på båndet og hvor langt S-kurven går ut fra
@@ -173,6 +175,9 @@ seksjon tegnes, lagres elvene der, og funksjoner går gjennom dem.
    ofte er brutt i biter: radius fra tre punkter under koblingsavstanden, minst en radian av
    sirkelen, og linja finnes også på motsatt side av sentrum. Dette gjelder særlig langt inne i landet der veien nedover møter
    en grop. Neste steg er å fylle gropa til en innsjø og finne utløpet.
+   Stegene videre (koblinger og sideelver) tegnes for alle kjeder, også dem som ikke når
+   havet ennå, så elvene inne i landet ikke brytes opp. En vei nedover som ender i en grop,
+   tegnes ikke.
 5. **Bredde:** en kjede beholder bredden etter lengden. Lange kjeder er like brede der de
    kobles. Korte blir smalere, så en lang elv renner gjennom, mens små innsjøer ved siden av
    ikke slår seg sammen. Koblinger tar den smaleste av de to endene og slynger seg høyst en
