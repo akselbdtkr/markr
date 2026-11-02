@@ -15,7 +15,7 @@
     firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1.05, typeFirm: 0.4, typeHeight: 0.3, regStretch: 3,
     tT1: -0.34, tT2: 1.01, tT3: 1.85, typeSoft: 0.6,
     depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depLow: 0.8, depPlain: 0.5,
-    vA1: 0.6, vA2: 1.6, vA3: 2.4, vB1: 0.25, vB2: 0.7, vB3: 0.9, vH: 0.4,
+    vA1: 0.27, vA2: 1.17, vA3: 1.8, vB1: 0.15, vB2: 0.55, vB3: 0.74, vH: 0.4,
     riverAlign: 0.6, riverWidth: 50000, riverDeep: 4, riverZone: 4,
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
     secZoom: 5000, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
