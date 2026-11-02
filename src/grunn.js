@@ -14,7 +14,7 @@
     midSize: 185, midW: 0.9, midStretch: 10, tInland: 0,
     firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1.05, typeFirm: 0.4, typeHeight: 0.3, regStretch: 3,
     tT1: -0.34, tT2: 1.01, tT3: 1.84, typeSoft: 0.6,
-    depMode: 'median', depSize: 100, depDepth: 0, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7,
+    depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7,
     show: 'map', contours: true, mono: false,
   };
 
@@ -102,6 +102,8 @@
     const hs = new Float32Array(nx * ny), cl = new Uint8Array(nx * ny);
     // Land colour from the regions: rgb, and 0 none / 1 shaded / 2 flat.
     const col = new Float32Array(nx * ny * 3), how = new Uint8Array(nx * ny);
+    // Inside a depression (band over a half), for its dashed outline.
+    const inDep = new Uint8Array(nx * ny);
     const setCol = (k, c, mode) => {
       col[3 * k] = c[0];
       col[3 * k + 1] = c[1];
@@ -136,6 +138,7 @@
         const f = full(x, y);
         hs[k] = f.h;
         cl[k] = f.cls;
+        inDep[k] = f.band > 0.5 ? 1 : 0;
         if (on.type && cl[k] > 0 && f.region) setCol(k, M.RegionLayer.colour(f.region.w), 1);
       }
     }
@@ -156,7 +159,9 @@
           // A soft light from the north-west.
           const hx = hs[j * nx + Math.min(nx - 1, i + 1)] - hs[j * nx + Math.max(0, i - 1)];
           const hy = hs[Math.min(ny - 1, j + 1) * nx + i] - hs[Math.max(0, j - 1) * nx + i];
-          const sh = state.mono ? Math.max(-0.35, Math.min(0.35, (-(hx + hy) / (4 * d)) * 14)) : Math.max(-0.2, Math.min(0.2, (-(hx + hy) / (4 * d)) * 8));
+          // Light from the top left: ground rising toward the bottom right
+          // (hx, hy > 0) faces the light and is brighter.
+          const sh = state.mono ? Math.max(-0.35, Math.min(0.35, ((hx + hy) / (4 * d)) * 14)) : Math.max(-0.2, Math.min(0.2, ((hx + hy) / (4 * d)) * 8));
           c = [c[0] * (1 + sh), c[1] * (1 + sh), c[2] * (1 + sh)];
           // Contours every 100 m.
           if (state.contours && h > 0) {
@@ -166,6 +171,8 @@
               c = [c[0] * t, c[1] * t, c[2] * t];
             }
           }
+          // Depressions: a thin dashed blue outline.
+          if (state.show === 'map' && ((i + 1 < nx && inDep[k + 1] !== inDep[k]) || (j + 1 < ny && inDep[k + nx] !== inDep[k])) && Math.floor((i + j) / dash) % 2 === 0) c = [45, 105, 200];
           // The divide field: a dashed outline.
           const edge = (cl[k] === 3) !== ((i + 1 < nx && cl[k + 1] === 3) || false) || (cl[k] === 3) !== ((j + 1 < ny && cl[k + nx] === 3) || false);
           if (edge && Math.floor((i + j) / dash) % 2 === 0) c = [40, 40, 44];

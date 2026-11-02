@@ -107,7 +107,8 @@ kan den ikke det, så det blir ikke innlandssjøer.
   sammenhengende nedsenkninger går derfor med helningen.
 
 **På siden:** alle seksjonene er lukket fra start. Kartet kan vises i farger eller i
-gråtoner med kraftigere skygge. Høydekurver hver 100 m (mørkere hver 500 m) kan skrus av og på. «Kopier
+gråtoner med kraftigere skygge. Lyset kommer alltid fra øverst til venstre. Nedsenkene har
+tynne, stiplede blå omriss. Høydekurver hver 100 m (mørkere hver 500 m) kan skrus av og på. «Kopier
 innstillinger» kopierer alle verdiene, og hvilke lag som er på, som tekst til chatten.
 
 ## Ruteformler
