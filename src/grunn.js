@@ -19,8 +19,8 @@
     riverAlign: 0.6, riverWidth: 50000, riverDeep: 4, riverZone: 4,
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
     secZoom: 5000, lodRiver: 60, lodDep: 150, lodRegion: 300, lodLocal: 25,
-    lcH: [0.05, 0.35, 0.2, 0.9], lcS: [0.2, 0.45, 0.6, 0.25], lcR: [0, 0, 0.3, 1], lcT: [0.2, 0.8, 0.4, 0.3], lcU: [0.2, 0.15, 0.1, 0.8],
-    locFlat: 0.8, locSide: 0.6, bank: 3000, locBank: 10000, mtH: 1500, mtS: 900, mtDiv: 1, mtFirm: 0.8, locFirm: 0.8, cutH: 700, cutS: 1500, mtT: 4, locK: 3, locW: 2, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
+    lcH: [0.05, 0.54, 0.2, 0.72], lcS: [0.2, 0.54, 0.48, 0.25], lcR: [0, 0.15, 0.44, 1], lcT: [0.2, 0.62, 0.4, 0.3], lcU: [0.2, 0.15, 0.35, 0.8],
+    locFlat: 0.8, locSide: 0.6, bank: 3000, locBank: 10000, mtH: 1500, mtS: 810, mtDiv: 1, mtFirm: 0.8, locFirm: 0.8, cutH: 1200, cutS: 510, mtT: 4, locK: 8.9, locW: 13.8, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 50, scaleV: 2,
@@ -110,7 +110,7 @@
   }
   // Region at a point (land only), or null.
   const regionAt = (x, y, v) => (v >= state.tSea ? region.at(x, y, v) : null);
-  const REGION_VIEWS = ['firm', 'moist', 'type', 'dep'];
+  const REGION_VIEWS = ['firm', 'moist', 'type', 'dep', 'locD', 'locM', 'locC'];
   function rebuild() {
     newLayer();
     histograms();
@@ -207,7 +207,13 @@
           }
           cl[k] = 1;
           if (state.show === 'type') setCol(k, M.RegionLayer.colour(r.w), 2);
-          else if (state.show === 'dep') {
+          else if (state.show[0] === 'l' && state.show.startsWith('loc')) {
+            // One part of the local layer alone: its change in height, grey
+            // around a middle height, with the hillshade.
+            if (local) local.parts = [0, 0, 0];
+            full(x, y);
+            hs[k] = 1500 * state.scaleV + (local ? local.parts[{ locD: 0, locM: 1, locC: 2 }[state.show]] : 0);
+          } else if (state.show === 'dep') {
             // The depression coloured by its valley profile, stronger where
             // the band is deeper, on a light ground.
             const large = layer.valueParts(x, y)[3];
@@ -745,9 +751,9 @@
     d.textContent = t;
     locTable.appendChild(d);
   }
-  row(locTable, 'Detaljer', 'etter kurvene', [numInput('locK', 0.1, 0.1, 20), numInput('locW', 0.1, 0, 20), null], 'local');
-  row(locTable, 'Fjellegger', 'm, ridged', [numInput('mtS', 100, 10, 100000), numInput('mtH', 50, 0, 5000, null, 'v'), null], 'mount');
-  row(locTable, 'Skar', 'm, noise', [numInput('cutS', 100, 10, 100000), numInput('cutH', 50, 0, 5000, null, 'v'), null], 'cut');
+  row(locTable, 'Detaljer', 'etter kurvene', [numInput('locK', 0.1, 0.1, 20), numInput('locW', 0.1, 0, 20), eye('locD', 'Detaljer')], 'local');
+  row(locTable, 'Fjellegger', 'm, ridged', [numInput('mtS', 100, 10, 100000), numInput('mtH', 50, 0, 5000, null, 'v'), eye('locM', 'Fjellegger')], 'mount');
+  row(locTable, 'Skar', 'm, noise, fjell og åser', [numInput('cutS', 100, 10, 100000), numInput('cutH', 50, 0, 5000, null, 'v'), eye('locC', 'Skar')], 'cut');
   row(locTable, 'Egger, strekking', 'langs landet under', [null, numInput('mtT', 0.5, 0, 20), null]);
   row(locTable, 'Fjell i fast grunn', 'vekt 0–1', [null, numInput('mtFirm', 0.05, 0, 1), null]);
   row(locTable, 'Fasthet → detaljer', 'fast: høyere, skarpere', [null, numInput('locFirm', 0.05, 0, 2), null]);

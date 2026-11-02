@@ -111,6 +111,7 @@
         const one = (Lq) => (1 - ts) * this.stretchedAt(x, y, Lq, 1, sharp, gain) + (ts > 0 ? ts * this.stretchedAt(x, y, Lq, 10, sharp, gain) : 0);
         dz = H * ((1 - fl) * one(Math.pow(2, l0)) + (fl > 0.02 ? fl * one(Math.pow(2, l0 + 1)) : 0));
       }
+      const parts = (this.parts = [dz, 0, 0]); // detail, arêtes, cols (for viewing)
       // Mountain arêtes: a ridge noise (two octaves, squared: a sharp crest
       // with steep, hollowed flanks), stretched
       // along the slope of the land below at a fixed stretch, so the arêtes
@@ -122,17 +123,22 @@
           return (r1 * r1 + 0.3 * r2 * r2) / 1.3;
         };
         const r = this.stretchedAt(x, y, Lm, 1 + p.mtT, 1, 0.5, ridge);
-        dz += mount * p.mtH * p.scaleV * (1.6 * r - 0.15);
-        // Cols: plain noise (fbm, not stretched), its low parts cutting into
-        // the arêtes: deeper cuts higher up, smaller ones lower down, and
-        // mostly into the crests.
-        if (p.cutH > 0) {
-          const Lc = p.cutS * p.scaleH;
-          const f = M.noise.fbm(nm, x / Lc + 41.3, y / Lc - 7.7, 3) / 0.173;
-          const cut = S(0, 1.5, f);
-          const high = 0.25 + 0.75 * Math.max(0, Math.min(1, hRel));
-          dz -= mount * p.cutH * p.scaleV * cut * high * (0.4 + 0.6 * r);
-        }
+        parts[1] = mount * p.mtH * p.scaleV * (1.6 * r - 0.15);
+        dz += parts[1];
+        this.crest = r;
+      } else this.crest = 0;
+      // Cols: plain noise (fbm, not stretched), its high parts cutting in,
+      // in mountains (mostly into the crests) and in hills: deeper cuts
+      // higher up, smaller ones lower down.
+      const hills = Math.max(0, 1 - Math.abs(pos - 1));
+      const cw = Math.max(p.mtH > 0 ? mount : 0, hills);
+      if (cw > 0 && p.cutH > 0) {
+        const Lc = p.cutS * p.scaleH;
+        const f = M.noise.fbm(this.nm, x / Lc + 41.3, y / Lc - 7.7, 3) / 0.173;
+        const cut = S(0, 1.5, f);
+        const high = 0.25 + 0.75 * Math.max(0, Math.min(1, hRel));
+        parts[2] = -cw * p.cutH * p.scaleV * cut * high * (mount > 0 ? 0.4 + 0.6 * this.crest : 0.6);
+        dz += parts[2];
       }
       if (dz === 0) return 0;
       if (band > 0 && sw) {
@@ -144,7 +150,11 @@
         dz *= (1 - floor) * (dz < 0 ? 1 + side : Math.max(0, 1 - side));
       }
       // Near the water the detail fades out, so banks run down to it.
-      if (edge < Infinity) dz *= S(0, Math.max(1, p.locBank), edge);
+      if (edge < Infinity) {
+        const k = S(0, Math.max(1, p.locBank), edge);
+        dz *= k;
+        for (let q = 0; q < 3; q++) parts[q] *= k;
+      }
       return dz;
     }
   }
