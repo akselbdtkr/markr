@@ -119,8 +119,10 @@ vannflate.
   to nivåer, kan nullinjen gå på skrå fra ett nedsenk til det neste, og der er nedsenket
   grunt. Elva avtar med en S-kurve når båndet svekkes. Den avtar raskt i fast fjellsk og i løse sletter og
   platåer, og mykere i åser og i løst lavland og høyland.
-- **Bredde:** fra fasthet (løs grunn gir bredere elv) og høyde over havet (høyere opp er den
-  smalere, lenger ned bredere).
+- **Bredde:** volum delt på dybde. Volumet er en direkte funksjon av høyde og fasthet: mer
+  vann lavt nede og i løs grunn. Dybden følger fastheten: fast grunn gir dypt løp, løs grunn
+  grunt. En grunnere elv blir derfor bredere, opptil 2 km ved vannet i løs grunn. Høyere opp
+  blir den raskt smalere («Smalere over»).
 - **Vannflate:** fra den store delen av grunnlaget i bunnpunktet. Den stiger jevnt oppover
   helningen, så vannflaten faller jevnt nedover elva.
 - **Flere løp nær havet:** korridoren blir bredere, og et lite strukket noise-lag deler den i

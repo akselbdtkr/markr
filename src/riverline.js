@@ -13,8 +13,10 @@
 //   divide field. The river fades with an S-curve as the band weakens: fast
 //   in firm rugged ground (fjellsk) and in loose plains and plateaus, softer
 //   in hills and loose lowland and highland.
-// - Width: from firmness (loose is wider) and height above the sea (higher is
-//   narrower, lower is wider), times the fade.
+// - Width: volume over depth. Volume is a direct function of height and
+//   firmness (more water low down and in loose ground); depth follows
+//   firmness (firm cuts deep, loose stays shallow), so a shallower river is
+//   wider: up to riverWidth (2 km on screen) at the water in loose ground.
 // - Surface: the large part of the base at q (continents and the first basin
 //   octave), which rises steadily up the slope the river follows, so the
 //   surface falls steadily downstream.
@@ -48,7 +50,7 @@
     at(x, y, v) {
       const p = this.p, b = this.base, bp = b.p;
       const [n] = this.dep.lines(x, y);
-      if (Math.abs(n) > 1.2) return { v, water: false };
+      if (Math.abs(n) > 3) return { v, water: false };
       // Gradient of n (per metre) for the Newton step across.
       const h = 300;
       const nx = (this.dep.lines(x + h, y)[0] - this.dep.lines(x - h, y)[0]) / (2 * h);
@@ -56,7 +58,7 @@
       const g2 = nx * nx + ny * ny;
       if (g2 < 1e-16) return { v, water: false };
       const g = Math.sqrt(g2), d = Math.abs(n) / g;
-      const maxZone = p.riverZone * 1000 * 1.6 + p.riverWidth * 2;
+      const maxZone = p.riverZone * 1000 * 1.6 + p.riverWidth * 2.5;
       if (d > maxZone) return { v, water: false };
       // The bottom of this cross-section.
       const qx = x - (n * nx) / g2, qy = y - (n * ny) / g2;
@@ -80,9 +82,15 @@
       let fade = S(p.riverAlign - tw, p.riverAlign + tw, bandQ);
       fade *= 1 - S(bp.tDivide + 0.1, bp.tDivide + 0.5, vq); // ends inside the divide field
       if (fade <= 0.02) return { v, water: false };
-      // Width: loose is wider, higher is narrower.
+      // Volume (the cross-section) is a direct function of height and
+      // firmness: more water lower down and in loose ground. Depth follows
+      // firmness: firm ground cuts a deep channel, loose ground a shallow
+      // one. Width is volume over depth, so a shallower river is wider: up
+      // to riverWidth at the sea in loose ground.
       const hq = b.height(vq);
-      let W = p.riverWidth * (0.25 + 0.75 * (1 - firm)) * (1 - 0.7 * S(0, p.riverHigh, hq)) * fade;
+      const volume = (0.08 + 0.92 * (1 - S(0, p.riverHigh, hq))) * Math.pow(0.1 + 0.9 * (1 - firm), 3);
+      const depth = 1 + (p.riverDeep - 1) * firm; // 1 (loose) .. riverDeep (firm)
+      let W = (p.riverWidth * volume * fade) / depth;
       // The surface: the large part of the base at q, kept a little below the
       // land at q, then lowered toward the sea (riverRise keeps that share of
       // the height above it): rivers lie low, near the coast almost at sea
@@ -93,7 +101,7 @@
       let water = false;
       const half = W / 2;
       if (nearSea > 0.05) {
-        const corridor = half * (1 + 3 * nearSea);
+        const corridor = half * (1 + 1.2 * nearSea);
         if (d < corridor) {
           const m = b.stretched(this.nb, x, y, Math.max(2000, W * 4), 2, 4, 41);
           water = d < half * (1 - 0.7 * nearSea) || Math.abs(m) < 0.25 + 0.3 * nearSea;
@@ -104,7 +112,7 @@
       // follows firmness (loose is wider) and a slow noise.
       const zn = this.nz(qx / 40000, qy / 40000);
       const Z = p.riverZone * 1000 * (0.6 + 0.6 * (1 - firm)) * (0.75 + 0.5 * zn) * fade;
-      const edge = half * (1 + 3 * nearSea);
+      const edge = half * (1 + 1.2 * nearSea);
       if (d >= edge + Z) return { v, water: false };
       const t = (d - edge) / Math.max(1, Z);
       const bank = vSurf + (v - vSurf) * t; // a straight bank up to the land
