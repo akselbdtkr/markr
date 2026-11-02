@@ -8,11 +8,11 @@
 // point of one cross-section agrees: both banks get the same width and the
 // same water surface.
 //
-// - Where: only where the band runs with the slope of the base (its align
-//   value at q), on land and below the divide. The river fades with an
-//   S-curve as the band turns away: fast in firm rugged ground (fjellsk) and
-//   in loose plains and plateaus, softer in hills and loose lowland and
-//   highland.
+// - Where: only where the depression is deep at q (its band there, which is
+//   shallow where the line turns across the slope), on land, up into the
+//   divide field. The river fades with an S-curve as the band weakens: fast
+//   in firm rugged ground (fjellsk) and in loose plains and plateaus, softer
+//   in hills and loose lowland and highland.
 // - Width: from firmness (loose is wider) and height above the sea (higher is
 //   narrower, lower is wider), times the fade.
 // - Surface: the large part of the base at q (continents and the first basin
@@ -60,7 +60,6 @@
       if (d > maxZone) return { v, water: false };
       // The bottom of this cross-section.
       const qx = x - (n * nx) / g2, qy = y - (n * ny) / g2;
-      const par = this.dep.lines(qx, qy)[1];
       const [, vq, , largeQ] = b.valueParts(qx, qy);
       if (vq < bp.tSea) return { v, water: false };
       // Lowland at the bottom (from the smooth large part): rivers there need
@@ -72,13 +71,18 @@
       const sharp = firm * w[3] + (1 - firm) * (w[0] + w[2]);
       const soft = w[1] + (1 - firm) * (w[1] + w[3]);
       const tw = 0.04 + 0.3 * Math.max(0, Math.min(1, 0.5 + 0.5 * (soft - sharp)));
-      const t0 = p.riverAlign * (1 - 0.4 * low);
-      let fade = S(t0 - tw, t0 + tw, par);
-      fade *= 1 - S(bp.tDivide - 0.25, bp.tDivide, vq); // none above the divide
+      // The river follows the depression itself: it exists only where the
+      // band is deep at the bottom point. The band is shallow where its line
+      // turns across the slope (where the stretched noise blends between two
+      // levels, its zero line can run obliquely from one depression to the
+      // next), so the river no longer crosses between depressions there.
+      const bandQ = this.dep.band(qx, qy, firm, low);
+      let fade = S(p.riverAlign - tw, p.riverAlign + tw, bandQ);
+      fade *= 1 - S(bp.tDivide + 0.1, bp.tDivide + 0.5, vq); // ends inside the divide field
       if (fade <= 0.02) return { v, water: false };
       // Width: loose is wider, higher is narrower.
       const hq = b.height(vq);
-      let W = p.riverWidth * (0.25 + 0.75 * (1 - firm)) * (1 - 0.85 * S(0, p.riverHigh, hq)) * fade;
+      let W = p.riverWidth * (0.25 + 0.75 * (1 - firm)) * (1 - 0.7 * S(0, p.riverHigh, hq)) * fade;
       // The surface: the large part of the base at q, kept a little below the
       // land at q, then lowered toward the sea (riverRise keeps that share of
       // the height above it): rivers lie low, near the coast almost at sea

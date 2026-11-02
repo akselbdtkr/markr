@@ -113,8 +113,11 @@ nedsenk-støyen er 0. Fra et punkt gir ett Newton-steg på tvers bunnpunktet, og
 Alle punkter i samme snitt finner samme bunnpunkt, så begge breddene får samme bredde og
 vannflate.
 
-- **Hvor:** bare der båndet går med helningen, på land og under vanndelingsfeltet. Elva avtar
-  med en S-kurve når båndet dreier bort. Den avtar raskt i fast fjellsk og i løse sletter og
+- **Hvor:** bare der nedsenket er dypt i bunnpunktet («Dypt nok nedsenk»), på land og et
+  stykke inn i vanndelingsfeltet. Elva følger da samme regel som nedsenket. Før brukte elva
+  sin egen retningsterskel og kunne gå på tvers mellom nedsenkene. Der strekkingen blander
+  to nivåer, kan nullinjen gå på skrå fra ett nedsenk til det neste, og der er nedsenket
+  grunt. Elva avtar med en S-kurve når båndet svekkes. Den avtar raskt i fast fjellsk og i løse sletter og
   platåer, og mykere i åser og i løst lavland og høyland.
 - **Bredde:** fra fasthet (løs grunn gir bredere elv) og høyde over havet (høyere opp er den
   smalere, lenger ned bredere).

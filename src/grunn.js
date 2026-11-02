@@ -15,7 +15,7 @@
     firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1.05, typeFirm: 0.4, typeHeight: 0.3, regStretch: 3,
     tT1: -0.34, tT2: 1.01, tT3: 1.84, typeSoft: 0.6,
     depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depLow: 0.8, depPlain: 0.5,
-    riverAlign: 0.75, riverWidth: 900, riverHigh: 1200, riverZone: 4, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
+    riverAlign: 0.6, riverWidth: 900, riverHigh: 2500, riverZone: 4, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 50, scaleV: 10,
@@ -519,7 +519,7 @@
   row(rivTable, 'Elver', 'langs nedsenkene', [null, null, null], 'river');
   row(rivTable, 'Bredde', 'm, ved havet i løs grunn', [null, numInput('riverWidth', 50, 10, 5000, null, 'h'), null]);
   row(rivTable, 'Smalere over', 'm o.h.', [null, numInput('riverHigh', 50, 100, 5000, null, 'v'), null]);
-  row(rivTable, 'Følger helningen', 'terskel 0–1', [null, numInput('riverAlign', 0.05, 0, 1), null]);
+  row(rivTable, 'Dypt nok nedsenk', 'terskel 0–1', [null, numInput('riverAlign', 0.05, 0, 1), null]);
   row(rivTable, 'Område rundt', 'km, formes av elva', [null, numInput('riverZone', 0.5, 0, 50, null, 'h'), null]);
   row(rivTable, 'Flere løp', 'nær havet', [null, numInput('riverBraid', 0.05, 0, 1), null]);
   row(rivTable, 'Høyde beholdt', 'lavere elver: mindre', [null, numInput('riverRise', 0.05, 0, 1), null]);
