@@ -747,7 +747,7 @@
   }
   row(locTable, 'Detaljer', 'etter kurvene', [numInput('locK', 0.1, 0.1, 20), numInput('locW', 0.1, 0, 20), null], 'local');
   row(locTable, 'Fjellegger', 'm, ridged', [numInput('mtS', 100, 10, 100000), numInput('mtH', 50, 0, 5000, null, 'v'), null], 'mount');
-  row(locTable, 'Skar', 'm, på tvers av eggene', [numInput('cutS', 100, 10, 100000), numInput('cutH', 50, 0, 5000, null, 'v'), null], 'cut');
+  row(locTable, 'Skar', 'm, noise', [numInput('cutS', 100, 10, 100000), numInput('cutH', 50, 0, 5000, null, 'v'), null], 'cut');
   row(locTable, 'Egger, strekking', 'langs landet under', [null, numInput('mtT', 0.5, 0, 20), null]);
   row(locTable, 'Fjell i fast grunn', 'vekt 0–1', [null, numInput('mtFirm', 0.05, 0, 1), null]);
   row(locTable, 'Fasthet → detaljer', 'fast: høyere, skarpere', [null, numInput('locFirm', 0.05, 0, 2), null]);

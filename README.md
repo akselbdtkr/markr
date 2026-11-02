@@ -222,10 +222,9 @@ strukket mest, platå mykt og lavt, og sletter nesten flate.
 
 Fjellegger er et eget lag: ridged noise med to oktaver, kvadrert for skarpe egger og bratte,
 uthulte sider, strukket langs landet under med fast strekking, så eggene følger retningen der.
-Standard er 900 m store egger og 1500 m høyde. Skar er et ridged-lag strukket på tvers av eggene,
-langs nivålinjene i landet under. Det er en støy av nivået i grunnlaget, så den holder fasen
-overalt, og stedet vris av et noise-lag, så skarene bukter seg og varierer. Skarene hogger
-dypest høyt oppe og minst lenger ned, og mest inn i eggene («Skar»: avstand og dybde, av/på). Fastheten virker også: fast grunn gir
+Standard er 900 m store egger og 1500 m høyde. Skar lages av vanlig noise (fbm, ikke strukket): der den
+er høy, hogger den inn i eggene, dypest høyt oppe og minst lenger ned («Skar»: størrelse og
+dybde, av/på). Fastheten virker også: fast grunn gir
 fjellegger uansett landskapstype («Fjell i fast grunn»), og gjør detaljene høyere og skarpere,
 mens løs grunn gjør dem lavere og mykere («Fasthet → detaljer»). Laget blir sterkere med fjellsk og over
 vanndelingen, og løfter mest, så fjellene vokser over vanndelingen. De høyeste toppene blir
