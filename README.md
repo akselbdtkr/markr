@@ -220,9 +220,9 @@ strukket mest, platå mykt og lavt, og sletter nesten flate.
 
 «Detaljer» og «Fjellegger» kan skrus av og på, og har hver sin skala og vekt.
 
-Fjellegger er et eget lag: skarpe rygger (to oktaver, toppen opphøyd i tredje), strukket langs
-landet under, så eggene følger retningen der. Langs hver egg ligger skar med jevne mellomrom
-(«skar hver», «skar dybde»), bare på selve eggen. Laget blir sterkere med fjellsk og over
+Fjellegger er et eget lag: ridged noise med to oktaver, kvadrert for skarpe egger og bratte,
+uthulte sider, strukket langs landet under med fast strekking, så eggene følger retningen der.
+Standard er 900 m store egger og 1500 m høyde. Laget blir sterkere med fjellsk og over
 vanndelingen, og løfter mest, så fjellene vokser over vanndelingen. De høyeste toppene blir
 hvite («Snø», fra og til i meter over havet).
 

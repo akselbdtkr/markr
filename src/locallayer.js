@@ -108,29 +108,18 @@
         const one = (Lq) => (1 - ts) * this.stretchedAt(x, y, Lq, 1, sharp, gain) + (ts > 0 ? ts * this.stretchedAt(x, y, Lq, 10, sharp, gain) : 0);
         dz = H * ((1 - fl) * one(Math.pow(2, l0)) + (fl > 0.02 ? fl * one(Math.pow(2, l0 + 1)) : 0));
       }
-      // Mountain arêtes: a sharp ridge noise (two octaves, the crest cubed
-      // so it comes to an edge), stretched along the slope of the land
-      // below, so the arêtes run with it. Along each arête, notches at even
-      // spacing (cols between peaks), read from the level of the base, so
-      // they fall at the same height on neighbouring arêtes. Mostly lifting,
-      // so the mountains grow above the divide.
+      // Mountain arêtes: a ridge noise (two octaves, squared: a sharp crest
+      // with steep, hollowed flanks), stretched
+      // along the slope of the land below at a fixed stretch, so the arêtes
+      // run with it. Mostly lifting, so the mountains grow above the divide.
       if (mount > 0 && p.mtH > 0) {
         const Lm = p.mtS * p.scaleH, nm = this.nm;
         const ridge = (u, v) => {
           const r1 = 1 - Math.abs(nm(u, v)), r2 = 1 - Math.abs(nm(2 * u + 17.3, 2 * v - 9.1));
-          return (r1 * r1 * r1 + 0.35 * r2 * r2) / 1.35;
+          return (r1 * r1 + 0.3 * r2 * r2) / 1.3;
         };
         const r = this.stretchedAt(x, y, Lm, 1 + p.mtT, 1, 0.5, ridge);
-        let notch = 1;
-        if (p.mtNotch > 0 && p.mtBreak > 0) {
-          const fr = this.base.slopeFrame(x, y), spacing = p.mtBreak * p.scaleH * this.base.typicalSlope();
-          const t = fr.B / spacing + 0.35 * nm(x / (3 * Lm) + 5.1, y / (3 * Lm) - 2.7);
-          const ph = t - Math.floor(t), dn = 2 * Math.min(ph, 1 - ph);
-          // Only on the crest itself (r high): elsewhere it would draw rings
-          // round the level lines.
-          notch = 1 - p.mtNotch * (1 - S(0, 0.45, dn)) * S(0.45, 0.85, r);
-        }
-        dz += mount * p.mtH * p.scaleV * (1.3 * r * notch - 0.25);
+        dz += mount * p.mtH * p.scaleV * (1.6 * r - 0.15);
       }
       if (dz === 0) return 0;
       if (band > 0 && sw) {

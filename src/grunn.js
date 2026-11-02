@@ -20,7 +20,7 @@
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
     secZoom: 5000, lodRiver: 60, lodDep: 150, lodRegion: 300, lodLocal: 25,
     lcH: [0.05, 0.35, 0.2, 0.9], lcS: [0.2, 0.45, 0.6, 0.25], lcR: [0, 0, 0.3, 1], lcT: [0.2, 0.8, 0.4, 0.3], lcU: [0.2, 0.15, 0.1, 0.8],
-    locFlat: 0.8, locSide: 0.6, bank: 3000, locBank: 10000, mtH: 600, mtS: 2500, mtDiv: 1, mtT: 5, mtBreak: 1500, mtNotch: 0.6, locK: 3, locW: 2, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
+    locFlat: 0.8, locSide: 0.6, bank: 3000, locBank: 10000, mtH: 1500, mtS: 900, mtDiv: 1, mtT: 4, locK: 3, locW: 2, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 100, scaleV: 1,
@@ -260,7 +260,7 @@
           // The highest peaks are white.
           const snow = state.snowTo > state.snowFrom ? Math.max(0, Math.min(1, (h / state.scaleV - state.snowFrom) / (state.snowTo - state.snowFrom))) : 0;
           if (snow > 0) {
-            const t = snow * snow * (3 - 2 * snow), wv = 246 * (1 + 0.5 * sh);
+            const t = snow * snow * (3 - 2 * snow), wv = 246 * (1 + sh);
             c = [c[0] + (wv - c[0]) * t, c[1] + (wv - c[1]) * t, c[2] + (wv + 4 - c[2]) * t];
           }
           // A river narrower than the cell: a share of water blue.
@@ -745,8 +745,6 @@
   row(locTable, 'Detaljer', 'etter kurvene', [numInput('locK', 0.1, 0.1, 20), numInput('locW', 0.1, 0, 20), null], 'local');
   row(locTable, 'Fjellegger', 'm, ridged', [numInput('mtS', 100, 10, 100000), numInput('mtH', 50, 0, 5000, null, 'v'), null], 'mount');
   row(locTable, 'Egger, strekking', 'langs landet under', [null, numInput('mtT', 0.5, 0, 20), null]);
-  row(locTable, 'Egger, skar hver', 'm langs eggen', [null, numInput('mtBreak', 100, 0, 100000), null]);
-  row(locTable, 'Egger, skar dybde', '0–1', [null, numInput('mtNotch', 0.05, 0, 1), null]);
   row(locTable, 'Fjell over vanndeling', 'vekt 0–1', [null, numInput('mtDiv', 0.05, 0, 1), null]);
   row(locTable, 'Snø', 'fra og til, m o.h.', [numInput('snowFrom', 100, 0, 10000, () => render()), numInput('snowTo', 100, 0, 10000, () => render()), null]);
   row(locTable, 'Flat dalbunn', 'demper i bunnen, 0–1', [null, numInput('locFlat', 0.05, 0, 1), null]);
