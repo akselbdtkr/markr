@@ -101,6 +101,17 @@ kan den ikke det, så det blir ikke innlandssjøer.
     grunnere. Linjene møtes og krysser, så det blir grener, men også løkker.
 - **Fasthet:** løs grunn gir bredere bånd med flat bunn og bratte sider. Fast grunn gir
   smale bånd med myke, V-formede sider.
+- **Dalprofiler:** tverrsnittet av et nedsenk er en blanding av fire profiler, og andelene
+  kommer fra landskapstype, fasthet og lavland. Den myke terskelen i nedsenket tar formen de
+  andre lagene gir den:
+  - `[` flat bunn og bratte sider, i løs grunn: løse sletter og løse åser i lavland.
+  - `(` myk og rund, en U-dal, i åser og høyland.
+  - `{` to myke terskler, en flat hylle og en bratt kløft i midten, en kanyon, på platå.
+  - `<` rette sider som møtes i en spiss, en V-dal, i fjellsk.
+
+  Diagrammet «Dalprofiler» viser tverrsnittet og tegnet for hovedprofilen. Bortover går
+  landskapstypen, fra slette til fjellsk med tersklene dine, og oppover fra lavland til
+  høyland.
 - **Linjebredde og myke kanter:** bredden på båndet og hvor langt S-kurven går ut fra
   linja kan justeres hver for seg.
 - **Retning:** deler av båndet som går på tvers av helningen, blir grunne. Dype,
@@ -166,7 +177,9 @@ seksjon tegnes, lagres elvene der, og funksjoner går gjennom dem.
    kobles. Korte blir smalere, så en lang elv renner gjennom, mens små innsjøer ved siden av
    ikke slår seg sammen. Koblinger tar den smaleste av de to endene og slynger seg høyst en
    halv bredde.
-6. **Sund:** en kjede der begge ender åpner mot havet, blir et sund med vannflate på 0 m.
+6. **Bekker under en rute:** en elv smalere enn ruta gjør ikke ruta til vann. Ruta får i
+   stedet en blåtone etter hvor stor del av den elva dekker, så smale elver ikke brytes opp.
+7. **Sund:** en kjede der begge ender åpner mot havet, blir et sund med vannflate på 0 m.
 
 «Elvenes bunnpunkter og koblinger» viser dette med tegnforklaring.
 

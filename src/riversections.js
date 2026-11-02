@@ -440,7 +440,7 @@
         }
       }
       this.graphs.set(k, { segs: [...segs], rings });
-      const water = new Uint8Array(N * N), surf = new Float32Array(N * N), sea = new Uint8Array(N * N);
+      const water = new Uint8Array(N * N), surf = new Float32Array(N * N), sea = new Uint8Array(N * N), cover = new Float32Array(N * N);
       const minW = this.p.minW || 0;
       const list = [...segs].map((s) => {
         const wa = Math.max(s.a.W, minW), wb = Math.max(s.b.W, minW), r = Math.max(wa, wb) / 2;
@@ -449,7 +449,7 @@
       for (let j = 0; j < N; j++) {
         for (let i = 0; i < N; i++) {
           const cx = x0 + (i + 0.5) * cell, cy = y0 + (j + 0.5) * cell, o = j * N + i;
-          let vs = Infinity, isSea = false;
+          let vs = Infinity, isSea = false, cov = 0, cvs = Infinity;
           for (const s of list) {
             if (cx < s.x0 || cx > s.x1 || cy < s.y0 || cy > s.y1) continue;
             const ex = s.bx - s.ax, ey = s.by - s.ay, l2 = ex * ex + ey * ey;
@@ -458,16 +458,24 @@
             if (d < w / 2) {
               vs = Math.min(vs, s.vs);
               isSea = isSea || s.sea;
+            } else if (w < cell && d < cell / 2) {
+              // A river narrower than a cell: the cell is tinted by the share
+              // of it the river covers, instead of being water or not.
+              cov = Math.max(cov, w / cell);
+              cvs = Math.min(cvs, s.vs);
             }
           }
           if (vs < Infinity) {
             water[o] = 1;
             surf[o] = vs;
             sea[o] = isSea ? 1 : 0;
+          } else if (cov > 0) {
+            cover[o] = cov;
+            surf[o] = cvs;
           }
         }
       }
-      mask = { water, surf, sea };
+      mask = { water, surf, sea, cover };
       this.masks.set(k, mask);
       return mask;
     }
@@ -480,7 +488,7 @@
       if (!mask) return undefined;
       const i = Math.min(N - 1, Math.floor((x - si * this.size) / this.p.cell)), j = Math.min(N - 1, Math.floor((y - sj * this.size) / this.p.cell));
       const o = j * N + i;
-      return { water: mask.water[o] === 1, vSurf: mask.surf[o], sea: mask.sea[o] === 1 };
+      return { water: mask.water[o] === 1, vSurf: mask.surf[o], sea: mask.sea[o] === 1, cover: mask.cover[o] };
     }
   }
 

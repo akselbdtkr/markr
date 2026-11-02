@@ -63,22 +63,24 @@
     const r = regionAt(x, y, v0);
     let v = v0, band = 0;
     if (dep) {
-      const d = dep.at(x, y, v0, vb, inland, r ? r.firm : 0.5, large, r ? r.w[0] : 0);
+      const d = dep.at(x, y, v0, vb, inland, r ? r.firm : 0.5, large, r ? r.w[0] : 0, r ? r.w : null);
       v = d.v;
       band = d.band;
     }
     // Rivers: class 4 (elv), on land only.
-    let water = false, sea = false;
+    let water = false, sea = false, tint = 0;
     // Large views draw only large rivers: skip the river sum where even the
     // widest river here would be under two drawn points (no section step).
     const small = !withSections && r && river && river.maxWidth(layer.height(v0), r.firm) < 2 * pixNow;
     if (river && v >= state.tSea && !small) {
-      const rv = river.at(x, y, v, withSections && sections ? sections.waterAt(x, y) : undefined);
+      const mask = withSections && sections ? sections.waterAt(x, y) : undefined;
+      const rv = river.at(x, y, v, mask);
+      if (mask && !mask.water) tint = mask.cover;
       v = rv.v;
       water = rv.water;
       sea = !!rv.sea;
     }
-    return { v, h: layer.height(v), cls: sea ? 0 : water ? 4 : layer.cls(v), region: r, band };
+    return { v, h: layer.height(v), cls: sea ? 0 : water ? 4 : layer.cls(v), region: r, band, tint };
   }
   // Region at a point (land only), or null.
   const regionAt = (x, y, v) => (v >= state.tSea ? region.at(x, y, v) : null);
@@ -150,6 +152,7 @@
     const col = new Float32Array(nx * ny * 3), how = new Uint8Array(nx * ny);
     // Inside a depression (band over a half), for its dashed outline.
     const inDep = new Uint8Array(nx * ny);
+    const tints = new Float32Array(nx * ny); // narrow rivers: share of the cell
     const setCol = (k, c, mode) => {
       col[3 * k] = c[0];
       col[3 * k + 1] = c[1];
@@ -174,7 +177,7 @@
           }
           cl[k] = 1;
           if (state.show === 'type') setCol(k, M.RegionLayer.colour(r.w), 2);
-          else if (state.show === 'dep') hs[k] = dep ? 2400 * dep.band(x, y, r.firm) : 0;
+          else if (state.show === 'dep') hs[k] = dep ? 2400 * dep.band(x, y, r.firm, 0, r.w) : 0;
           else hs[k] = 2400 * r[state.show];
           continue;
         }
@@ -189,6 +192,7 @@
         hs[k] = f.h;
         cl[k] = f.cls;
         inDep[k] = f.band > 0.5 ? 1 : 0;
+        tints[k] = f.tint || 0;
         if (on.type && cl[k] > 0 && f.region) setCol(k, M.RegionLayer.colour(f.region.w), 1);
       }
     }
@@ -214,6 +218,11 @@
           // (hx, hy > 0) faces the light and is brighter.
           const sh = state.mono ? Math.max(-0.35, Math.min(0.35, ((hx + hy) / (4 * d)) * 14)) : Math.max(-0.2, Math.min(0.2, ((hx + hy) / (4 * d)) * 8));
           c = [c[0] * (1 + sh), c[1] * (1 + sh), c[2] * (1 + sh)];
+          // A river narrower than the cell: a share of water blue.
+          if (tints[k] > 0) {
+            const t = Math.min(1, tints[k]);
+            c = [c[0] + (SEA[0] - c[0]) * t, c[1] + (SEA[1] - c[1]) * t, c[2] + (SEA[2] - c[2]) * t];
+          }
           // Contours every 100 m.
           if (state.contours && h > 0) {
             // Every 10 m on screen (in simulation units: 10 × scaleV).
@@ -393,6 +402,60 @@
     return P;
   }
 
+  // --- valley profiles: which cross-section arises where -----------------------
+  // Across: the type value (slette to fjellsk, with your thresholds); up:
+  // lowland to highland. Each cell shows the blended cross-section and the
+  // sign of its main profile, on the colour of the landscape there.
+  function drawValleys() {
+    const cv = document.getElementById('depprofile');
+    const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+    if (!W || !region) return;
+    cv.width = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+    const c2 = cv.getContext('2d');
+    c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c2.clearRect(0, 0, W, H);
+    const cols = 7, rows = 4, L = 16, B = 14, cw = (W - L) / cols, ch = (H - B) / rows, P = M.DepressionLayer.PROFILES;
+    const ink = css('--text');
+    for (let r = 0; r < rows; r++) {
+      const low = (r + 0.5) / rows; // top row: highland (little lowland)
+      const hrel = 1 - low;
+      const fm = Math.max(0, Math.min(1, 0.5 + 0.5 * Math.tanh(state.firmInherit * (2 * hrel - 1) * 0.75)));
+      for (let q = 0; q < cols; q++) {
+        const z = -3 + (6 * (q + 0.5)) / cols, w = region.weights(z), sw = M.DepressionLayer.shapes(w, fm, low);
+        const x0 = L + q * cw, y0 = r * ch, col = M.RegionLayer.colour(w);
+        c2.fillStyle = `rgba(${col.map((v) => v | 0).join(',')},0.55)`;
+        c2.fillRect(x0 + 1, y0 + 1, cw - 2, ch - 2);
+        // The cross-section, as a valley cut down from the top of the cell.
+        c2.strokeStyle = ink;
+        c2.lineWidth = 1.5;
+        c2.beginPath();
+        for (let k = 0; k <= 24; k++) {
+          const t = -1.25 + (2.5 * k) / 24, px = x0 + 3 + ((cw - 6) * k) / 24, py = y0 + 13 + (ch - 18) * M.DepressionLayer.profile(Math.abs(t), sw);
+          k ? c2.lineTo(px, py) : c2.moveTo(px, py);
+        }
+        c2.stroke();
+        const top = sw.indexOf(Math.max(...sw));
+        c2.fillStyle = ink;
+        c2.font = '600 11px ui-monospace, monospace';
+        c2.textAlign = 'center';
+        c2.fillText(P[top].sym, x0 + cw / 2, y0 + 10);
+      }
+    }
+    c2.fillStyle = css('--muted');
+    c2.font = '10px system-ui, sans-serif';
+    c2.textAlign = 'left';
+    c2.fillText('slette', L, H - 3);
+    c2.textAlign = 'right';
+    c2.fillText('fjellsk', W, H - 3);
+    c2.save();
+    c2.translate(10, H - B);
+    c2.rotate(-Math.PI / 2);
+    c2.textAlign = 'left';
+    c2.fillText('lavland → høyland', 0, 0);
+    c2.restore();
+  }
+
   // Sample the map on a coarse grid over 8000 km for the bars.
   function sampleBins(n, min, max, val) {
     const span = 8e6, d = span / n, bins = new Float32Array(BINS);
@@ -444,6 +507,7 @@
     typeProfile.draw();
     curveH.draw();
     curveF.draw();
+    drawValleys();
   }
   // --- size curves for rivers: points dragged up and down ---------------------
 
@@ -762,7 +826,7 @@
       return;
     }
     const c = hover.cls, r = hover.region;
-    let col = c === 0 ? SEA : c === 4 ? RIVER : landColour(hover.h), name = CLASS_NAMES[c];
+    let col = c === 0 ? SEA : c === 4 ? RIVER : landColour(hover.h), name = hover.tint > 0 ? 'bekk' : CLASS_NAMES[c];
     if (r && on.type && !state.mono && c !== 4) {
       const top = r.w.indexOf(Math.max(...r.w));
       col = M.RegionLayer.TYPES[top].colour;

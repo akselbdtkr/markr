@@ -69,22 +69,23 @@
       return M.Lattice.pick(this.lats, L / 16, this.latFn, true).at(x, y);
     }
 
-    // The band at a point (0 outside, 1 at the centre), given firmness and
-    // how much lowland it lies in (low, 0..1). In lowland the band is fuller
-    // and its direction counts less, so it does not break into pieces.
-    band(x, y, firm, low = 0) {
+    // The band at a point (0 outside, 1 at the centre), given firmness, how
+    // much lowland it lies in (low, 0..1) and the landscape types' shares w.
+    // In lowland the band is fuller and its direction counts less, so it
+    // does not break into pieces. Its cross-section is a blend of four
+    // valley profiles (see DepressionLayer.shapes).
+    band(x, y, firm, low = 0, w = null) {
       const p = this.p, median = p.depMode !== 'ridged';
       const [n, par, n2] = this.lines(x, y);
-      // Width and sides from firmness: loose is wider with a flat floor and
-      // steep sides, firm is narrow with soft sides.
-      // depSoft widens the S-curve outward from the line: softer edges.
-      const w = p.depWidth * (1.5 - firm), a = 0.5 * (1 - firm) / (1 + p.depSoft);
-      const prof = (t) => 1 - S(a, 1 + p.depSoft, t);
+      // Width from firmness: loose is wider. depSoft stretches the profile
+      // outward from the line: softer edges.
+      const wd = p.depWidth * (1.5 - firm) * (1 + 0.5 * p.depSoft);
+      const sw = DepressionLayer.shapes(w, firm, low);
       const align = 1 - p.depAlign * (1 - 0.8 * low) * (1 - S(0.3, 0.95, par));
-      let band = prof(Math.abs(n) / w) * align;
+      let band = DepressionLayer.profile(Math.abs(n) / wd, sw) * align;
       if (!median) {
         // Second octave: half the size, narrower and shallower, its own lines.
-        band = Math.max(band, 0.6 * prof(Math.abs(n2) / (0.5 * w)) * align);
+        band = Math.max(band, 0.6 * DepressionLayer.profile(Math.abs(n2) / (0.5 * wd), sw) * align);
       }
       // Fuller in lowland: the middle of the band reaches full depth sooner.
       return band + low * band * (1 - band);
@@ -100,11 +101,11 @@
     // far in: long fjords, and islands and sounds where bands lie close. The
     // inland threshold gives way in proportion. In highland the floor is the
     // base value minus the depth, and the inland threshold holds.
-    at(x, y, v, vb, inland, firm, large, plain = 0) {
+    at(x, y, v, vb, inland, firm, large, plain = 0, w = null) {
       const p = this.p, bp = this.base.p;
       if (vb < bp.tSea - 0.6) return { band: 0, v };
       const low = 1 - S(bp.tSea, bp.tHigh, large);
-      const band = this.band(x, y, firm, low);
+      const band = this.band(x, y, firm, low, w);
       if (band <= 0) return { band, v };
       const pull = Math.min(1, low * (p.depLow + p.depPlain * plain));
       const floor = (1 - pull) * (vb - p.depDepth) + pull * (bp.tSea - 0.15);
@@ -115,5 +116,37 @@
     }
   }
 
+  // The four valley profiles, over t = distance from the line / half width
+  // (1 at the centre, 0 from t = 1 out):
+  //   '['  flat floor, steep sides        (loose ground)
+  //   '('  soft, rounded: a U-valley      (hills and highland)
+  //   '{'  two soft steps, a flat bench,  (plateaus)
+  //        a steep gorge in the middle: a canyon
+  //   '<'  straight sides meeting in a point: a V-valley (fjellsk)
+  DepressionLayer.PROFILES = [
+    { sym: '[', name: 'flat bunn, bratte sider', f: (t) => 1 - S(0.8, 1, t) },
+    { sym: '(', name: 'U-dal', f: (t) => (t < 1 ? 1 - t * t : 0) },
+    { sym: '{', name: 'kanyon', f: (t) => 0.45 * (1 - S(0.55, 1, t)) + 0.55 * (1 - S(0.12, 0.22, t)) },
+    { sym: '<', name: 'V-dal', f: (t) => Math.max(0, 1 - t) },
+  ];
+  // Shares of the four profiles from the landscape types w (slette, åser,
+  // platå, fjellsk), firmness and lowland. The soft threshold of the
+  // depression takes the shape the other layers give it.
+  DepressionLayer.shapes = (w, firm, low) => {
+    const [ws, wa, wp, wf] = w || [1 - firm, 0, 0, firm];
+    const s = [
+      (1 - firm) * (ws + 0.5 * wa * low), // loose plains and loose lowland hills
+      wa * (0.5 + 0.5 * (1 - low)) + ws * (0.5 * (1 - low) + 0.3 * firm), // hills, highland
+      wp, // plateaus
+      wf, // fjellsk
+    ];
+    const sum = s[0] + s[1] + s[2] + s[3] || 1;
+    return s.map((v) => v / sum);
+  };
+  DepressionLayer.profile = (t, sw) => {
+    let v = 0;
+    for (let k = 0; k < 4; k++) if (sw[k] > 0) v += sw[k] * DepressionLayer.PROFILES[k].f(t);
+    return v;
+  };
   M.DepressionLayer = DepressionLayer;
 })(window.Markr = window.Markr || {});
