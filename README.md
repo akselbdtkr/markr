@@ -127,6 +127,14 @@ vannflate.
   helningen, så vannflaten faller jevnt nedover elva.
 - **Flere løp nær havet:** korridoren blir bredere, og et lite strukket noise-lag deler den i
   flere løp med øyer imellom. Hovedløpet blir smalere.
+- **Lapping, korte elver og ringer:** retningen er kjent (langs nullinjen). Noen punkter
+  foran og bak, flyttet tilbake på linja, sier om elva fortsetter. Et hull med elv på begge
+  sider innen «Lapp hull opptil» fylles. Et stykke uten elv på noen side innen «Kort elv
+  blir innsjø» blir en innsjø. En trang ring (radius fra linjas krumning, under «Ring blir
+  innsjø», og med linja også på motsatt side av sentrum) fylles helt til en rund innsjø
+  uten øy, med flat vannflate.
+- **Robust steg:** Newton-steget godtas bare når det lander på linja, og innenfor
+  krumningsradiusen. Ellers blir vannet flekkete fra punkt til punkt.
 - **Området rundt:** landet skråner ned mot vannet i en sone som er bredere i løs grunn, og
   som varierer med et sakte noise-lag.
 
