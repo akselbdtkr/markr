@@ -93,7 +93,7 @@
     // distance from a river's water (sim units), or Infinity.
     // mount: how much of a mountain the point is (fjellsk share, and more
     // the higher above the divide threshold).
-    at(x, y, pos, band, sw, edge, mount = 0, firm = 0.5) {
+    at(x, y, pos, band, sw, edge, mount = 0, firm = 0.5, hRel = 0) {
       const p = this.p;
       // Firmness: loose ground is lower and softer, firm ground higher and
       // sharper (locFirm sets how much).
@@ -123,6 +123,18 @@
         };
         const r = this.stretchedAt(x, y, Lm, 1 + p.mtT, 1, 0.5, ridge);
         dz += mount * p.mtH * p.scaleV * (1.6 * r - 0.15);
+        // Cols: a ridged noise stretched across the arêtes, along the level
+        // lines of the land below. It is a noise of the base level B (so it
+        // runs along the level lines and keeps its phase everywhere), its
+        // place warped by a 2D noise so the cuts wind and vary. Deeper cuts
+        // higher up, smaller ones lower down, and mostly into the crests.
+        if (p.cutH > 0) {
+          const fr = this.base.slopeFrame(x, y), sB = p.cutS * p.scaleH * this.base.typicalSlope();
+          const wv = 0.6 * nm(x / (2 * Lm) + 41.3, y / (2 * Lm) - 7.7);
+          const c1 = 1 - Math.abs(nm(fr.B / sB + wv, 3.7)), cut = c1 * c1 * c1 * c1;
+          const high = 0.25 + 0.75 * Math.max(0, Math.min(1, hRel));
+          dz -= mount * p.cutH * p.scaleV * cut * high * (0.4 + 0.6 * r);
+        }
       }
       if (dz === 0) return 0;
       if (band > 0 && sw) {

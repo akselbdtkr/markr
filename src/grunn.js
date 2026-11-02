@@ -20,7 +20,7 @@
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
     secZoom: 5000, lodRiver: 60, lodDep: 150, lodRegion: 300, lodLocal: 25,
     lcH: [0.05, 0.35, 0.2, 0.9], lcS: [0.2, 0.45, 0.6, 0.25], lcR: [0, 0, 0.3, 1], lcT: [0.2, 0.8, 0.4, 0.3], lcU: [0.2, 0.15, 0.1, 0.8],
-    locFlat: 0.8, locSide: 0.6, bank: 3000, locBank: 10000, mtH: 1500, mtS: 900, mtDiv: 1, mtFirm: 0.8, locFirm: 0.8, mtT: 4, locK: 3, locW: 2, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
+    locFlat: 0.8, locSide: 0.6, bank: 3000, locBank: 10000, mtH: 1500, mtS: 900, mtDiv: 1, mtFirm: 0.8, locFirm: 0.8, cutH: 700, cutS: 1500, mtT: 4, locK: 3, locW: 2, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 100, scaleV: 1,
@@ -36,7 +36,7 @@
 
   // Layers can be turned off without changing their values: their weight
   // goes to 0, while the normalisation stays as if they were on.
-  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true, dep: true, depStretch: true, river: true, sections: true, local: true, mount: true };
+  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true, dep: true, depStretch: true, river: true, sections: true, local: true, mount: true, cut: true };
   function newLayer() {
     const p = { ...state, norm: Math.hypot(state.contW, state.basinW, state.baseW) || 1, normCB: Math.hypot(state.contW, state.basinW) || 1 };
     for (const id of ['cont', 'basin', 'base', 's1', 'mid']) if (!on[id]) p[id + 'W'] = 0;
@@ -54,6 +54,7 @@
     const pl = { ...state };
     if (!on.local) pl.locW = 0;
     if (!on.mount) pl.mtH = 0;
+    if (!on.cut) pl.cutH = 0;
     local = on.local || on.mount ? new M.LocalLayer(layer, state.seed, pl) : null;
     // The per-section step: its own store of rivers, built when zoomed in.
     sections = river && on.sections
@@ -103,7 +104,7 @@
       // Firm ground gives mountain forms too, whatever the type.
       const firmM = state.mtFirm * Math.max(0, Math.min(1, (r.firm - 0.45) / 0.4));
       const mount = Math.min(1, Math.max(r.w[3], firmM) + state.mtDiv * Math.max(0, Math.min(1, (v - state.tDivide + 0.3) / 0.8)));
-      h = Math.max(0.5 * state.scaleV, h + local.at(x, y, r.pos, band, sw, edge, mount, r.firm));
+      h = Math.max(0.5 * state.scaleV, h + local.at(x, y, r.pos, band, sw, edge, mount, r.firm, h / Math.max(1, layer.height(state.tDivide))));
     }
     return { v, h, cls, region: r, band, tint };
   }
@@ -746,6 +747,7 @@
   }
   row(locTable, 'Detaljer', 'etter kurvene', [numInput('locK', 0.1, 0.1, 20), numInput('locW', 0.1, 0, 20), null], 'local');
   row(locTable, 'Fjellegger', 'm, ridged', [numInput('mtS', 100, 10, 100000), numInput('mtH', 50, 0, 5000, null, 'v'), null], 'mount');
+  row(locTable, 'Skar', 'm, på tvers av eggene', [numInput('cutS', 100, 10, 100000), numInput('cutH', 50, 0, 5000, null, 'v'), null], 'cut');
   row(locTable, 'Egger, strekking', 'langs landet under', [null, numInput('mtT', 0.5, 0, 20), null]);
   row(locTable, 'Fjell i fast grunn', 'vekt 0–1', [null, numInput('mtFirm', 0.05, 0, 1), null]);
   row(locTable, 'Fasthet → detaljer', 'fast: høyere, skarpere', [null, numInput('locFirm', 0.05, 0, 2), null]);
