@@ -1,0 +1,109 @@
+// Det lokale laget: the terrain's own detail, shaped by every layer below.
+//
+// Its form follows the landscape type, through curves along the chain
+// slette → åser → platå → fjellsk (the type place pos, 0..3), each set by
+// the player:
+//   height     how much it lifts and sinks (m on screen)
+//   size       the wavelength of its forms (m on screen)
+//   sharpness  from rolling fbm (0) to ridged crests (1)
+//   stretch    how much it is drawn out along the slope of the base
+//   roughness  how much the small octaves count: abrupt changes
+// Fjellsk lies above the old ice and rivers, so it keeps the most local
+// deformation: high, sharp, rough, and little stretched. Hills are rolling
+// and stretched the most; plateaus soft and low; plains almost flat.
+//
+// It works with the valley profiles: on the floor of a depression the detail
+// is damped (flat floors for '[' and '{', less for '('), on its sides it is
+// strengthened (steep sides for '[', '{' and '<'), and near a river it fades
+// out to the water, so banks come out natural.
+(function (M) {
+  'use strict';
+
+  const S = (a, b, v) => {
+    const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+  const frac = (v) => v - Math.floor(v);
+  const OCT = 4;
+
+  // The curves: values 0..1 at the four types, times these maxima.
+  const CURVES = [
+    { key: 'lcH', name: 'Høyde', max: 150, unit: 'm' },
+    { key: 'lcS', name: 'Størrelse', max: 3000, unit: 'm' },
+    { key: 'lcR', name: 'Skarphet', max: 1, unit: '' },
+    { key: 'lcT', name: 'Strekking', max: 10, unit: '×' },
+    { key: 'lcU', name: 'Ruhet', max: 1, unit: '' },
+  ];
+
+  class LocalLayer {
+    // base: a BaseLayer. p: the curves (lcH, lcS, lcR, lcT, lcU: 4 values
+    // each), locFlat, locSide, scaleH, scaleV.
+    constructor(base, seed, p) {
+      this.base = base;
+      this.p = p;
+      this.n = M.noise.createPerlin(seed * 71 + 1);
+    }
+
+    // A curve's value at the type place pos (0..3), piecewise linear.
+    at4(key, pos) {
+      const v = this.p[key], i = Math.max(0, Math.min(2, Math.floor(pos))), f = Math.max(0, Math.min(1, pos - i));
+      return v[i] + (v[i + 1] - v[i]) * f;
+    }
+
+    // fbm or ridged mix, with gain from roughness, about -1..1.
+    noiseAt(x, y, sharp, gain) {
+      let sum = 0, amp = 1, freq = 1, norm = 0, rid = 0;
+      for (let o = 0; o < OCT; o++) {
+        const v = this.n(x * freq + o * 17.31, y * freq - o * 9.73);
+        sum += amp * v;
+        const r = 1 - Math.abs(v);
+        rid += amp * r * r;
+        norm += amp;
+        amp *= gain;
+        freq *= 2;
+      }
+      const f = (sum / norm) * 2.5, r = (rid / norm) * 2 - 1;
+      return (1 - sharp) * f + sharp * r * 1.4;
+    }
+
+    // Stretched along the slope of the base: read at the two nearest level
+    // lines (as in BaseLayer.stretched) and blend.
+    stretchedAt(x, y, L, stretch, sharp, gain) {
+      const b = this.base, fr = b.slopeFrame(x, y);
+      const read = (qx, qy, k) => this.noiseAt(qx / L + frac(Math.sin(k * 127.1) * 43758.5) * 1000, qy / L + frac(Math.sin(k * 269.5) * 43758.5) * 1000, sharp, gain);
+      if (stretch <= 1.05 || fr.g < 1e-12) return read(x, y, 0);
+      const len = Math.min(stretch * L, 0.25 * b.p.basinSize * 1000), dB = len * b.typicalSlope();
+      const u = fr.B / dB, k = Math.floor(u), f = u - k;
+      const lim = fr.kappa > 0 ? Math.min(len, 0.5 / fr.kappa) : len;
+      const cap = (d) => (d <= 0 ? 0 : 1 / Math.pow(Math.pow(d, -4) + Math.pow(lim, -4), 0.25));
+      const d0 = fr.fade * cap((f * dB) / fr.g), d1 = fr.fade * cap(((1 - f) * dB) / fr.g);
+      const n0 = read(x - fr.ax * d0, y - fr.ay * d0, k), n1 = read(x + fr.ax * d1, y + fr.ay * d1, k + 1);
+      const w1 = f * f * (3 - 2 * f), w0 = 1 - w1;
+      return (w0 * n0 + w1 * n1) / Math.hypot(w0, w1);
+    }
+
+    // The local change in height (sim units) at a land point. pos: type
+    // place; band: depression band 0..1; sw: valley profile shares; edge:
+    // distance from a river's water (sim units), or Infinity.
+    at(x, y, pos, band, sw, edge) {
+      const p = this.p;
+      const H = this.at4('lcH', pos) * 150 * p.scaleV;
+      if (H <= 0) return 0;
+      const L = Math.max(16, this.at4('lcS', pos) * 3000) * p.scaleH;
+      const sharp = this.at4('lcR', pos), stretch = 1 + this.at4('lcT', pos) * 9, gain = 0.3 + 0.4 * this.at4('lcU', pos);
+      let dz = H * this.stretchedAt(x, y, L, stretch, sharp, gain);
+      if (band > 0 && sw) {
+        // Floor damped, sides strengthened, by the valley profile.
+        const floor = p.locFlat * band * band * (sw[0] + sw[2] + 0.5 * sw[1]);
+        const side = p.locSide * 4 * band * (1 - band) * (sw[0] + sw[2] + sw[3]);
+        dz *= (1 - floor) * (1 + side);
+      }
+      // Near the water the detail fades out, so banks run down to it.
+      if (edge < Infinity) dz *= S(0, Math.max(1, p.locBank), edge);
+      return dz;
+    }
+  }
+
+  LocalLayer.CURVES = CURVES;
+  M.LocalLayer = LocalLayer;
+})(window.Markr = window.Markr || {});

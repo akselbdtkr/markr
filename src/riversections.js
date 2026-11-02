@@ -418,7 +418,8 @@
         // lake; the rest is drawn but no waterway.
         if (ch.ring || this.ringPiece(ch)) ch.ringPiece = true;
         else if (ch.straight < this.p.bend) ch.lake = true;
-      } else if (ch.straight >= this.p.bend) this.toDivide(ch);
+      }
+      // (Sources up to the divide: left for a later step.)
       return ok;
     }
 

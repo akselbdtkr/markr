@@ -168,7 +168,7 @@ seksjon tegnes, lagres elvene der, og funksjoner går gjennom dem.
    til kjede ser vi om en kjede når havet, og alle som gjør det, utgjør trærne. Alt avhenger
    bare av kjeden selv. Trærne oppstår derfor mens spilleren utforsker, og blir like
    uansett rekkefølge. En seksjon tegner bare kjedene innen fast avstand, med deres egne
-   steg. Kilden til en lang kjede som når havet, følges oppover til vanndelingen.
+   steg.
 4. **Ingen vei til havet ennå:** kjeden tegnes som elv, men er ingen vannvei. En kort kjede
    blir en liten innsjø. En bit av en ring fjernes. Det gjelder en trang, lukket linje som
    ofte er brutt i biter: radius fra tre punkter under koblingsavstanden, minst en radian av
@@ -208,6 +208,21 @@ punkt for punkt, men tar ikke bort noe. En elv som allerede er sammenhengende, b
 aldri opp. Bare ringer og ringbiter fjernes.
 
 «Elvenes bunnpunkter og koblinger» viser dette med tegnforklaring.
+
+### Det lokale laget (`src/locallayer.js`)
+
+Terrengets egne detaljer, formet av alle lagene under. Formen følger landskapstypen gjennom
+fem kurver langs slette → åser → platå → fjellsk, som dras opp og ned: høyde, størrelse,
+skarphet (fra rullende fbm til ridged rygger), strekking langs helningen og ruhet (hvor mye
+de små oktavene teller, altså hvor brå endringene er). Fjellsk ligger over isbreene og elvene
+og har mest lokal deformasjon igjen: høyt, skarpt, røft og lite strukket. Åser er rullende og
+strukket mest, platå mykt og lavt, og sletter nesten flate.
+
+Laget samspiller med dalprofilene. I bunnen av et nedsenk dempes det («Flat dalbunn»), mest
+for `[` og `{`. På sidene forsterkes det («Brattere sider»). Nær elva jevnes det ut mot vannet
+(«Jevnes mot vannet»). «Bredd» flytter elvekanten inn og ut med et noise-lag langs elva, så
+elva både spiser av landet og gir etter for det, og får en lokal slyng. Laget vises når
+utsnittet er under 25 km.
 
 **Målestokk:** simuleringen har sine egne enheter. På skjermen er én enhet 1/50 m
 bortover og 1/10 m i høyden (justerbart: «Målestokk 1:» og «Høyde 1:»). Laget er laget i stor

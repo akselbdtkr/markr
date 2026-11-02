@@ -125,6 +125,20 @@
       <div id="deplayers" class="grid"></div>
     </details>
     <details class="sec">
+      <summary>Lokale lag</summary>
+      <div class="curvehead">Høyde, opptil 150 m</div>
+      <canvas id="loc_lcH" class="curve" tabindex="0" aria-label="Høyde (opptil 150 m) i det lokale laget etter landskapstype. Dra punktene opp og ned."></canvas>
+      <div class="curvehead">Størrelse, opptil 3 km</div>
+      <canvas id="loc_lcS" class="curve" tabindex="0" aria-label="Størrelse (opptil 3 km) i det lokale laget etter landskapstype. Dra punktene opp og ned."></canvas>
+      <div class="curvehead">Skarphet: rullende → rygger</div>
+      <canvas id="loc_lcR" class="curve" tabindex="0" aria-label="Skarphet: rullende → rygger i det lokale laget etter landskapstype. Dra punktene opp og ned."></canvas>
+      <div class="curvehead">Strekking langs helningen</div>
+      <canvas id="loc_lcT" class="curve" tabindex="0" aria-label="Strekking langs helningen i det lokale laget etter landskapstype. Dra punktene opp og ned."></canvas>
+      <div class="curvehead">Ruhet: myke → brå endringer</div>
+      <canvas id="loc_lcU" class="curve" tabindex="0" aria-label="Ruhet: myke → brå endringer i det lokale laget etter landskapstype. Dra punktene opp og ned."></canvas>
+      <div id="loclayers" class="grid"></div>
+    </details>
+    <details class="sec">
       <summary>Elvene</summary>
       <div class="curvehead">Størrelse etter høyde</div>
       <canvas id="rvH" class="curve" tabindex="0" aria-label="Elvenes størrelse etter høyde. Dra punktene opp og ned."></canvas>
@@ -142,7 +156,7 @@
       <label class="check"><input id="lineDivide" type="checkbox">Omriss av vanndelingsfelt</label>
       <label class="check"><input id="lineDep" type="checkbox">Omriss av nedsenksfelt</label>
       <label class="check"><input id="showNodes" type="checkbox">Elvenes bunnpunkter og koblinger</label>
-      <div id="nodeLegend" class="legend" hidden><span><i style="background:#1d3f7a"></i>elvelinje i et tre (når havet)</span><span><i style="background:#8c9aa8"></i>elvelinje uten vei til havet ennå</span><span><i style="background:#d4302a"></i>kobling ende–ende</span><span><i style="background:#2fa84a"></i>sideelv: ende inn midt på elv</span><span><i style="background:#e08a1e"></i>vei nedover</span><span><i style="background:#1fa6c9"></i>kilde opp til vanndelingen</span><span><i style="background:#5b6b7a"></i>kort kjede: innsjø</span><span><i style="background:#8a3fb8"></i>ring (fjernet)</span></div>
+      <div id="nodeLegend" class="legend" hidden><span><i style="background:#1d3f7a"></i>elvelinje i et tre (når havet)</span><span><i style="background:#8c9aa8"></i>elvelinje uten vei til havet ennå</span><span><i style="background:#d4302a"></i>kobling ende–ende</span><span><i style="background:#2fa84a"></i>sideelv: ende inn midt på elv</span><span><i style="background:#e08a1e"></i>vei nedover</span><span><i style="background:#5b6b7a"></i>kort kjede: innsjø</span><span><i style="background:#8a3fb8"></i>ring (fjernet)</span></div>
     </div>
     <button id="copy" class="wide">Kopier innstillinger</button>
   </aside>
@@ -154,6 +168,7 @@
   <script src="src/depressionlayer.js"></script>
   <script src="src/riverline.js"></script>
   <script src="src/riversections.js"></script>
+  <script src="src/locallayer.js"></script>
   <script src="src/grunn.js"></script>
 </body>
 </html>

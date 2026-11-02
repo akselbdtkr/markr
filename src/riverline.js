@@ -62,7 +62,7 @@
       const g = Math.sqrt(g2), d = Math.abs(n) / g;
       // The farthest a point can be from the line and still be touched: half
       // the widest river (with the corridor near the sea) and the zone.
-      const maxZone = 0.5 * p.riverWidth * (1 + 1.2 * p.riverBraid) + p.riverZone * 1000 * 1.5 + (p.riverMin || 0);
+      const maxZone = 0.5 * p.riverWidth * (1 + 1.2 * p.riverBraid) + p.riverZone * 1000 * 1.5 + (p.riverMin || 0) + (p.bank || 0);
       if (d > maxZone) return null;
       // The bottom of this cross-section.
       const qx = x - (n * nx) / g2, qy = y - (n * ny) / g2;
@@ -141,12 +141,16 @@
     at(x, y, v, mask) {
       const p = this.p, b = this.base;
       const bt = this.bottom(x, y);
-      if (mask && mask.water) return { v: Math.min(v, mask.vSurf), water: true, sea: mask.sea };
-      if (!bt) return { v, water: false };
+      if (mask && mask.water) return { v: Math.min(v, mask.vSurf), water: true, sea: mask.sea, edge: 0 };
+      if (!bt) return { v, water: false, edge: Infinity };
       const { d, qx, qy, W, vSurf, fade, firm, nearSea } = bt;
       // Near the water: a wider corridor split into channels.
       let water = false;
-      const half = W / 2;
+      // Banks: the edge moves in and out by up to p.bank, by a noise along
+      // the river, so the river eats into the land and gives way to it: a
+      // local winding on top of its course.
+      const Lb = Math.max(4 * W, 6 * (p.bank || 0), 1);
+      const half = Math.max(0, W / 2 + (p.bank || 0) * this.nb(x / Lb + 31.7, y / Lb - 12.9) * S(0.1, 0.4, fade));
       if (nearSea > 0.05) {
         const corridor = half * (1 + 1.2 * nearSea);
         if (d < corridor) {
@@ -157,17 +161,17 @@
       // The section step adds water (links, lakes) and removes rings; it does
       // not take away a river that is already whole here.
       if (mask && mask.remove) water = false;
-      if (water) return { v: Math.min(v, vSurf), water: true };
+      if (water) return { v: Math.min(v, vSurf), water: true, edge: 0 };
       // The zone around: the land slopes down toward the water. Its size
       // follows firmness (loose is wider) and a slow noise.
       const zn = this.nz(qx / 40000, qy / 40000);
       const Z = p.riverZone * 1000 * (0.6 + 0.6 * (1 - firm)) * (0.75 + 0.5 * zn) * fade;
       const edge = half * (1 + 1.2 * nearSea);
-      if (d >= edge + Z) return { v, water: false };
+      if (d >= edge + Z) return { v, water: false, edge: d - edge };
       const t = (d - edge) / Math.max(1, Z);
       const bank = vSurf + (v - vSurf) * t; // a straight bank up to the land
       const k = 1 - S(0, 1, t);
-      return { v: v + k * (Math.min(v, bank) - v), water: false };
+      return { v: v + k * (Math.min(v, bank) - v), water: false, edge: d - edge };
     }
   }
 

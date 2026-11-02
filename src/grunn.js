@@ -18,7 +18,9 @@
     vA1: 0.27, vA2: 1.17, vA3: 1.8, vB1: 0.15, vB2: 0.55, vB3: 0.74, vH: 0.4,
     riverAlign: 0.6, riverWidth: 50000, riverDeep: 4, riverZone: 4,
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
-    secZoom: 5000, lodRiver: 60, lodDep: 150, lodRegion: 300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
+    secZoom: 5000, lodRiver: 60, lodDep: 150, lodRegion: 300, lodLocal: 25,
+    lcH: [0.05, 0.35, 0.2, 0.9], lcS: [0.2, 0.45, 0.6, 0.25], lcR: [0, 0, 0.3, 1], lcT: [0.2, 0.8, 0.4, 0.3], lcU: [0.2, 0.15, 0.1, 0.8],
+    locFlat: 0.8, locSide: 0.6, bank: 3000, locBank: 10000, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 100, scaleV: 1,
@@ -28,13 +30,13 @@
   const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
   const prof = document.getElementById('profile');
   const view = { cx: 0, cy: 0, mpp: 2500 };
-  let layer = null, region = null, dep = null, river = null, sections = null, useSections = false, job = 0, hover = null, pixNow = 0;
+  let local = null, layer = null, region = null, dep = null, river = null, sections = null, useSections = false, job = 0, hover = null, pixNow = 0;
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
   // Layers can be turned off without changing their values: their weight
   // goes to 0, while the normalisation stays as if they were on.
-  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true, dep: true, depStretch: true, river: true, sections: true };
+  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true, dep: true, depStretch: true, river: true, sections: true, local: true };
   function newLayer() {
     const p = { ...state, norm: Math.hypot(state.contW, state.basinW, state.baseW) || 1, normCB: Math.hypot(state.contW, state.basinW) || 1 };
     for (const id of ['cont', 'basin', 'base', 's1', 'mid']) if (!on[id]) p[id + 'W'] = 0;
@@ -49,6 +51,7 @@
     if (!on.depStretch) pd.depStretch = 1;
     dep = on.dep ? new M.DepressionLayer(layer, state.seed, pd) : null;
     river = dep && on.river ? new M.RiverLine(layer, region, dep, state.seed, { ...state }) : null;
+    local = on.local ? new M.LocalLayer(layer, state.seed, { ...state }) : null;
     // The per-section step: its own store of rivers, built when zoomed in.
     sections = river && on.sections
       ? new M.RiverSections(river, (x, y) => {
@@ -62,7 +65,7 @@
   // Far out, layers are left out one by one (by the view's width on
   // screen): rivers, then the depression layer, then the region layers, so
   // only the base layers and the middle layer remain.
-  const lod = { river: true, dep: true, region: true };
+  const lod = { river: true, dep: true, region: true, local: true };
   function fullCore(x, y, withSections) {
     const [vb, v0, inland, large] = layer.valueParts(x, y);
     const r = lod.region ? regionAt(x, y, v0) : null;
@@ -73,7 +76,7 @@
       band = d.band;
     }
     // Rivers: class 4 (elv), on land only.
-    let water = false, sea = false, tint = 0;
+    let water = false, sea = false, tint = 0, edge = Infinity;
     // Large views draw only large rivers: skip the river sum where even the
     // widest river here would be under two drawn points (no section step).
     const small = !withSections && r && river && river.maxWidth(layer.height(v0), r.firm) < 2 * pixNow;
@@ -84,8 +87,18 @@
       v = rv.v;
       water = rv.water;
       sea = !!rv.sea;
+      edge = rv.edge;
     }
-    return { v, h: layer.height(v), cls: sea ? 0 : water ? 4 : layer.cls(v), region: r, band, tint };
+    const cls = sea ? 0 : water ? 4 : layer.cls(v);
+    let h = layer.height(v);
+    // The local layer, on land: shaped by the landscape type, the valley
+    // profile and the river.
+    if (local && lod.local && r && cls >= 1 && cls <= 3) {
+      const low = 1 - Math.max(0, Math.min(1, (large - state.tSea) / (state.tHigh - state.tSea)));
+      const sw = band > 0 ? M.DepressionLayer.shapes(r.pos, 1 - low, state) : null;
+      h = Math.max(0.5 * state.scaleV, h + local.at(x, y, r.pos, band, sw, edge));
+    }
+    return { v, h, cls, region: r, band, tint };
   }
   // Region at a point (land only), or null.
   const regionAt = (x, y, v) => (v >= state.tSea ? region.at(x, y, v) : null);
@@ -131,6 +144,7 @@
     lod.river = viewM <= state.lodRiver * 1000;
     lod.dep = viewM <= state.lodDep * 1000;
     lod.region = viewM <= state.lodRegion * 1000;
+    lod.local = viewM <= state.lodLocal * 1000;
     if (useSections) {
       // Always build on the same lattice: one cell, so a section's rivers do
       // not depend on what was drawn before.
@@ -485,6 +499,7 @@
     typeProfile.draw();
     curveH.draw();
     curveF.draw();
+    for (const c of localCurves) c.draw();
   }
   // --- size curves for rivers: points dragged up and down ---------------------
 
@@ -568,6 +583,8 @@
     });
     return P;
   }
+  // The local layer's curves along slette → fjellsk.
+  const localCurves = M.LocalLayer.CURVES.map((c) => makeCurve({ canvas: document.getElementById('loc_' + c.key), xs: [0, 1, 2, 3], key: c.key, label: (x) => (x ? 'fjellsk' : 'slette') }));
   const curveH = makeCurve({ canvas: document.getElementById('rvH'), xs: M.RiverLine.CURVE_H, key: 'rvH', label: (x) => (x ? `vanndeling ${Math.round(layer.height(state.tDivide) / state.scaleV)} m` : '0 m') });
   const curveF = makeCurve({ canvas: document.getElementById('rvF'), xs: M.RiverLine.CURVE_F, key: 'rvF', label: (x) => (x ? 'fast' : 'løs') });
   // Where river bottoms lie, by height on screen and by firmness.
@@ -704,6 +721,19 @@
   row(regTable, 'Høyde → type', 'høyere → fjellsk', [null, numInput('typeHeight', 0.05, 0, 3), null]);
   row(regTable, 'Fuktighet', 'type og fasthet', [null, null, eye('moist', 'Fuktighet')]);
   row(regTable, 'Vises', 'når utsnittet er under, km', [null, numInput('lodRegion', 10, 1, 100000, () => render()), null]);
+  const locTable = document.getElementById('loclayers');
+  for (const t of ['', '', '', 'verdi', '']) {
+    const d = document.createElement('div');
+    d.className = 'col-head';
+    d.textContent = t;
+    locTable.appendChild(d);
+  }
+  row(locTable, 'Lokalt lag', 'av/på', [null, null, null], 'local');
+  row(locTable, 'Flat dalbunn', 'demper i bunnen, 0–1', [null, numInput('locFlat', 0.05, 0, 1), null]);
+  row(locTable, 'Brattere sider', 'forsterker på sidene, 0–1', [null, numInput('locSide', 0.05, 0, 3), null]);
+  row(locTable, 'Bredd', 'm, kanten inn og ut', [null, numInput('bank', 100, 0, 100000, null, 'h'), null]);
+  row(locTable, 'Jevnes mot vannet', 'm fra kanten', [null, numInput('locBank', 500, 0, 500000, null, 'h'), null]);
+  row(locTable, 'Vises', 'når utsnittet er under, km', [null, numInput('lodLocal', 5, 1, 100000, () => render()), null]);
   row(regTable, 'Strekking', 'langs helningen', [null, numInput('regStretch', 0.5, 1, 20), null], 'regStretch');
   document.getElementById('legend').innerHTML = M.RegionLayer.TYPES.map((t) => `<span><i style="background:rgb(${t.colour.join(',')})"></i>${t.name}</span>`).join('');
   const depTable = document.getElementById('deplayers');
