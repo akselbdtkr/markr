@@ -150,18 +150,23 @@ går gjennom dem:
 2. **Kjeder:** hvert bunnpunkt kobles til nærmeste foran og bak langs linja. Kjedene kan gås
    opp og ned, og en kjede som kommer tilbake til seg selv, er en ring.
 3. **Koble:** fra hver løse ende kobles nærmeste løse ende i en annen kjede innen
-   «Koble ender», om den ligger foran og vender tilbake.
+   «Koble ender», om den ligger foran og vender tilbake. Finnes ingen, kobles enden midt på
+   en annen elv foran og munner ut i den (sideelv). Koblinger og veier nedover beholder
+   elvas bredde: den største av de siste punktene inn i elva.
 4. **Nedover:** den laveste enden i en kjede som ikke når vann, følger landet nedover
    («Følg nedover») til hav eller en annen elv. En grop stopper den.
-5. **Ringer og korte kjeder:** ringer fylles til innsjøer uten øy. Korte løse kjeder
-   («Kort kjede») blir innsjøer.
-6. **Slyng:** i sletter svinger løpet fra side til side. Slyngen er en sinus av posisjonen
-   langs linja, så nabo-seksjoner er enige.
+5. **Ringer, korte kjeder og sund:** ringer fylles til innsjøer uten øy. Korte løse kjeder
+   («Kort kjede») blir innsjøer. En kjede der begge løse ender åpner mot havet, blir et sund
+   med vannflate på 0 m hele veien.
+6. **Slyng:** bare koblingene slynger seg, med hele halvbølger mellom endene. Selve elva
+   ligger der nedsenket går.
 7. **Tegne:** rutene i seksjonen som ligger i et løp eller en innsjø, er vann.
 
 En seksjon leser sine egne og de åtte nabo-seksjonenes bunnpunkter, så elvene kobles over
 seksjonsgrensene. «Elvenes bunnpunkter og koblinger» viser kjedene: mørkeblå langs linja,
-røde koblinger, oransje veier nedover og fiolette ringer.
+røde koblinger, grønne sideelver, oransje veier nedover og fiolette ringer. Seksjonene
+bygges alltid på samme oppløsning (én rute), så resultatet ikke avhenger av hva som ble tegnet
+før.
 
 **Målestokk:** simuleringen har sine egne enheter. På skjermen er én enhet 1/50 m
 bortover og 1/10 m i høyden (justerbart: «Målestokk 1:» og «Høyde 1:»). Laget er laget i stor

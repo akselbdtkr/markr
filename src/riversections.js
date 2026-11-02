@@ -9,14 +9,16 @@
 //    along its line. That gives chains that can be walked up and down, and a
 //    chain that comes back to itself is a ring.
 // 3. Connect: from each loose end, the nearest loose end of another chain
-//    within reach, roughly ahead and facing back, is joined to it.
+//    within reach, roughly ahead and facing back, is joined to it; failing
+//    that, the end joins the middle of another river ahead and feeds into
+//    it. Links keep the river's width and swing like meanders.
 // 4. Downstream: the lowest end of a chain that does not reach water follows
 //    the land downhill, a step at a time, until it reaches the sea or another
 //    river (or a pit, which becomes a small lake).
 // 5. Rings and short loose chains become lakes; a ring is filled with no
-//    island in the middle.
-// 6. Meanders: in plains, the channel swings from side to side along the
-//    line (a sine of the position along it, so neighbouring sections agree).
+//    island in the middle. A chain whose ends both open onto the sea is a
+//    sound, at sea level all the way.
+// 6. Meanders: only the links swing (whole half waves between their ends).
 // 7. Draw: the section's cells (16 m) inside a channel or lake are water.
 //
 // A section reads its own and its eight neighbours' bottom points, so rivers
@@ -126,12 +128,27 @@
       const join = (a, b) => (parent[find(a)] = find(b));
       for (const s of segs) join(s.a.idx, s.b.idx);
       // Loose ends: no link ahead, or none behind. Outward direction.
+      // An end's width: the river thins where it fades out, so an end takes
+      // the widest of the last few points inward. Links and walks keep the
+      // river's size.
+      const endW = (n, inward) => {
+        let w = n.W, cur = n;
+        for (let s = 0; s < 8; s++) {
+          const nx = inward === 'b' ? cur.b : cur.f;
+          if (nx < 0) break;
+          cur = nodes[nx];
+          w = Math.max(w, cur.W);
+        }
+        return w;
+      };
       const ends = [];
       for (const n of nodes) {
-        if (n.f < 0) ends.push({ n, ox: n.tx, oy: n.ty, used: false });
-        if (n.b < 0) ends.push({ n, ox: -n.tx, oy: -n.ty, used: false });
+        if (n.f < 0) ends.push({ n, ox: n.tx, oy: n.ty, used: false, W: endW(n, 'b') });
+        if (n.b < 0) ends.push({ n, ox: -n.tx, oy: -n.ty, used: false, W: endW(n, 'f') });
       }
-      // 3. Connect loose ends of different chains within reach.
+      // 3. Connect: a loose end to the nearest loose end of another chain
+      // ahead and facing back; failing that, to the middle of another river
+      // ahead, which it then feeds into. The link swings like a meander.
       for (const e of ends) {
         if (e.used) continue;
         let best = null, bd = gap;
@@ -146,8 +163,23 @@
         }
         if (best) {
           e.used = best.used = true;
-          addSeg(e.n, best.n, 'bridge');
+          this.link(e.n, best.n, Math.max(e.W, best.W), segs, 'bridge');
           join(e.n.idx, best.n.idx);
+          continue;
+        }
+        let mid = null;
+        bd = gap;
+        for (const c of nodes) {
+          if (find(c.idx) === find(e.n.idx)) continue;
+          const vx = c.x - e.n.x, vy = c.y - e.n.y, dist = Math.hypot(vx, vy);
+          if (dist >= bd || dist === 0 || (vx * e.ox + vy * e.oy) / dist < 0.6) continue;
+          mid = c;
+          bd = dist;
+        }
+        if (mid) {
+          e.used = true;
+          this.link(e.n, mid, e.W, segs, 'tributary');
+          join(e.n.idx, mid.idx);
         }
       }
       // Group nodes and ends by component.
@@ -159,6 +191,8 @@
         n.comp = r;
       }
       for (const e of ends) if (!e.used) comps.get(find(e.n.idx)).ends.push(e);
+      // Which loose ends open onto the sea.
+      const seaEnd = (e) => this.ground(e.n.x + e.ox * (e.W / 2 + 2 * cell), e.n.y + e.oy * (e.W / 2 + 2 * cell)).cls === 0;
       const lakes = [], rings = [];
       for (const [, c] of comps) {
         if (c.nodes.length < 2) continue;
@@ -175,6 +209,16 @@
             rings.push({ poly: loop, vSurf: Math.min(...loop.map((n) => n.vSurf)) });
             continue;
           }
+        }
+        // A depression that starts and ends in the sea: a sound, at sea level
+        // all the way.
+        if (c.ends.filter(seaEnd).length >= 2) {
+          for (const n of c.nodes) {
+            n.vSurf = this.p.tSea - 0.01;
+            n.sea = true;
+            n.W = Math.max(n.W, 3 * cell);
+          }
+          continue;
         }
         // 4. Downstream: the lowest loose end.
         if (!c.ends.length) continue;
@@ -194,9 +238,9 @@
     walk(end, byCell, segs, cell, maxLen) {
       const step = 2 * cell;
       let x = end.n.x, y = end.n.y, dx = end.ox, dy = end.oy;
-      let g = this.ground(x + dx * (end.n.W / 2 + cell), y + dy * (end.n.W / 2 + cell));
+      let g = this.ground(x + dx * (end.W / 2 + cell), y + dy * (end.W / 2 + cell));
       if (g.cls === 0 || g.cls === 4) return true;
-      let h = this.ground(x, y).h, prev = end.n;
+      let h = this.ground(x, y).h, prev = { ...end.n, W: end.W, idx: -1 };
       for (let s = 0; s * step < maxLen; s++) {
         let best = null;
         for (let a = -2; a <= 2; a++) {
@@ -206,7 +250,7 @@
           if (!best || gp.h < best.g.h) best = { px, py, ex, ey, g: gp };
         }
         if (best.g.h > h + 1) return false; // a pit: stop here
-        const node = { x: best.px, y: best.py, W: end.n.W, vSurf: end.n.vSurf, tx: best.ex, ty: best.ey, plain: end.n.plain, idx: -1 };
+        const node = { x: best.px, y: best.py, W: end.W, vSurf: end.n.vSurf, tx: best.ex, ty: best.ey, plain: end.n.plain, idx: -1 };
         segs.push({ a: prev, b: node, kind: 'walk' });
         if (best.g.cls === 0 || best.g.cls === 4) return true;
         const near = byCell.get(Math.floor(best.px / cell) * 100003 + Math.floor(best.py / cell));
@@ -224,13 +268,25 @@
       return false;
     }
 
-    // 6. A node's position with the meander applied (plains only).
-    swing(n) {
-      const m = this.p.meander * n.plain;
-      if (m <= 0.01) return [n.x, n.y];
-      const lambda = Math.max(8 * n.W, 12 * this.p.cell), A = 0.8 * m * n.W;
-      const s = Math.sin((2 * Math.PI * (n.x * n.tx + n.y * n.ty)) / lambda);
-      return [n.x - n.ty * A * s, n.y + n.tx * A * s];
+    // 6. A link from a to b, of width W, as a meandering line: whole half
+    // waves (so it meets both ends straight on), amplitude from the width and
+    // the plains' share, and its side from the positions (so neighbouring
+    // sections agree).
+    link(a, b, W, segs, kind) {
+      const { cell, meander } = this.p;
+      const vx = b.x - a.x, vy = b.y - a.y, L = Math.hypot(vx, vy);
+      const vs = Math.min(a.vSurf, b.vSurf), sea = a.sea && b.sea;
+      const m = Math.max(1, Math.round(L / Math.max(6 * W, 10 * cell)));
+      const amp = meander * Math.min(0.25 * (L / m), W + 2 * cell) * (0.4 + 0.6 * Math.max(a.plain || 0, b.plain || 0));
+      const side = Math.sin(a.x * 0.0007 + b.y * 0.0011) < 0 ? -1 : 1;
+      const k = Math.max(1, Math.ceil(L / cell));
+      let prev = { ...a, W, vSurf: vs, idx: -1 };
+      for (let t = 1; t <= k; t++) {
+        const f = t / k, off = amp * side * Math.sin(Math.PI * m * f);
+        const node = { x: a.x + vx * f - (vy / L) * off, y: a.y + vy * f + (vx / L) * off, W, vSurf: vs, sea, idx: -1 };
+        segs.push({ a: prev, b: node, kind });
+        prev = node;
+      }
     }
 
     // 7. The section's water cells.
@@ -239,35 +295,39 @@
       let mask = this.masks.get(k);
       if (mask) return mask;
       const gr = this.graph(si, sj), { cell } = this.p;
-      const water = new Uint8Array(N * N), surf = new Float32Array(N * N);
+      const water = new Uint8Array(N * N), surf = new Float32Array(N * N), sea = new Uint8Array(N * N);
       const x0 = si * this.size, y0 = sj * this.size;
       const lakeSet = new Set(gr.lakes);
       const segs = gr.segs.map((s) => {
-        const [ax, ay] = this.swing(s.a), [bx, by] = this.swing(s.b);
+        const ax = s.a.x, ay = s.a.y, bx = s.b.x, by = s.b.y;
         const grow = (n) => (lakeSet.has(n) ? 2.5 : 1);
         const wa = s.a.W * grow(s.a), wb = s.b.W * grow(s.b);
         const r = Math.max(wa, wb) / 2;
-        return { ax, ay, bx, by, wa, wb, vs: Math.min(s.a.vSurf, s.b.vSurf), x0: Math.min(ax, bx) - r, x1: Math.max(ax, bx) + r, y0: Math.min(ay, by) - r, y1: Math.max(ay, by) + r };
+        return { ax, ay, bx, by, wa, wb, vs: Math.min(s.a.vSurf, s.b.vSurf), sea: !!(s.a.sea && s.b.sea), x0: Math.min(ax, bx) - r, x1: Math.max(ax, bx) + r, y0: Math.min(ay, by) - r, y1: Math.max(ay, by) + r };
       }).filter((s) => s.x1 >= x0 && s.x0 <= x0 + this.size && s.y1 >= y0 && s.y0 <= y0 + this.size);
       for (let j = 0; j < N; j++) {
         for (let i = 0; i < N; i++) {
           const cx = x0 + (i + 0.5) * cell, cy = y0 + (j + 0.5) * cell, o = j * N + i;
-          let vs = Infinity;
+          let vs = Infinity, isSea = false;
           for (const s of segs) {
             if (cx < s.x0 || cx > s.x1 || cy < s.y0 || cy > s.y1) continue;
             const ex = s.bx - s.ax, ey = s.by - s.ay, l2 = ex * ex + ey * ey;
             const t = l2 > 0 ? Math.max(0, Math.min(1, ((cx - s.ax) * ex + (cy - s.ay) * ey) / l2)) : 0;
             const d = Math.hypot(cx - s.ax - ex * t, cy - s.ay - ey * t), w = s.wa + (s.wb - s.wa) * t;
-            if (d < w / 2) vs = Math.min(vs, s.vs);
+            if (d < w / 2) {
+              vs = Math.min(vs, s.vs);
+              isSea = isSea || s.sea;
+            }
           }
           for (const r of gr.rings) if (inside(cx, cy, r.poly)) vs = Math.min(vs, r.vSurf);
           if (vs < Infinity) {
             water[o] = 1;
             surf[o] = vs;
+            sea[o] = isSea ? 1 : 0;
           }
         }
       }
-      mask = { water, surf };
+      mask = { water, surf, sea };
       this.masks.set(k, mask);
       return mask;
     }
@@ -280,7 +340,7 @@
       if (!mask) return undefined;
       const i = Math.min(N - 1, Math.floor((x - si * this.size) / this.p.cell)), j = Math.min(N - 1, Math.floor((y - sj * this.size) / this.p.cell));
       const o = j * N + i;
-      return { water: mask.water[o] === 1, vSurf: mask.surf[o] };
+      return { water: mask.water[o] === 1, vSurf: mask.surf[o], sea: mask.sea[o] === 1 };
     }
   }
 

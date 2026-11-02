@@ -126,7 +126,7 @@
     at(x, y, v, mask) {
       const p = this.p, b = this.base;
       const bt = this.bottom(x, y);
-      if (mask && mask.water) return { v: Math.min(v, mask.vSurf), water: true };
+      if (mask && mask.water) return { v: Math.min(v, mask.vSurf), water: true, sea: mask.sea };
       if (!bt) return { v, water: false };
       const { d, qx, qy, W, vSurf, fade, firm, nearSea } = bt;
       // Near the water: a wider corridor split into channels.

@@ -53,7 +53,7 @@
       ? new M.RiverSections(river, (x, y) => {
           const f = fullCore(x, y, false);
           return { h: f.h, cls: f.cls };
-        }, { cell: 16 * state.scaleH, gap: state.riverGap, walk: state.riverWalk, short: state.riverShort, meander: state.riverMeander })
+        }, { cell: 16 * state.scaleH, gap: state.riverGap, walk: state.riverWalk, short: state.riverShort, meander: state.riverMeander, tSea: state.tSea })
       : null;
   }
   // The whole chain at a point: base, middle layer, regions, depression.
@@ -68,13 +68,14 @@
       band = d.band;
     }
     // Rivers: class 4 (elv), on land only.
-    let water = false;
+    let water = false, sea = false;
     if (river && v >= state.tSea) {
       const rv = river.at(x, y, v, withSections && sections ? sections.waterAt(x, y) : undefined);
       v = rv.v;
       water = rv.water;
+      sea = !!rv.sea;
     }
-    return { v, h: layer.height(v), cls: water ? 4 : layer.cls(v), region: r, band };
+    return { v, h: layer.height(v), cls: sea ? 0 : water ? 4 : layer.cls(v), region: r, band };
   }
   // Region at a point (land only), or null.
   const regionAt = (x, y, v) => (v >= state.tSea ? region.at(x, y, v) : null);
@@ -115,6 +116,10 @@
     const viewM = (W * view.mpp) / state.scaleH;
     useSections = !!sections && viewM <= state.secZoom;
     if (useSections) {
+      // Always build on the same lattice: one cell, so a section's rivers do
+      // not depend on what was drawn before.
+      M.Lattice.section = 16 * state.scaleH;
+      M.Lattice.pixel = 16 * state.scaleH;
       const t0 = performance.now(), size = sections.size;
       const i0 = Math.floor((view.cx - (W / 2) * view.mpp) / size), i1 = Math.floor((view.cx + (W / 2) * view.mpp) / size);
       const j0 = Math.floor((view.cy - (H / 2) * view.mpp) / size), j1 = Math.floor((view.cy + (H / 2) * view.mpp) / size);
@@ -247,7 +252,7 @@
   // dark blue, bridges red, downhill walks orange, rings violet.
   function drawNodes(W, H, dpr) {
     const X = (x) => ((x - view.cx) / view.mpp + W / 2) * dpr, Y = (y) => ((y - view.cy) / view.mpp + H / 2) * dpr;
-    const colour = { line: '#1d3f7a', bridge: '#d4302a', walk: '#e08a1e' };
+    const colour = { line: '#1d3f7a', bridge: '#d4302a', tributary: '#2fa84a', walk: '#e08a1e' };
     ctx.save();
     ctx.lineWidth = 1.5 * dpr;
     for (const [, gr] of sections.graphs) {
@@ -676,7 +681,7 @@
   row(rivTable, 'Koble ender', 'm, opptil', [null, numInput('riverGap', 1000, 0, 500000, null, 'h'), null]);
   row(rivTable, 'Følg nedover', 'm, opptil', [null, numInput('riverWalk', 1000, 0, 500000, null, 'h'), null]);
   row(rivTable, 'Kort kjede', 'blir innsjø under, m', [null, numInput('riverShort', 1000, 0, 500000, null, 'h'), null]);
-  row(rivTable, 'Slyng i sletter', '0–2', [null, numInput('riverMeander', 0.1, 0, 2), null]);
+  row(rivTable, 'Slyng i koblinger', '0–2', [null, numInput('riverMeander', 0.1, 0, 2), null]);
   row(rivTable, 'Flere løp', 'nær havet', [null, numInput('riverBraid', 0.05, 0, 1), null]);
   row(rivTable, 'Høyde beholdt', 'lavere elver: mindre', [null, numInput('riverRise', 0.05, 0, 1), null]);
   for (const b of document.querySelectorAll('#viewmode button')) {
