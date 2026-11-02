@@ -183,6 +183,12 @@ seksjon tegnes, lagres elvene der, og funksjoner går gjennom dem.
    elva bedømmes som én: rettethet, bredde, rekkevidde og om den blir innsjø gjelder hele
    elva. Et kort stykke mellom to lange blir derfor en del av en lang, rett elv. Et kort
    stykke (under to ganger «Koble ender») har samme vannstand hele veien: den laveste.
+   Nære ender (under «Koble ender») kan møtes i nesten alle vinkler, så linjer som overlapper
+   side om side blir en S. Fjernere ender må ligge foran og vende tilbake. Den beste partneren
+   velges etter avstand og hvor mye linjene må svinge. Koblinger er myke kurver som går ut og
+   inn langs elvene, ikke rette streker. En kobling har elvas fulle bredde når elva er alene, og
+   blir en smal bekk der andre elver og innsjøer ligger tett. Sideelver er siste utvei: kort
+   rekkevidde, godt foran, og bare inn i en elv som er omtrent like bred eller bredere.
    Hver ende har høyst én kobling, og hvilken er fast. Ender kobles bare til hverandre
    gjennom slike gjensidige par. Munningen til en elv kan bare gå inn midt på en annen elv,
    aldri på en ende, og bare til en elv med lavere rang (lavere vannstand ved munningen, likhet
@@ -208,6 +214,11 @@ bortover og 1/10 m i høyden (justerbart: «Målestokk 1:» og «Høyde 1:»). L
 skala, men spillet skal spilles i utsnitt på 2 km til 100 m, så kontinentene blir ca. 60 km,
 dalene noen hundre meter og fjellene noen hundre meter høye. Størrelser i panelet vises i
 skjermens km og m. En rute på 16 m er 800 enheter.
+
+**Forenkling langt ute:** lagene skrus av ett og ett etter hvor stort utsnittet er på
+skjermen: elver over 60 km, nedsenkslaget over 150 km og områdelagene over 300 km. Da står
+bare grunnlagene og mellomlaget igjen. Grensene kan endres i hver seksjon. De glatte lagene
+regnes aldri finere enn to tegnede punkter.
 
 **Raskere tegning:** kartet tegnes aldri finere enn én rute (16 m på skjermen). I store
 utsnitt hoppes elver over der selv den bredeste elva på stedet ville vært under to tegnede

@@ -18,7 +18,7 @@
     vA1: 0.27, vA2: 1.17, vA3: 1.8, vB1: 0.15, vB2: 0.55, vB3: 0.74, vH: 0.4,
     riverAlign: 0.6, riverWidth: 50000, riverDeep: 4, riverZone: 4,
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
-    secZoom: 5000, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
+    secZoom: 5000, lodRiver: 60, lodDep: 150, lodRegion: 300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 100, scaleV: 1,
@@ -59,11 +59,15 @@
   }
   // The whole chain at a point: base, middle layer, regions, depression.
   const full = (x, y) => fullCore(x, y, useSections);
+  // Far out, layers are left out one by one (by the view's width on
+  // screen): rivers, then the depression layer, then the region layers, so
+  // only the base layers and the middle layer remain.
+  const lod = { river: true, dep: true, region: true };
   function fullCore(x, y, withSections) {
     const [vb, v0, inland, large] = layer.valueParts(x, y);
-    const r = regionAt(x, y, v0);
+    const r = lod.region ? regionAt(x, y, v0) : null;
     let v = v0, band = 0;
-    if (dep) {
+    if (dep && lod.dep) {
       const d = dep.at(x, y, v0, vb, inland, r ? r.firm : 0.5, large, r ? r.w[0] : 0, r ? r.pos : null);
       v = d.v;
       band = d.band;
@@ -73,7 +77,7 @@
     // Large views draw only large rivers: skip the river sum where even the
     // widest river here would be under two drawn points (no section step).
     const small = !withSections && r && river && river.maxWidth(layer.height(v0), r.firm) < 2 * pixNow;
-    if (river && v >= state.tSea && !small) {
+    if (river && lod.river && r && v >= state.tSea && !small) {
       const mask = withSections && sections ? sections.waterAt(x, y) : undefined;
       const rv = river.at(x, y, v, mask);
       if (mask && !mask.water && !rv.water) tint = mask.cover;
@@ -124,6 +128,9 @@
     // the per-section rivers for every visible section, once.
     const viewM = (W * view.mpp) / state.scaleH;
     useSections = !!sections && viewM <= state.secZoom;
+    lod.river = viewM <= state.lodRiver * 1000;
+    lod.dep = viewM <= state.lodDep * 1000;
+    lod.region = viewM <= state.lodRegion * 1000;
     if (useSections) {
       // Always build on the same lattice: one cell, so a section's rivers do
       // not depend on what was drawn before.
@@ -696,6 +703,7 @@
   row(regTable, 'Overgang', 'S-kurve', [null, numInput('typeSoft', 0.05, 0.01, 3), null]);
   row(regTable, 'Høyde → type', 'høyere → fjellsk', [null, numInput('typeHeight', 0.05, 0, 3), null]);
   row(regTable, 'Fuktighet', 'type og fasthet', [null, null, eye('moist', 'Fuktighet')]);
+  row(regTable, 'Vises', 'når utsnittet er under, km', [null, numInput('lodRegion', 10, 1, 100000, () => render()), null]);
   row(regTable, 'Strekking', 'langs helningen', [null, numInput('regStretch', 0.5, 1, 20), null], 'regStretch');
   document.getElementById('legend').innerHTML = M.RegionLayer.TYPES.map((t) => `<span><i style="background:rgb(${t.colour.join(',')})"></i>${t.name}</span>`).join('');
   const depTable = document.getElementById('deplayers');
@@ -705,6 +713,7 @@
   row(depTable, 'Myke kanter', 'S-kurve', [null, numInput('depSoft', 0.05, 0, 3), null]);
   row(depTable, 'Retning', 'grunt på tvers av helningen', [null, numInput('depAlign', 0.05, 0, 1), null]);
   row(depTable, 'Strekking', 'langs helningen', [null, numInput('depStretch', 0.5, 1, 20), null], 'depStretch');
+  row(depTable, 'Vises', 'når utsnittet er under, km', [null, numInput('lodDep', 10, 1, 100000, () => render()), null]);
   row(depTable, 'Høyden teller', 'i dalprofilen, 0–1', [null, numInput('vH', 0.05, 0, 1), null]);
   row(depTable, 'Mot havnivå', 'i lavland: fjorder', [null, numInput('depLow', 0.05, 0, 3), null]);
   row(depTable, 'Ekstra i sletter', 'mot havnivå', [null, numInput('depPlain', 0.05, 0, 3), null]);
@@ -721,6 +730,7 @@
   row(rivTable, 'Dybde, fast mot løs', 'dypere er smalere', [null, numInput('riverDeep', 0.5, 1, 20), null]);
   row(rivTable, 'Dypt nok nedsenk', 'terskel 0–1', [null, numInput('riverAlign', 0.05, 0, 1), null]);
   row(rivTable, 'Område rundt', 'km, formes av elva', [null, numInput('riverZone', 0.5, 0, 50, null, 'h'), null]);
+  row(rivTable, 'Elver vises', 'når utsnittet er under, km', [null, numInput('lodRiver', 5, 1, 100000, () => render()), null]);
   row(rivTable, 'Per seksjon', 'når utsnittet er under, m', [null, numInput('secZoom', 500, 200, 100000, () => render()), null], 'sections');
   row(rivTable, 'Koble ender', 'm, rette kjeder 2 ×', [null, numInput('riverGap', 1000, 0, 500000, null, 'h'), null]);
   row(rivTable, 'Følg nedover', 'm, opptil', [null, numInput('riverWalk', 1000, 0, 500000, null, 'h'), null]);

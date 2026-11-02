@@ -219,16 +219,25 @@
       // A one-point chain has one node for both ends: it takes no part.
       if (e.chain.nodes.length < 2) return null;
       const R = 2 * this.p.gap;
-      let bd = R;
+      let bd = 3 * R;
       for (const o of this.nodesNear(e.n.x, e.n.y, R)) {
         const ch = this.chain(o);
         if (ch === e.chain || ch.ring || ch.nodes.length < 2) continue;
         const oe = ch.ends.find((x) => x.n === o);
         if (!oe) continue;
         const vx = o.x - e.n.x, vy = o.y - e.n.y, dist = Math.hypot(vx, vy);
-        if (!dist || dist >= bd || (vx * e.ox + vy * e.oy) / dist < 0.6 || -(vx * oe.ox + vy * oe.oy) / dist < 0.3) continue;
+        if (!dist) continue;
+        const ahead = (vx * e.ox + vy * e.oy) / dist, facing = -(vx * oe.ox + vy * oe.oy) / dist;
+        // Far ends must lie ahead and face back; near ends (under the gap)
+        // may meet at any angle that is not turned away, so lines that
+        // overlap side by side join into an S.
+        const near = dist < this.p.gap;
+        if (near ? ahead < -0.5 || facing < -0.5 : ahead < 0.5 || facing < 0.2) continue;
+        // Score: distance, worse the more the two have to turn.
+        const score = dist * (1 + 0.5 * (1 - ahead) + 0.5 * (1 - facing));
+        if (score >= bd) continue;
         e.match = oe;
-        bd = dist;
+        bd = score;
       }
       return e.match;
     }
@@ -262,7 +271,10 @@
         rv.rank = [rv.mouth.n.vSurf, rv.mouth.n.ck, rv.mouth.n.sec];
         rv.endNodes = new Set([ea.n, eb.n]);
         rv.joinSegs = [];
-        for (const [x, y] of joins) this.linkSegs(x.n, y.n, x.W * rv.wf, rv.joinSegs, 'bridge', y.W * rv.wf);
+        for (const [x, y] of joins) {
+          const f = this.crowd(x.n, y.n, Math.max(x.W, y.W) * rv.wf, new Set(chains));
+          this.linkSegs(x.n, y.n, x.W * rv.wf * f, rv.joinSegs, 'bridge', y.W * rv.wf * f, [x.ox, x.oy], [y.ox, y.oy]);
+        }
         for (const c of chains) c.river = rv;
         return rv;
       };
@@ -325,18 +337,23 @@
     // From a river's mouth: into the middle of another river ahead, of lower
     // rank. Ends are joined only by mutual pairs, so every end has at most
     // one link and which one is fixed. { node, kind } or null.
+    // From a river's mouth: into the middle of another river ahead, of lower
+    // rank. Ends are joined only by mutual pairs, so every end has at most
+    // one link and which one is fixed. A tributary is the last resort: only
+    // close, well ahead, and into a river at least about as wide.
     connect(e) {
       if (e.link !== undefined) return e.link;
       e.link = null;
-      const reach = e.chain.reach;
+      const reach = 0.6 * e.chain.reach;
       let mid = null, md = reach;
       for (const o of this.nodesNear(e.n.x, e.n.y, reach)) {
         const ch = this.chain(o);
         if (ch.ring) continue;
         const rv = this.riverOf(ch);
         if (rv === e.chain || rv.ring || rv.endNodes.has(o) || !lower(rv.rank, e.chain.rank)) continue;
+        if (o.W * rv.wf < 0.7 * e.W) continue;
         const vx = o.x - e.n.x, vy = o.y - e.n.y, dist = Math.hypot(vx, vy);
-        if (!dist || dist >= md || (vx * e.ox + vy * e.oy) / dist < 0.6) continue; // ahead of e
+        if (!dist || dist >= md || (vx * e.ox + vy * e.oy) / dist < 0.75) continue; // well ahead of e
         mid = o;
         md = dist;
       }
@@ -362,7 +379,11 @@
         if (nx !== ch) {
           // From the width at this end to the width at the other (a
           // tributary keeps its own), so it neither pinches nor swells.
-          this.linkSegs(mouth.n, link.node, mouth.W, ch.out, link.kind, mouth.W);
+          // Arrives along the main river, from the side the tributary comes
+          // from, and narrow in a crowd.
+          const t = link.node, sx = mouth.n.x - t.x, sy = mouth.n.y - t.y, sg = sx * t.tx + sy * t.ty >= 0 ? 1 : -1;
+          const f = this.crowd(mouth.n, t, mouth.W, new Set([...ch.chains, this.chain(t)]));
+          this.linkSegs(mouth.n, t, mouth.W * f, ch.out, link.kind, mouth.W * f, [mouth.ox, mouth.oy], [sg * t.tx, sg * t.ty]);
           return (ch.next = nx);
         }
       }
@@ -426,20 +447,37 @@
 
     // Links from a to b, of width W: whole half waves, swinging at most half
     // the width, its side from the positions (so neighbours agree).
-    linkSegs(a, b, W, segs, kind, W2 = W) {
-      const { cell, meander } = this.p;
+    // Width factor for a link from a to b: alone, the river's full width;
+    // with other chains close by (a cluster of lakes and rivers), a narrow
+    // brook, so it does not merge them all.
+    crowd(a, b, W, own) {
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, r = 1.5 * W + 0.5 * Math.hypot(b.x - a.x, b.y - a.y);
+      const others = new Set();
+      for (const o of this.nodesNear(mx, my, r)) {
+        const c = this.chain(o);
+        if (!own.has(c)) others.add(c);
+      }
+      const n = others.size;
+      return n ? Math.max(Math.min(1, (this.p.minW || 0) / Math.max(1, W)), 1 / (1 + 1.5 * n)) : 1;
+    }
+
+    // A link from a to b, of width W to W2, as a smooth curve: it leaves a
+    // along da and arrives at b from the side db points to (a cubic curve),
+    // so it meets both straight on instead of cutting across. Widths taper.
+    linkSegs(a, b, W, segs, kind, W2 = W, da = null, db = null) {
+      const { cell } = this.p;
       const vx = b.x - a.x, vy = b.y - a.y, L = Math.hypot(vx, vy);
       if (!L) return;
-      const vs = Math.min(a.vSurf, b.vSurf);
-      const Wm = Math.min(W, W2);
-      const m = Math.max(1, Math.round(L / Math.max(6 * Wm, 10 * cell)));
-      const amp = meander * Math.min(0.2 * (L / m), 0.5 * Wm) * (0.4 + 0.6 * Math.max(a.plain || 0, b.plain || 0));
-      const side = Math.sin(a.x * 0.0007 + b.y * 0.0011) < 0 ? -1 : 1;
-      const k = Math.max(1, Math.ceil(L / cell));
+      const vs = Math.min(a.vSurf, b.vSurf), h = L / 3;
+      const [ax, ay] = da || [vx / L, vy / L], [bx, by] = db || [-vx / L, -vy / L];
+      const c1x = a.x + ax * h, c1y = a.y + ay * h, c2x = b.x + bx * h, c2y = b.y + by * h;
+      const k = Math.max(2, Math.ceil(L / cell));
       let prev = { x: a.x, y: a.y, W, vSurf: vs };
       for (let t = 1; t <= k; t++) {
-        const f = t / k, off = amp * side * Math.sin(Math.PI * m * f);
-        const node = { x: a.x + vx * f - (vy / L) * off, y: a.y + vy * f + (vx / L) * off, W: W + (W2 - W) * f, vSurf: vs };
+        const f = t / k, g = 1 - f;
+        const x = g * g * g * a.x + 3 * g * g * f * c1x + 3 * g * f * f * c2x + f * f * f * b.x;
+        const y = g * g * g * a.y + 3 * g * g * f * c1y + 3 * g * f * f * c2y + f * f * f * b.y;
+        const node = { x, y, W: W + (W2 - W) * f, vSurf: vs };
         segs.push({ a: prev, b: node, kind });
         prev = node;
       }

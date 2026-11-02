@@ -106,6 +106,9 @@
   Lattice.pick = (store, maxG, fn, fine) => {
     let G = Lattice.section;
     while ((!fine || G < Lattice.pixel) && G * 2 <= maxG) G *= 2;
+    // Far out, no finer than the drawn points either: smooth layers would
+    // otherwise build far more nodes than there are pixels.
+    while (G < 2 * Lattice.pixel) G *= 2;
     let l = store.get(G);
     if (!l) {
       l = new Lattice(G, fn);
