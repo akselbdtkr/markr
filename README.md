@@ -150,14 +150,17 @@ seksjon tegnes, lagres elvene der, og funksjoner går gjennom dem.
    derfor ikke av rekkefølgen seksjonene lastes i. Elver under havet lagres ikke.
 2. **Kjeder:** hvert bunnpunkt kobles til nærmeste foran og bak langs linja. En kjede gås
    fra ende til ende. En kjede som kommer tilbake til seg selv, er en ring, og den fjernes.
-3. **Trær:** fra en kjede følges elva nedstrøms til havet. Fra den nedre enden går den til
+3. **Trær:** hver kjede har sitt eget faste steg videre fra den laveste enden: til
    nærmeste ende av en annen kjede som vender tilbake (kobling), ellers midt inn i en annen
-   elv foran (sideelv), ellers nedover landet (vei nedover). Når den når havet, lagres hele
-   veien som ett tre, og en kjede som når et tre som finnes, legges til det. Kilden til en
-   lang kjede følges oppover til vanndelingen. Trærne er spillets vannveier. Bare kjeder
-   nær det som tegnes, følges.
+   elv foran (sideelv), ellers nedover landet (vei nedover). Ved å følge stegene fra kjede
+   til kjede ser vi om en kjede når havet, og alle som gjør det, utgjør trærne. Alt avhenger
+   bare av kjeden selv. Trærne oppstår derfor mens spilleren utforsker, og blir like
+   uansett rekkefølge. En seksjon tegner bare kjedene innen fast avstand, med deres egne
+   steg. Kilden til en lang kjede som når havet, følges oppover til vanndelingen.
 4. **Ingen vei til havet ennå:** kjeden tegnes som elv, men er ingen vannvei. En kort kjede
-   blir en liten innsjø. Dette gjelder særlig langt inne i landet der veien nedover møter
+   blir en liten innsjø. En bit av en ring fjernes. Det gjelder en trang, lukket linje som
+   ofte er brutt i biter: radius fra tre punkter under koblingsavstanden, minst en radian av
+   sirkelen, og linja finnes også på motsatt side av sentrum. Dette gjelder særlig langt inne i landet der veien nedover møter
    en grop. Neste steg er å fylle gropa til en innsjø og finne utløpet.
 5. **Bredde:** en kjede beholder bredden etter lengden. Lange kjeder er like brede der de
    kobles. Korte blir smalere, så en lang elv renner gjennom, mens små innsjøer ved siden av
@@ -172,6 +175,11 @@ bortover og 1/10 m i høyden (justerbart: «Målestokk 1:» og «Høyde 1:»). L
 skala, men spillet skal spilles i utsnitt på 2 km til 100 m, så kontinentene blir ca. 60 km,
 dalene noen hundre meter og fjellene noen hundre meter høye. Størrelser i panelet vises i
 skjermens km og m. En rute på 16 m er 800 enheter.
+
+**Raskere tegning:** kartet tegnes aldri finere enn én rute (16 m på skjermen). I store
+utsnitt hoppes elver over der selv den bredeste elva på stedet ville vært under to tegnede
+punkter. Det anslås billig fra høyde og fasthet, før selve elvesjekken. Seksjonene bruker et
+rutenett på to ruter for nedsenkslinjene.
 
 **Oppløsning:** kartet trenger aldri finere detalj enn punktene det tegner (høyst rutene på
 16 m). Mellomlaget, områdelagene og nedsenkslaget varierer langsomt. De regnes derfor på et

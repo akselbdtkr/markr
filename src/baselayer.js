@@ -328,8 +328,9 @@
       }
       if (v < p.tHigh) return (p.lowTop * (v - p.tSea)) / (p.tHigh - p.tSea);
       if (v < p.tDivide) return p.lowTop + ((p.highTop - p.lowTop) * (v - p.tHigh)) / (p.tDivide - p.tHigh);
-      // Divide: keeps the highland slope at the join, levels off toward 5000 m.
-      const k = (p.highTop - p.lowTop) / Math.max(0.05, p.tDivide - p.tHigh), room = 5000 - p.highTop;
+      // Divide: rises divSteep times as steeply as the highland at the join,
+      // so the divide fields stand higher, levelling off toward 5000 m.
+      const k = ((p.divSteep || 1) * (p.highTop - p.lowTop)) / Math.max(0.05, p.tDivide - p.tHigh), room = 5000 - p.highTop;
       return p.highTop + room * (1 - Math.exp((-(v - p.tDivide) * k) / room));
     }
 

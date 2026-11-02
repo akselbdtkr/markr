@@ -60,7 +60,9 @@
       const g2 = nx * nx + ny * ny;
       if (g2 < 1e-16) return null;
       const g = Math.sqrt(g2), d = Math.abs(n) / g;
-      const maxZone = p.riverZone * 1000 * 1.6 + p.riverWidth * 2.5;
+      // The farthest a point can be from the line and still be touched: half
+      // the widest river (with the corridor near the sea) and the zone.
+      const maxZone = 0.5 * p.riverWidth * (1 + 1.2 * p.riverBraid) + p.riverZone * 1000 * 1.5 + (p.riverMin || 0);
       if (d > maxZone) return null;
       // The bottom of this cross-section.
       const qx = x - (n * nx) / g2, qy = y - (n * ny) / g2;
@@ -123,6 +125,14 @@
         qy -= (n * ny) / g2;
       }
       return null;
+    }
+
+    // The widest the river can be at a point of height h (sim) and firmness
+    // firm: a cheap bound, so small rivers can be skipped in large views.
+    maxWidth(h, firm) {
+      const p = this.p, hDiv = Math.max(1, this.base.height(this.base.p.tDivide));
+      const volume = curve(RiverLine.CURVE_H, p.rvH, h / hDiv) * curve(RiverLine.CURVE_F, p.rvF, firm);
+      return Math.max((p.riverWidth * volume) / (1 + (p.riverDeep - 1) * firm), p.riverMin || 0) * (1 + 1.2 * p.riverBraid);
     }
 
     // The river at a point with value v. Returns { v, water } — v shaped by

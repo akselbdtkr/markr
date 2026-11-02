@@ -11,12 +11,13 @@
 // 2. Chains: each bottom point links to the nearest one ahead and behind
 //    along its line. A chain is walked from end to end; one that comes back
 //    to itself is a ring, and rings are removed.
-// 3. Trees: from a chain, the river is followed downstream to the sea: from
-//    its lower end to the nearest facing end of another chain (a link), or
-//    into the middle of another river ahead (a tributary), or, failing both,
-//    downhill over the land (a walk). When it reaches the sea, the whole way
-//    is stored as one tree; a chain that reaches a tree already found joins
-//    it. A chain that does not reach the sea is no waterway: it is still
+// 3. Trees: each chain has its own step on from its lower end: to the
+//    nearest facing end of another chain (a link), or into the middle of
+//    another river ahead (a tributary), or, failing both, downhill over the
+//    land (a walk). Following the steps from chain to chain shows whether a
+//    chain reaches the sea; all chains that do form the trees. Everything is
+//    a function of the chain alone, so the trees appear as the player
+//    explores and are the same whatever the order. A chain that does not reach the sea is no waterway: it is still
 //    drawn as a river, and a short one as a small lake. The source of a long chain is followed uphill to the
 //    divide, so trees start there. Trees are the waterways of the game, and
 //    only chains near what is drawn are ever followed.
@@ -50,7 +51,6 @@
       this.grid = new Map(); // two-cell grid key -> candidates
       this.masks = new Map();
       this.graphs = new Map(); // section -> { segs, rings } for the overlay
-      this.trees = [];
       this.reasons = {}; // why chains found no way to the sea (for inspection)
     }
 
@@ -144,29 +144,44 @@
         }
       }
     }
-    // The chain through n: walked back to its head, then ahead to its tail.
+    // The chain through n. Two points are in one chain only where their links
+    // agree both ways (a.f is b and b.b is a), so the chains do not depend
+    // on which point was looked at first: walk back to the head, then ahead.
     chain(n) {
       if (n.chain) return n.chain;
-      let head = n, steps = 0;
-      this.links(head);
-      while (head.b && !head.b.chain && head.b !== n && steps++ < 4000) {
-        head = head.b;
-        this.links(head);
-      }
-      const nodes = [];
-      let cur = head, ring = false;
-      while (cur && steps++ < 8000) {
-        if (cur.chain) break;
-        nodes.push(cur);
-        cur.chain = true; // claimed
-        this.links(cur);
-        if (cur.f === head) {
+      const back = (m) => {
+        this.links(m);
+        const o = m.b;
+        if (!o) return null;
+        this.links(o);
+        return o.f === m ? o : null;
+      };
+      const ahead = (m) => {
+        this.links(m);
+        const o = m.f;
+        if (!o) return null;
+        this.links(o);
+        return o.b === m ? o : null;
+      };
+      let head = n, steps = 0, ring = false;
+      for (let o = back(head); o && steps++ < 8000; o = back(head)) {
+        if (o === n) {
           ring = true;
           break;
         }
-        cur = cur.f;
+        head = o;
       }
-      if (!nodes.length) nodes.push(n);
+      if (ring) {
+        // A ring: start from the lowest index, so every point gives the same.
+        let low = n, cur = ahead(n);
+        while (cur && cur !== n && steps++ < 16000) {
+          if (cur.ck < low.ck) low = cur;
+          cur = ahead(cur);
+        }
+        head = low;
+      }
+      const nodes = [head];
+      for (let o = ahead(head); o && o !== head && steps++ < 16000; o = ahead(o)) nodes.push(o);
       let len = 0;
       for (let k = 1; k < nodes.length; k++) len += Math.hypot(nodes[k].x - nodes[k - 1].x, nodes[k].y - nodes[k - 1].y);
       const ch = { nodes, ring, len, tree: undefined, lake: false, sea: false, source: null, segs: null };
@@ -217,102 +232,105 @@
       return e.link;
     }
 
-    // The tree a chain belongs to: followed downstream to the sea. Returns
-    // the tree, or false (no river).
+    // A chain's own step on from its mouth (always its lower end, so it
+    // does not depend on how the chain was reached): to the sea, a link or
+    // tributary into another chain, or a walk downhill. ch.next is 'sea', a
+    // chain, or null; ch.out holds the step's segments.
+    step(ch) {
+      if (ch.next !== undefined) return ch.next;
+      ch.out = [];
+      ch.next = null;
+      if (ch.ring || ch.nodes.length < 2) return null;
+      const [a, b] = ch.ends;
+      if (this.seaEnd(a) && this.seaEnd(b)) {
+        ch.sea = true; // a sound
+        return (ch.next = 'sea');
+      }
+      const mouth = a.n.vSurf < b.n.vSurf || (a.n.vSurf === b.n.vSurf && a.n.ck <= b.n.ck) ? a : b;
+      if (this.seaEnd(mouth)) return (ch.next = 'sea');
+      const link = this.connect(mouth);
+      if (link) {
+        const nx = this.chain(link.node);
+        if (nx !== ch) {
+          // From the width at this end to the width at the other (a
+          // tributary keeps its own), so it neither pinches nor swells.
+          this.linkSegs(mouth.n, link.node, mouth.W, ch.out, link.kind, link.end ? link.end.W : mouth.W);
+          return (ch.next = nx);
+        }
+      }
+      const wk = this.walk(mouth, ch.out);
+      if (wk === 'sea') return (ch.next = 'sea');
+      if (wk) return (ch.next = this.chain(wk));
+      this.why('walk stopped');
+      return null;
+    }
+
+    // Does the chain reach the sea, following the chains' own steps?
     tree(ch) {
       if (ch.tree !== undefined) return ch.tree;
-      if (ch.ring || ch.nodes.length < 2) return (ch.tree = false);
-      const { short } = this.p;
-      // A sound: both ends open onto the sea.
-      if (this.seaEnd(ch.ends[0]) && this.seaEnd(ch.ends[1])) {
-        ch.sea = true;
-        const t = { segs: [], chains: [ch], length: ch.len };
-        this.trees.push(t);
-        return (ch.tree = t);
-      }
-      const path = [], segs = [];
-      let cur = ch, entry = null, result = null;
-      for (let k = 0; k < MAX_CHAINS; k++) {
-        path.push(cur);
-        if (cur !== ch && cur.tree) {
-          result = cur.tree;
+      const seen = new Set();
+      let cur = ch, ok = false;
+      for (let k = 0; k < MAX_CHAINS && cur && cur !== 'sea'; k++) {
+        if (seen.has(cur)) break;
+        seen.add(cur);
+        if (cur.tree !== undefined) {
+          ok = cur.tree;
+          cur = null;
           break;
         }
-        // A chain marked as having no way out was judged from its own lower
-        // end; entered from elsewhere its mouth can differ, so go on.
-        // The mouth: the end not entered by, or the lower one.
-        const [a, b] = cur.ends;
-        const mouth = entry === a ? b : entry === b ? a : a.n.vSurf <= b.n.vSurf ? a : b;
-        if (this.seaEnd(mouth)) {
-          result = { segs: [], chains: [], length: 0 };
-          this.trees.push(result);
-          break;
-        }
-        const link = this.connect(mouth);
-        let next = link ? this.chain(link.node) : null;
-        if (next && path.includes(next)) {
-          this.why('loop via link: walking instead');
-          next = null;
-        }
-        if (next) {
-          const w = Math.min(mouth.W, link.end ? link.end.W : link.node.W * next.wf);
-          this.linkSegs(mouth.n, link.node, w, segs, link.kind);
-          entry = link.end;
-        } else {
-          const wk = this.walk(mouth, segs);
-          if (wk === 'sea') {
-            result = { segs: [], chains: [], length: 0 };
-            this.trees.push(result);
-            break;
-          }
-          if (!wk) {
-            this.why('walk stopped');
-            break;
-          }
-          next = this.chain(wk);
-          if (path.includes(next)) {
-            this.why('loop via walk');
-            break;
-          }
-          entry = null;
-        }
-        cur = next;
+        cur = this.step(cur);
       }
-      if (!result && path.length >= MAX_CHAINS) this.why('too many chains');
-      if (!result) {
-        // No way to the sea: a short loose chain is a small lake, the rest is
-        // no river.
-        ch.tree = false;
-        if (ch.len < short) ch.lake = true;
-        return false;
-      }
-      for (const c of path) {
-        if (c.tree) continue;
-        c.tree = result;
-        result.chains.push(c);
-        result.length += c.len;
-      }
-      result.segs.push(...segs);
-      // The source of a long chain is followed uphill to the divide.
-      if (ch.len >= short) this.toDivide(ch, result);
-      return result;
+      if (cur === 'sea') ok = true;
+      ch.tree = ok;
+      if (!ok) {
+        // No way to the sea. A piece of a ring (a tight, closed line, often
+        // broken into pieces) is removed; a short loose chain is a small
+        // lake; the rest is drawn but no waterway.
+        if (ch.ring || this.ringPiece(ch)) ch.ringPiece = true;
+        else if (ch.len < this.p.short) ch.lake = true;
+      } else if (ch.len >= this.p.short) this.toDivide(ch);
+      return ok;
+    }
+
+    // Is this chain a piece of a ring? The circle through its two ends and
+    // middle gives a radius; a tight one (under the gap length) that the
+    // chain bends round by at least a radian, and whose line is also found
+    // on the far side of the centre, is a ring.
+    ringPiece(ch) {
+      const ns = ch.nodes;
+      if (ns.length < 3) return false;
+      const a = ns[0], b = ns[ns.length >> 1], c = ns[ns.length - 1];
+      const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+      if (Math.abs(d) < 1e-9) return false;
+      const a2 = a.x * a.x + a.y * a.y, b2 = b.x * b.x + b.y * b.y, c2 = c.x * c.x + c.y * c.y;
+      const ux = (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d, uy = (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d;
+      const r = Math.hypot(a.x - ux, a.y - uy);
+      if (r > this.p.gap) return false;
+      // It must bend round the centre, not just curve gently: at least one
+      // radian of the circle.
+      const ang = Math.abs(Math.atan2((a.x - ux) * (c.y - uy) - (a.y - uy) * (c.x - ux), (a.x - ux) * (c.x - ux) + (a.y - uy) * (c.y - uy)));
+      if (ang < 1 && ch.len < r) return false;
+      // The far side of the centre from the chain's middle.
+      const fx = 2 * ux - b.x, fy = 2 * uy - b.y;
+      return this.nodesNear(fx, fy, 0.35 * r + 2 * this.p.cell).length > 0;
     }
 
     // Links from a to b, of width W: whole half waves, swinging at most half
     // the width, its side from the positions (so neighbours agree).
-    linkSegs(a, b, W, segs, kind) {
+    linkSegs(a, b, W, segs, kind, W2 = W) {
       const { cell, meander } = this.p;
       const vx = b.x - a.x, vy = b.y - a.y, L = Math.hypot(vx, vy);
       if (!L) return;
       const vs = Math.min(a.vSurf, b.vSurf);
-      const m = Math.max(1, Math.round(L / Math.max(6 * W, 10 * cell)));
-      const amp = meander * Math.min(0.2 * (L / m), 0.5 * W) * (0.4 + 0.6 * Math.max(a.plain || 0, b.plain || 0));
+      const Wm = Math.min(W, W2);
+      const m = Math.max(1, Math.round(L / Math.max(6 * Wm, 10 * cell)));
+      const amp = meander * Math.min(0.2 * (L / m), 0.5 * Wm) * (0.4 + 0.6 * Math.max(a.plain || 0, b.plain || 0));
       const side = Math.sin(a.x * 0.0007 + b.y * 0.0011) < 0 ? -1 : 1;
       const k = Math.max(1, Math.ceil(L / cell));
       let prev = { x: a.x, y: a.y, W, vSurf: vs };
       for (let t = 1; t <= k; t++) {
         const f = t / k, off = amp * side * Math.sin(Math.PI * m * f);
-        const node = { x: a.x + vx * f - (vy / L) * off, y: a.y + vy * f + (vx / L) * off, W, vSurf: vs };
+        const node = { x: a.x + vx * f - (vy / L) * off, y: a.y + vy * f + (vx / L) * off, W: W + (W2 - W) * f, vSurf: vs };
         segs.push({ a: prev, b: node, kind });
         prev = node;
       }
@@ -349,7 +367,7 @@
 
     // The source: from the chain's upper end, uphill until the divide (class
     // 3), narrow. Kept only if it gets there.
-    toDivide(ch, tree) {
+    toDivide(ch) {
       if (ch.source) return;
       const { cell, walk, minW } = this.p, step = 2 * cell;
       const up = ch.ends[0].n.vSurf >= ch.ends[1].n.vSurf ? ch.ends[0] : ch.ends[1];
@@ -370,7 +388,6 @@
         segs.push({ a: prev, b: node, kind: 'source' });
         if (best.g.cls === 3) {
           ch.source = segs;
-          tree.segs.push(...segs);
           return;
         }
         prev = node;
@@ -387,7 +404,12 @@
       const k = this.key(si, sj);
       let mask = this.masks.get(k);
       if (mask) return mask;
-      const { cell, tSea } = this.p, x0 = si * this.size, y0 = sj * this.size, reach = this.p.gap;
+      const { cell, tSea } = this.p, x0 = si * this.size, y0 = sj * this.size;
+      // Every chain whose own segments can reach this section: its line, its
+      // step on (a link up to the gap, a walk) and its source (up to three
+      // walks). Only these, so a section does not depend on what else was
+      // followed before.
+      const reach = Math.max(this.p.gap, 3 * this.p.walk);
       const segs = new Set(), rings = [], seen = new Set();
       for (const n of this.nodesNear(x0 + this.size / 2, y0 + this.size / 2, this.size / 2 + reach)) {
         const ch = this.chain(n);
@@ -397,9 +419,11 @@
           rings.push({ poly: ch.nodes });
           continue;
         }
-        // A chain with no way to the sea yet is still drawn as a river, but is
-        // no waterway (it belongs to no tree); a short one is a small lake.
         const t = this.tree(ch);
+        if (ch.ringPiece) {
+          rings.push({ poly: ch.nodes });
+          continue;
+        }
         if (!ch.segs) {
           ch.segs = [];
           const grow = ch.lake ? 1.5 * ch.wf : ch.wf;
@@ -409,7 +433,11 @@
           }
         }
         for (const s of ch.segs) segs.add(s);
-        if (t) for (const s of t.segs) segs.add(s);
+        if (t) {
+          this.step(ch);
+          for (const s of ch.out) segs.add(s);
+          if (ch.source) for (const s of ch.source) segs.add(s);
+        }
       }
       this.graphs.set(k, { segs: [...segs], rings });
       const water = new Uint8Array(N * N), surf = new Float32Array(N * N), sea = new Uint8Array(N * N);

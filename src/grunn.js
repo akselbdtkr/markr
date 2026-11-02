@@ -9,25 +9,25 @@
   const state = {
     seed: 7844,
     contSize: 3010, contW: 2.6, basinSize: 940, basinW: 1.75, baseSize: 240, baseW: 1.2, s1Size: 710, s1W: 2.8, s1Width: 0.26,
-    tSea: -0.33, tHigh: 1.15, tDivide: 2.63,
+    tSea: -0.33, tHigh: 1.15, tDivide: 1.98, divSteep: 2.5,
     lowTop: 260, highTop: 1600, shelf: 320, deep: 3500,
     midSize: 185, midW: 0.9, midStretch: 10, tInland: 0,
     firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1.05, typeFirm: 0.4, typeHeight: 0.3, regStretch: 3,
-    tT1: -0.34, tT2: 1.01, tT3: 1.84, typeSoft: 0.6,
+    tT1: -0.34, tT2: 1.01, tT3: 1.85, typeSoft: 0.6,
     depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depLow: 0.8, depPlain: 0.5,
     riverAlign: 0.6, riverWidth: 50000, riverDeep: 4, riverZone: 4,
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
-    secZoom: 5000, riverGap: 30000, riverWalk: 150000, riverShort: 40000, riverMeander: 1, showNodes: false,
+    secZoom: 5000, riverGap: 30000, riverWalk: 50000, riverShort: 40000, riverMeander: 1, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
-    scaleH: 50, scaleV: 10,
+    scaleH: 100, scaleV: 1,
     show: 'map', contours: false, lineDivide: false, lineDep: false, mono: false,
   };
 
   const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
   const prof = document.getElementById('profile');
   const view = { cx: 0, cy: 0, mpp: 2500 };
-  let layer = null, region = null, dep = null, river = null, sections = null, useSections = false, job = 0, hover = null;
+  let layer = null, region = null, dep = null, river = null, sections = null, useSections = false, job = 0, hover = null, pixNow = 0;
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -69,7 +69,10 @@
     }
     // Rivers: class 4 (elv), on land only.
     let water = false, sea = false;
-    if (river && v >= state.tSea) {
+    // Large views draw only large rivers: skip the river sum where even the
+    // widest river here would be under two drawn points (no section step).
+    const small = !withSections && r && river && river.maxWidth(layer.height(v0), r.firm) < 2 * pixNow;
+    if (river && v >= state.tSea && !small) {
       const rv = river.at(x, y, v, withSections && sections ? sections.waterAt(x, y) : undefined);
       v = rv.v;
       water = rv.water;
@@ -108,7 +111,10 @@
     const W = canvas.clientWidth, H = canvas.clientHeight;
     canvas.width = Math.round(W * dpr);
     canvas.height = Math.round(H * dpr);
-    const passes = [8, 3, 1.5];
+    // Never finer than one cell (16 m on screen): the map has no more detail
+    // than the game's cells, so close up the passes stop at the cell size.
+    const cellPx = (16 * state.scaleH) / view.mpp;
+    const passes = [Math.max(8, 4 * cellPx), Math.max(3, 2 * cellPx), Math.max(1.5, cellPx)];
     let k = 0;
     M.grunn.done = false;
     // Zoomed in far enough (the view's width on screen under secZoom): build
@@ -119,7 +125,7 @@
       // Always build on the same lattice: one cell, so a section's rivers do
       // not depend on what was drawn before.
       M.Lattice.section = 16 * state.scaleH;
-      M.Lattice.pixel = 16 * state.scaleH;
+      M.Lattice.pixel = 32 * state.scaleH; // two cells: enough for the lines
       const t0 = performance.now(), size = sections.size;
       const i0 = Math.floor((view.cx - (W / 2) * view.mpp) / size), i1 = Math.floor((view.cx + (W / 2) * view.mpp) / size);
       const j0 = Math.floor((view.cy - (H / 2) * view.mpp) / size), j1 = Math.floor((view.cy + (H / 2) * view.mpp) / size);
@@ -153,6 +159,7 @@
     const x0 = view.cx - (W / 2) * view.mpp, y0 = view.cy - (H / 2) * view.mpp, d = block * view.mpp;
     // Lattices need no finer detail than the points drawn now.
     M.Lattice.pixel = d;
+    pixNow = d;
     M.Lattice.section = 16 * state.scaleH; // a 16 m cell, in simulation units
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
@@ -641,6 +648,7 @@
   }
   row(baseTable, 'Sundbredde', 'ridged', [null, numInput('s1Width', 0.01, 0.01, 0.8), null]);
   row(baseTable, 'Innland', 'terskel', [null, null, eye('inland', 'Innland')], 'inland');
+  row(baseTable, 'Vanndeling stiger', 'brattere: høyere', [null, numInput('divSteep', 0.1, 0.2, 10), null]);
   const midTable = document.getElementById('midlayers');
   head(midTable);
   row(midTable, 'Mellomlag', 'fbm', [numInput('midSize', 5, 10, 1000, null, 'h'), numInput('midW', 0.05, 0, 3), eye('mid', 'Mellomlaget')], 'mid');
