@@ -94,17 +94,17 @@
     }
   }
   // The map never needs finer detail than the points it draws (at most the
-  // 16 m cells). So a lattice's spacing follows the drawing: a section width
-  // (128 m) times a power of two: about as coarse as the drawn points
+  // 16 m cells). So a lattice's spacing follows the drawing: a cell
+  // (Lattice.section) times a power of two: about as coarse as the drawn points
   // (Lattice.pixel, set by the page), but never coarser than a sixteenth of
   // the layer (maxG).
   // One lattice is kept per spacing, so zooming back reuses earlier work.
-  const SECTION_M = 128;
+  Lattice.section = 128; // the finest spacing: a cell, set by the page in simulation units
   Lattice.pixel = 4000;
   // fine: follow the drawn points (for layers with narrow features); else
   // always the coarsest allowed spacing (smooth layers).
   Lattice.pick = (store, maxG, fn, fine) => {
-    let G = SECTION_M;
+    let G = Lattice.section;
     while ((!fine || G < Lattice.pixel) && G * 2 <= maxG) G *= 2;
     let l = store.get(G);
     if (!l) {
@@ -177,6 +177,7 @@
       const [large, detail] = this.mixParts(x, y);
       const inland = Number.isFinite(p.tInland) ? S(p.tInland - 0.2, p.tInland + 0.2, large) : 0;
       this._inland = inland; // read by valueParts
+      this._large = large;
       let v = large + (inland > 0 ? (1 - inland) * detail + inland * keepAbove(detail, large - p.tSea - 0.05) : detail);
       // Straits: only in lowland close to the sea, never through highland,
       // and never inland.
@@ -300,12 +301,13 @@
     }
 
     // The final value: base, then the middle layer on land.
-    // [base value, final value (with the middle layer), inland weight].
+    // [base value, final value (with the middle layer), inland weight,
+    // large part (continents and the first basin octave)].
     valueParts(x, y) {
       const p = this.p;
-      const vb = this.baseValue(x, y), inland = this._inland;
-      if (!(p.midW > 0) || vb <= p.tSea) return [vb, vb, inland];
-      return [vb, vb + keepAbove(p.midW * this.mid(x, y) * S(p.tSea, p.tHigh, vb), vb - p.tSea - 0.05), inland];
+      const vb = this.baseValue(x, y), inland = this._inland, large = this._large;
+      if (!(p.midW > 0) || vb <= p.tSea) return [vb, vb, inland, large];
+      return [vb, vb + keepAbove(p.midW * this.mid(x, y) * S(p.tSea, p.tHigh, vb), vb - p.tSea - 0.05), inland, large];
     }
 
     value(x, y) {

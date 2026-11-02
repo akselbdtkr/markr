@@ -14,8 +14,11 @@
     midSize: 185, midW: 0.9, midStretch: 10, tInland: 0,
     firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1.05, typeFirm: 0.4, typeHeight: 0.3, regStretch: 3,
     tT1: -0.34, tT2: 1.01, tT3: 1.84, typeSoft: 0.6,
-    depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depCoast: 0.3, depReach: 0.25,
-    riverAlign: 0.75, riverWidth: 900, riverHigh: 1200, riverZone: 4, riverBraid: 0.7, riverDrop: 0.03,
+    depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depLow: 0.8, depPlain: 0.5,
+    riverAlign: 0.75, riverWidth: 900, riverHigh: 1200, riverZone: 4, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
+    // Scale: the simulation keeps its own units; on screen one unit is
+    // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
+    scaleH: 50, scaleV: 10,
     show: 'map', contours: false, lineDivide: false, lineDep: false, mono: false,
   };
 
@@ -46,11 +49,11 @@
   }
   // The whole chain at a point: base, middle layer, regions, depression.
   function full(x, y) {
-    const [vb, v0, inland] = layer.valueParts(x, y);
+    const [vb, v0, inland, large] = layer.valueParts(x, y);
     const r = regionAt(x, y, v0);
     let v = v0, band = 0;
     if (dep) {
-      const d = dep.at(x, y, v0, vb, inland, r ? r.firm : 0.5);
+      const d = dep.at(x, y, v0, vb, inland, r ? r.firm : 0.5, large, r ? r.w[0] : 0);
       v = d.v;
       band = d.band;
     }
@@ -124,6 +127,7 @@
     const x0 = view.cx - (W / 2) * view.mpp, y0 = view.cy - (H / 2) * view.mpp, d = block * view.mpp;
     // Lattices need no finer detail than the points drawn now.
     M.Lattice.pixel = d;
+    M.Lattice.section = 16 * state.scaleH; // a 16 m cell, in simulation units
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
         const x = x0 + (i + 0.5) * d, y = y0 + (j + 0.5) * d;
@@ -179,9 +183,10 @@
           c = [c[0] * (1 + sh), c[1] * (1 + sh), c[2] * (1 + sh)];
           // Contours every 100 m.
           if (state.contours && h > 0) {
-            const lv = Math.floor(h / 100);
-            if ((i + 1 < nx && hs[k + 1] > 0 && Math.floor(hs[k + 1] / 100) !== lv) || (j + 1 < ny && hs[k + nx] > 0 && Math.floor(hs[k + nx] / 100) !== lv)) {
-              const t = Math.floor(lv / 5) * 5 === lv || Math.floor(Math.max(hs[k + 1] || 0, hs[k + nx] || 0) / 100) % 5 === 0 ? 0.62 : 0.8;
+            // Every 10 m on screen (in simulation units: 10 × scaleV).
+            const ci = 10 * state.scaleV, lv = Math.floor(h / ci);
+            if ((i + 1 < nx && hs[k + 1] > 0 && Math.floor(hs[k + 1] / ci) !== lv) || (j + 1 < ny && hs[k + nx] > 0 && Math.floor(hs[k + nx] / ci) !== lv)) {
+              const t = Math.floor(lv / 5) * 5 === lv || Math.floor(Math.max(hs[k + 1] || 0, hs[k + nx] || 0) / ci) % 5 === 0 ? 0.62 : 0.8;
               c = [c[0] * t, c[1] * t, c[2] * t];
             }
           }
@@ -208,11 +213,12 @@
     // Scale bar, no box.
     ctx.save();
     ctx.scale(dpr, dpr);
-    const km = niceKm((120 * view.mpp) / 1000), len = (km * 1000) / view.mpp;
+    // On screen units: metres per pixel after the scale.
+    const mpp = view.mpp / state.scaleH, m = niceKm(120 * mpp), len = m / mpp;
     ctx.fillStyle = 'rgba(20,20,24,0.8)';
     ctx.fillRect(16, H - 20, len, 3);
     ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText(`${km} km`, 16, H - 26);
+    ctx.fillText(m >= 1000 ? `${(m / 1000).toLocaleString('nb-NO')} km` : `${m.toLocaleString('nb-NO')} m`, 16, H - 26);
     ctx.restore();
   }
   const niceKm = (v) => {
@@ -396,15 +402,26 @@
 
   // --- layers: one compact row each, with typed size and weight -------------
 
-  function numInput(key, step, min, max, after) {
+  // unit: 'h' for lengths and 'v' for heights. The field shows the value on
+  // screen (after the scale) and stores it in simulation units; step, min
+  // and max are in simulation units too.
+  const factor = (unit) => (unit === 'h' ? 1 / state.scaleH : unit === 'v' ? 1 / state.scaleV : 1);
+  const round3 = (v) => (v === 0 ? 0 : +v.toPrecision(3));
+  const unitInputs = [];
+  function numInput(key, step, min, max, after, unit) {
     const el = document.createElement('input');
-    Object.assign(el, { type: 'number', step, min, max, value: state[key] });
+    const show = () => {
+      const f = factor(unit);
+      Object.assign(el, { type: 'number', step: round3(step * f), min: round3(min * f), max: round3(max * f), value: round3(state[key] * f) });
+    };
+    show();
+    if (unit) unitInputs.push(show);
     el.setAttribute('aria-label', key);
     el.addEventListener('change', () => {
-      const v = +el.value;
-      if (!Number.isFinite(v)) return (el.value = state[key]);
+      const v = +el.value / factor(unit);
+      if (!Number.isFinite(v)) return show();
       state[key] = Math.max(min, Math.min(max, v));
-      el.value = state[key];
+      show();
       (after || rebuild)();
     });
     return el;
@@ -464,19 +481,19 @@
   const baseTable = document.getElementById('layers');
   head(baseTable);
   for (const L of M.BaseLayer.LAYERS) {
-    row(baseTable, L.name, L.type, [numInput(L.id + 'Size', 10, 20, 10000), numInput(L.id + 'W', 0.05, 0, 3), eye(L.id, L.name)], L.id);
+    row(baseTable, L.name, L.type, [numInput(L.id + 'Size', 10, 20, 10000, null, 'h'), numInput(L.id + 'W', 0.05, 0, 3), eye(L.id, L.name)], L.id);
   }
   row(baseTable, 'Sundbredde', 'ridged', [null, numInput('s1Width', 0.01, 0.01, 0.8), null]);
   row(baseTable, 'Innland', 'terskel', [null, null, eye('inland', 'Innland')], 'inland');
   const midTable = document.getElementById('midlayers');
   head(midTable);
-  row(midTable, 'Mellomlag', 'fbm', [numInput('midSize', 5, 10, 1000), numInput('midW', 0.05, 0, 3), eye('mid', 'Mellomlaget')], 'mid');
+  row(midTable, 'Mellomlag', 'fbm', [numInput('midSize', 5, 10, 1000, null, 'h'), numInput('midW', 0.05, 0, 3), eye('mid', 'Mellomlaget')], 'mid');
   row(midTable, 'Strekking', 'langs helningen', [null, numInput('midStretch', 0.5, 1, 20), null], 'stretch');
   const regTable = document.getElementById('reglayers');
   head(regTable);
-  row(regTable, 'Fasthet', 'fbm, strukket', [numInput('firmSize', 5, 10, 1000), numInput('firmW', 0.05, 0, 3), eye('firm', 'Fasthet')], 'firm');
+  row(regTable, 'Fasthet', 'fbm, strukket', [numInput('firmSize', 5, 10, 1000, null, 'h'), numInput('firmW', 0.05, 0, 3), eye('firm', 'Fasthet')], 'firm');
   row(regTable, 'Arv fra høyden', 'lavland løsere', [null, numInput('firmInherit', 0.05, 0, 3), null]);
-  row(regTable, 'Landskapstype', 'fbm, strukket', [numInput('typeSize', 5, 10, 1000), numInput('typeW', 0.05, 0, 3), eye('type', 'Landskapstype')], 'type');
+  row(regTable, 'Landskapstype', 'fbm, strukket', [numInput('typeSize', 5, 10, 1000, null, 'h'), numInput('typeW', 0.05, 0, 3), eye('type', 'Landskapstype')], 'type');
   row(regTable, 'Fasthet → type', 'fastere → fjellsk', [null, numInput('typeFirm', 0.05, 0, 3), null]);
   row(regTable, 'Overgang', 'S-kurve', [null, numInput('typeSoft', 0.05, 0.01, 3), null]);
   row(regTable, 'Høyde → type', 'høyere → fjellsk', [null, numInput('typeHeight', 0.05, 0, 3), null]);
@@ -485,13 +502,13 @@
   document.getElementById('legend').innerHTML = M.RegionLayer.TYPES.map((t) => `<span><i style="background:rgb(${t.colour.join(',')})"></i>${t.name}</span>`).join('');
   const depTable = document.getElementById('deplayers');
   head(depTable);
-  row(depTable, 'Nedsenk', 'strukket', [numInput('depSize', 5, 5, 1000), numInput('depDepth', 0.05, 0, 3), eye('dep', 'Nedsenk')], 'dep');
+  row(depTable, 'Nedsenk', 'strukket', [numInput('depSize', 5, 5, 1000, null, 'h'), numInput('depDepth', 0.05, 0, 3), eye('dep', 'Nedsenk')], 'dep');
   row(depTable, 'Linjebredde', 'løs grunn: bredere', [null, numInput('depWidth', 0.01, 0.01, 3), null]);
   row(depTable, 'Myke kanter', 'S-kurve', [null, numInput('depSoft', 0.05, 0, 3), null]);
   row(depTable, 'Retning', 'grunt på tvers av helningen', [null, numInput('depAlign', 0.05, 0, 1), null]);
   row(depTable, 'Strekking', 'langs helningen', [null, numInput('depStretch', 0.5, 1, 20), null], 'depStretch');
-  row(depTable, 'Kysten inn', 'fjorder, øyer, sund', [null, numInput('depCoast', 0.05, 0, 3), null]);
-  row(depTable, 'Rekkevidde', 'fra kysten og inn', [null, numInput('depReach', 0.05, 0.05, 3), null]);
+  row(depTable, 'Mot havnivå', 'i lavland: fjorder', [null, numInput('depLow', 0.05, 0, 3), null]);
+  row(depTable, 'Ekstra i sletter', 'mot havnivå', [null, numInput('depPlain', 0.05, 0, 3), null]);
   const rivTable = document.getElementById('rivers');
   for (const t of ['', '', '', 'verdi', '']) {
     const d = document.createElement('div');
@@ -500,11 +517,12 @@
     rivTable.appendChild(d);
   }
   row(rivTable, 'Elver', 'langs nedsenkene', [null, null, null], 'river');
-  row(rivTable, 'Bredde', 'm, ved havet i løs grunn', [null, numInput('riverWidth', 50, 10, 5000), null]);
-  row(rivTable, 'Smalere over', 'm o.h.', [null, numInput('riverHigh', 50, 100, 5000), null]);
+  row(rivTable, 'Bredde', 'm, ved havet i løs grunn', [null, numInput('riverWidth', 50, 10, 5000, null, 'h'), null]);
+  row(rivTable, 'Smalere over', 'm o.h.', [null, numInput('riverHigh', 50, 100, 5000, null, 'v'), null]);
   row(rivTable, 'Følger helningen', 'terskel 0–1', [null, numInput('riverAlign', 0.05, 0, 1), null]);
-  row(rivTable, 'Område rundt', 'km, formes av elva', [null, numInput('riverZone', 0.5, 0, 50), null]);
+  row(rivTable, 'Område rundt', 'km, formes av elva', [null, numInput('riverZone', 0.5, 0, 50, null, 'h'), null]);
   row(rivTable, 'Flere løp', 'nær havet', [null, numInput('riverBraid', 0.05, 0, 1), null]);
+  row(rivTable, 'Høyde beholdt', 'lavere elver: mindre', [null, numInput('riverRise', 0.05, 0, 1), null]);
   for (const b of document.querySelectorAll('#viewmode button')) {
     b.setAttribute('aria-pressed', String(b.dataset.mono === String(state.mono)));
     b.addEventListener('click', () => {
@@ -518,6 +536,17 @@
     b.addEventListener('click', () => {
       state.depMode = b.dataset.mode;
       for (const o of document.querySelectorAll('#depmode button')) o.setAttribute('aria-pressed', String(o === b));
+      rebuild();
+    });
+  }
+  for (const id of ['scaleH', 'scaleV']) {
+    const el = document.getElementById(id);
+    el.value = state[id];
+    el.addEventListener('change', () => {
+      const v = Math.round(+el.value);
+      if (!(v >= 1)) return (el.value = state[id]);
+      state[id] = v;
+      for (const f of unitInputs) f();
       rebuild();
     });
   }
@@ -568,7 +597,7 @@
       col = M.RegionLayer.TYPES[top].colour;
       name = `${M.RegionLayer.TYPES[top].name} · ${name}`;
     }
-    box.innerHTML = `<span class="swatch" style="background:rgb(${col.map((v) => v | 0).join(',')})"></span>${name}<span class="h">${Math.round(hover.h).toLocaleString('nb-NO')} m</span>`;
+    box.innerHTML = `<span class="swatch" style="background:rgb(${col.map((v) => v | 0).join(',')})"></span>${name}<span class="h">${Math.round(hover.h / state.scaleV).toLocaleString('nb-NO')} m</span>`;
     box.hidden = false;
     const W = canvas.clientWidth;
     box.style.left = `${Math.min(sx + 14, W - box.offsetWidth - 8)}px`;
@@ -624,7 +653,7 @@
   function zoom(f, sx, sy, now = true) {
     const W = canvas.clientWidth, H = canvas.clientHeight;
     const wx = view.cx + (sx - W / 2) * view.mpp, wy = view.cy + (sy - H / 2) * view.mpp;
-    view.mpp = Math.max(50, Math.min(20000, view.mpp * f));
+    view.mpp = Math.max(1, Math.min(20000, view.mpp * f));
     view.cx = wx - (sx - W / 2) * view.mpp;
     view.cy = wy - (sy - H / 2) * view.mpp;
     if (now) later(render);

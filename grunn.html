@@ -61,6 +61,9 @@
     .seed input, .seed button { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; }
     .seed input { width: 0; flex: 1; }
     .seed button { cursor: pointer; }
+    .scale { display: flex; gap: 10px; margin-top: 10px; font-size: 13px; }
+    .scale label { display: flex; align-items: center; gap: 2px; flex: 1; }
+    .scale input { width: 100%; font: inherit; font-size: 12px; text-align: right; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; }
     .checks { margin: 10px 0 8px; }
     .check { display: flex; gap: 6px; align-items: center; font-size: 13px; margin: 4px 0; }
     .check input { margin: 0; accent-color: var(--handle); }
@@ -114,11 +117,12 @@
       <div id="rivers" class="grid"></div>
     </details>
     <div class="seed"><input id="seed" type="number" aria-label="Frø"><button id="reseed">Nytt frø</button></div>
+    <div class="scale"><label>Målestokk 1:<input id="scaleH" type="number" min="1" step="1"></label><label>Høyde 1:<input id="scaleV" type="number" min="1" step="1"></label></div>
     <div id="viewmode" class="seg" role="group" aria-label="Visning">
       <button data-mono="false">Farger</button><button data-mono="true">Gråtoner</button>
     </div>
     <div class="checks">
-      <label class="check"><input id="contours" type="checkbox">Høydekurver hver 100 m</label>
+      <label class="check"><input id="contours" type="checkbox">Høydekurver hver 10 m</label>
       <label class="check"><input id="lineDivide" type="checkbox">Omriss av vanndelingsfelt</label>
       <label class="check"><input id="lineDep" type="checkbox">Omriss av nedsenksfelt</label>
     </div>

@@ -1,10 +1,11 @@
 // Nedsenkslaget: valleys, ravines, canyons, rivers and fjords. A band where a
 // noise layer passes a middle value sinks the land toward the base
 // displacement (the base value without the middle layer, minus a depth), so
-// inside the band the middle layer is nearly flattened away. Near the coast
-// the floor is pulled further down and can fall below the sea threshold:
-// fjords, islands and small sounds, even where the inland threshold would
-// keep the sea out.
+// inside the band the middle layer is nearly flattened away. In lowland
+// (read from the smooth large part of the base) the floor is pulled hard
+// toward sea level, more in plains: the sea follows the depressions far in,
+// making fjords, islands and small sounds, even where the inland threshold
+// would keep it out.
 //
 // Two ways to find the band, to compare:
 // - median: the band is where a stretched fbm passes its median (0). Its
@@ -27,7 +28,8 @@
 
   class DepressionLayer {
     // p: depMode ('median' | 'ridged'), depSize (km), depDepth (v units),
-    // depWidth, depSoft (edge S-curve), depStretch, depAlign (0..1).
+    // depWidth, depSoft (edge S-curve), depStretch, depAlign (0..1), depLow
+    // and depPlain (pull toward sea level in lowland and plains).
     constructor(base, seed, p) {
       this.base = base;
       this.p = p;
@@ -67,7 +69,10 @@
       return M.Lattice.pick(this.lats, L / 16, this.latFn, true).at(x, y);
     }
 
-    band(x, y, firm) {
+    // The band at a point (0 outside, 1 at the centre), given firmness and
+    // how much lowland it lies in (low, 0..1). In lowland the band is fuller
+    // and its direction counts less, so it does not break into pieces.
+    band(x, y, firm, low = 0) {
       const p = this.p, median = p.depMode !== 'ridged';
       const [n, par, n2] = this.lines(x, y);
       // Width and sides from firmness: loose is wider with a flat floor and
@@ -75,32 +80,36 @@
       // depSoft widens the S-curve outward from the line: softer edges.
       const w = p.depWidth * (1.5 - firm), a = 0.5 * (1 - firm) / (1 + p.depSoft);
       const prof = (t) => 1 - S(a, 1 + p.depSoft, t);
-      const align = 1 - p.depAlign * (1 - S(0.3, 0.95, par));
+      const align = 1 - p.depAlign * (1 - 0.8 * low) * (1 - S(0.3, 0.95, par));
       let band = prof(Math.abs(n) / w) * align;
       if (!median) {
         // Second octave: half the size, narrower and shallower, its own lines.
         band = Math.max(band, 0.6 * prof(Math.abs(n2) / (0.5 * w)) * align);
       }
-      return band;
+      // Fuller in lowland: the middle of the band reaches full depth sooner.
+      return band + low * band * (1 - band);
     }
 
     // Sink v at a point. vb: base value (without the middle layer), inland:
-    // inland weight, firm: firmness. Returns { band, v }.
-    at(x, y, v, vb, inland, firm) {
+    // inland weight, firm: firmness, large: the large part of the base,
+    // plain: the share of plains. Returns { band, v }.
+    //
+    // Lowland is read from the large part, which is smooth, so it holds along
+    // a whole depression. There the floor is pulled hard toward sea level
+    // (depLow, more in plains: depPlain), so the sea follows the depressions
+    // far in: long fjords, and islands and sounds where bands lie close. The
+    // inland threshold gives way in proportion. In highland the floor is the
+    // base value minus the depth, and the inland threshold holds.
+    at(x, y, v, vb, inland, firm, large, plain = 0) {
       const p = this.p, bp = this.base.p;
       if (vb < bp.tSea - 0.6) return { band: 0, v };
-      const band = this.band(x, y, firm);
+      const low = 1 - S(bp.tSea, bp.tHigh, large);
+      const band = this.band(x, y, firm, low);
       if (band <= 0) return { band, v };
-      // Near the coast the floor is pulled down further (depCoast, reaching
-      // depReach above the sea threshold), so the sea follows the depressions
-      // in: fjords, and islands and small sounds where bands lie close. Within
-      // that reach it overrides the inland threshold: a depression may bring
-      // the sea in where the other layers would not.
-      const coast = 1 - S(bp.tSea, bp.tSea + p.depReach, vb);
-      const floor = vb - p.depDepth - p.depCoast * coast;
+      const pull = Math.min(1, low * (p.depLow + p.depPlain * plain));
+      const floor = (1 - pull) * (vb - p.depDepth) + pull * (bp.tSea - 0.15);
       let d = band * (Math.min(v, floor) - v);
-      // Further inland the inland threshold still holds: no sea there.
-      const keep = inland * (1 - coast);
+      const keep = inland * (1 - pull);
       if (keep > 0 && v >= bp.tSea) d = (1 - keep) * d + keep * M.BaseLayer.keepAbove(d, v - bp.tSea - 0.05);
       return { band, v: v + d };
     }

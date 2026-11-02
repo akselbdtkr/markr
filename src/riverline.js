@@ -61,24 +61,29 @@
       // The bottom of this cross-section.
       const qx = x - (n * nx) / g2, qy = y - (n * ny) / g2;
       const par = this.dep.lines(qx, qy)[1];
-      const [, vq] = b.valueParts(qx, qy);
+      const [, vq, , largeQ] = b.valueParts(qx, qy);
       if (vq < bp.tSea) return { v, water: false };
+      // Lowland at the bottom (from the smooth large part): rivers there need
+      // less alignment, so the lines hold together.
+      const low = 1 - S(bp.tSea, bp.tHigh, largeQ);
       const r = this.region.at(qx, qy, vq), w = r.w, firm = r.firm;
       // How fast the river fades: sharp in firm fjellsk and in loose plains
       // and plateaus, soft in hills and in loose lowland and highland.
       const sharp = firm * w[3] + (1 - firm) * (w[0] + w[2]);
       const soft = w[1] + (1 - firm) * (w[1] + w[3]);
       const tw = 0.04 + 0.3 * Math.max(0, Math.min(1, 0.5 + 0.5 * (soft - sharp)));
-      let fade = S(p.riverAlign - tw, p.riverAlign + tw, par);
+      const t0 = p.riverAlign * (1 - 0.4 * low);
+      let fade = S(t0 - tw, t0 + tw, par);
       fade *= 1 - S(bp.tDivide - 0.25, bp.tDivide, vq); // none above the divide
       if (fade <= 0.02) return { v, water: false };
       // Width: loose is wider, higher is narrower.
       const hq = b.height(vq);
       let W = p.riverWidth * (0.25 + 0.75 * (1 - firm)) * (1 - 0.85 * S(0, p.riverHigh, hq)) * fade;
       // The surface: the large part of the base at q, kept a little below the
-      // land at q, and never below the sea threshold.
-      const large = b.mixParts(qx, qy)[0];
-      const vSurf = Math.max(bp.tSea + 0.005, Math.min(large, vq) - p.riverDrop);
+      // land at q, then lowered toward the sea (riverRise keeps that share of
+      // the height above it): rivers lie low, near the coast almost at sea
+      // level.
+      const vSurf = bp.tSea + 0.005 + Math.max(0, Math.min(largeQ, vq) - p.riverDrop - bp.tSea) * p.riverRise;
       // Near the water: a wider corridor split into channels.
       const nearSea = p.riverBraid * (1 - S(bp.tSea, bp.tSea + 0.35, vq));
       let water = false;

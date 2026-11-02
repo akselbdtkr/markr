@@ -125,13 +125,22 @@ vannflate.
 - **Området rundt:** landet skråner ned mot vannet i en sone som er bredere i løs grunn, og
   som varierer med et sakte noise-lag.
 
-Nedsenkslaget kan også trekke kysten inn i nedsenkene nær kysten: fjorder, øyer og små
-sund. Innenfor den rekkevidden overstyrer det innlandsgrensen. Lenger inne gjelder grensen
-fortsatt.
+Nedsenkslaget trekker bunnen hardt mot havnivå i lavland («Mot havnivå»), og ekstra i
+sletter. Lavland leses fra den store, glatte delen av grunnlaget, så trekket holder langs hele
+nedsenket. Havet følger da nedsenkene langt inn: fjorder, øyer og små sund. I lavland er
+båndet fyllere, og retningen teller mindre, så det brytes ikke opp. Innlandsgrensen gir etter
+i samme grad. Elvene ligger lavt: vannflaten beholder bare en andel («Høyde beholdt») av
+høyden over havet, og lavlandet trenger mindre retning for å holde elva sammen.
+
+**Målestokk:** simuleringen har sine egne enheter. På skjermen er én enhet 1/50 m
+bortover og 1/10 m i høyden (justerbart: «Målestokk 1:» og «Høyde 1:»). Laget er laget i stor
+skala, men spillet skal spilles i utsnitt på 2 km til 100 m, så kontinentene blir ca. 60 km,
+dalene noen hundre meter og fjellene noen hundre meter høye. Størrelser i panelet vises i
+skjermens km og m. En rute på 16 m er 800 enheter.
 
 **Oppløsning:** kartet trenger aldri finere detalj enn punktene det tegner (høyst rutene på
-16 m). Mellomlaget, områdelagene og nedsenkslaget varierer over titalls km. De regnes derfor
-på et grovt rutenett av noder med seksjonsbredde (128 m) ganget med en toerpotens, lagres
+16 m). Mellomlaget, områdelagene og nedsenkslaget varierer langsomt. De regnes derfor på et
+grovt rutenett av noder med en rute (16 m) ganget med en toerpotens, lagres
 på tvers av tegninger og blandes kubisk (Catmull-Rom), så skygger ikke viser rutenettet.
 De glatte lagene bruker en sekstendedel av lagets størrelse. Nedsenkslaget har smale renner
 og følger punktene som tegnes. Hele kartet tegnes på ca. 0,6 s.
