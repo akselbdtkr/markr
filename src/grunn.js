@@ -18,7 +18,7 @@
     vA1: 0.6, vA2: 1.6, vA3: 2.4, vB1: 0.25, vB2: 0.7, vB3: 0.9, vH: 0.4,
     riverAlign: 0.6, riverWidth: 50000, riverDeep: 4, riverZone: 4,
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
-    secZoom: 5000, riverGap: 30000, riverWalk: 50000, riverShort: 40000, riverMeander: 1, showNodes: false,
+    secZoom: 5000, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 100, scaleV: 1,
@@ -54,7 +54,7 @@
       ? new M.RiverSections(river, (x, y) => {
           const f = fullCore(x, y, false);
           return { h: f.h, cls: f.cls };
-        }, { cell: 16 * state.scaleH, gap: state.riverGap, walk: state.riverWalk, short: state.riverShort, meander: state.riverMeander, tSea: state.tSea, minW: state.riverMin, rise: 5 * state.scaleV })
+        }, { cell: 16 * state.scaleH, gap: state.riverGap, walk: state.riverWalk, bend: state.riverBend, meander: state.riverMeander, tSea: state.tSea, minW: state.riverMin, rise: 5 * state.scaleV })
       : null;
   }
   // The whole chain at a point: base, middle layer, regions, depression.
@@ -767,9 +767,9 @@
   row(rivTable, 'Dypt nok nedsenk', 'terskel 0–1', [null, numInput('riverAlign', 0.05, 0, 1), null]);
   row(rivTable, 'Område rundt', 'km, formes av elva', [null, numInput('riverZone', 0.5, 0, 50, null, 'h'), null]);
   row(rivTable, 'Per seksjon', 'når utsnittet er under, m', [null, numInput('secZoom', 500, 200, 100000, () => render()), null], 'sections');
-  row(rivTable, 'Koble ender', 'm, opptil', [null, numInput('riverGap', 1000, 0, 500000, null, 'h'), null]);
+  row(rivTable, 'Koble ender', 'm, rette kjeder 2 ×', [null, numInput('riverGap', 1000, 0, 500000, null, 'h'), null]);
   row(rivTable, 'Følg nedover', 'm, opptil', [null, numInput('riverWalk', 1000, 0, 500000, null, 'h'), null]);
-  row(rivTable, 'Kort kjede', 'blir innsjø under, m', [null, numInput('riverShort', 1000, 0, 500000, null, 'h'), null]);
+  row(rivTable, 'Bøyd kjede', 'blir innsjø, rettethet under', [null, numInput('riverBend', 0.05, 0, 1), null]);
   row(rivTable, 'Slyng i koblinger', '0–2', [null, numInput('riverMeander', 0.1, 0, 2), null]);
   row(rivTable, 'Flere løp', 'nær havet', [null, numInput('riverBraid', 0.05, 0, 1), null]);
   row(rivTable, 'Høyde beholdt', 'lavere elver: mindre', [null, numInput('riverRise', 0.05, 0, 1), null]);

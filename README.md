@@ -178,10 +178,11 @@ seksjon tegnes, lagres elvene der, og funksjoner går gjennom dem.
    Stegene videre (koblinger og sideelver) tegnes for alle kjeder, også dem som ikke når
    havet ennå, så elvene inne i landet ikke brytes opp. En vei nedover som ender i en grop,
    tegnes ikke.
-5. **Bredde:** en kjede beholder bredden etter lengden. Lange kjeder er like brede der de
-   kobles. Korte blir smalere, så en lang elv renner gjennom, mens små innsjøer ved siden av
-   ikke slår seg sammen. Koblinger tar den smaleste av de to endene og slynger seg høyst en
-   halv bredde.
+5. **Retning:** hver kjede får en rettethet: avstanden mellom endene delt på lengden langs
+   kjeden (1 er rett, nær 0 er en sløyfe). Rette kjeder beholder bredden og leter etter
+   koblinger opptil to ganger «Koble ender». Bøyde kjeder blir smalere, leter kortere og blir
+   innsjøer hvis de ikke når havet og har rettethet under «Bøyd kjede». Koblinger går jevnt
+   fra bredden i den ene enden til den andre, og slynger seg høyst en halv bredde.
 6. **Bekker under en rute:** en elv smalere enn ruta gjør ikke ruta til vann. Ruta får i
    stedet en blåtone etter hvor stor del av den elva dekker, så smale elver ikke brytes opp.
 7. **Sund:** en kjede der begge ender åpner mot havet, blir et sund med vannflate på 0 m.

@@ -18,13 +18,14 @@
 //    chain reaches the sea; all chains that do form the trees. Everything is
 //    a function of the chain alone, so the trees appear as the player
 //    explores and are the same whatever the order. A chain that does not reach the sea is no waterway: it is still
-//    drawn as a river, and a short one as a small lake. The source of a long chain is followed uphill to the
+//    drawn as a river, and a bendy one as a small lake. The source of a straight chain is followed uphill to the
 //    divide, so trees start there. Trees are the waterways of the game, and
 //    only chains near what is drawn are ever followed.
-// 4. Width: a chain keeps its width by its length: long chains stay wide
-//    where they join, short ones narrow, so a long river runs through while
-//    small lakes beside it stay apart. Links take the narrower of their two
-//    ends and swing a little, in whole half waves.
+// 4. Direction: a chain's straightness (ends' distance over its length)
+//    decides. Straight chains keep their width and look farther for links
+//    (up to twice the gap); bendy ones narrow, look less far, and become
+//    lakes when they find no way to the sea. Links taper between the two
+//    ends' widths and swing a little, in whole half waves.
 // 5. A chain whose ends both open onto the sea is a sound, at sea level.
 // 6. Draw: the section's cells (16 m) in a channel or lake are water.
 (function (M) {
@@ -39,7 +40,8 @@
 
   class RiverSections {
     // river: a RiverLine. ground(x, y) -> { h, cls } without this step.
-    // p: cell (sim units), gap, walk, short (sim units), meander, tSea,
+    // p: cell (sim units), gap, walk (sim units), bend (straightness under
+    // which a chain with no way out is a lake), meander, tSea,
     // minW (sim units), rise (how much a walk may climb over a sill).
     constructor(river, ground, p) {
       this.river = river;
@@ -186,9 +188,14 @@
       for (let k = 1; k < nodes.length; k++) len += Math.hypot(nodes[k].x - nodes[k - 1].x, nodes[k].y - nodes[k - 1].y);
       const ch = { nodes, ring, len, tree: undefined, lake: false, sea: false, source: null, segs: null };
       for (const m of nodes) m.chain = ch;
-      // Width by length: long chains keep their width, short ones narrow.
-      const { short } = this.p;
-      ch.wf = 0.3 + 0.7 * S(short, 4 * short, len);
+      // Straightness: the distance between the ends over the length along
+      // the chain (1 straight, near 0 a loop). A chain with direction keeps
+      // its width and looks far for links; a bendy one narrows, looks less
+      // far, and becomes a lake more easily.
+      const h0 = nodes[0], t0 = nodes[nodes.length - 1];
+      ch.straight = len > 0 ? Math.hypot(t0.x - h0.x, t0.y - h0.y) / len : 1;
+      ch.wf = 0.3 + 0.7 * S(0.35, 0.8, ch.straight);
+      ch.reach = this.p.gap * (0.5 + 1.5 * S(0.4, 0.9, ch.straight));
       const endW = (list) => list.slice(0, 8).reduce((w, m) => Math.max(w, m.W), 0) * ch.wf;
       const h = nodes[0], t = nodes[nodes.length - 1];
       ch.ends = [
@@ -212,8 +219,9 @@
     connect(e) {
       if (e.link !== undefined) return e.link;
       e.link = null;
-      let best = null, bd = this.p.gap, mid = null, md = this.p.gap;
-      for (const o of this.nodesNear(e.n.x, e.n.y, this.p.gap)) {
+      const reach = e.chain.reach;
+      let best = null, bd = reach, mid = null, md = reach;
+      for (const o of this.nodesNear(e.n.x, e.n.y, reach)) {
         const ch = this.chain(o);
         if (ch === e.chain || ch.ring) continue;
         const vx = o.x - e.n.x, vy = o.y - e.n.y, dist = Math.hypot(vx, vy);
@@ -285,11 +293,11 @@
       ch.tree = ok;
       if (!ok) {
         // No way to the sea. A piece of a ring (a tight, closed line, often
-        // broken into pieces) is removed; a short loose chain is a small
+        // broken into pieces) is removed; a bendy loose chain is a small
         // lake; the rest is drawn but no waterway.
         if (ch.ring || this.ringPiece(ch)) ch.ringPiece = true;
-        else if (ch.len < this.p.short) ch.lake = true;
-      } else if (ch.len >= this.p.short) this.toDivide(ch);
+        else if (ch.straight < this.p.bend) ch.lake = true;
+      } else if (ch.straight >= this.p.bend) this.toDivide(ch);
       return ok;
     }
 
@@ -410,7 +418,7 @@
       // step on (a link up to the gap, a walk) and its source (up to three
       // walks). Only these, so a section does not depend on what else was
       // followed before.
-      const reach = Math.max(this.p.gap, 3 * this.p.walk);
+      const reach = Math.max(2 * this.p.gap, 3 * this.p.walk);
       const segs = new Set(), rings = [], seen = new Set();
       for (const n of this.nodesNear(x0 + this.size / 2, y0 + this.size / 2, this.size / 2 + reach)) {
         const ch = this.chain(n);
