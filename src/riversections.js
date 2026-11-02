@@ -43,6 +43,7 @@
     return t * t * (3 - 2 * t);
   };
   const MAX_CHAINS = 80; // chains followed downstream before giving up
+  const lower = (a, b) => a[0] < b[0] || (a[0] === b[0] && (a[1] < b[1] || (a[1] === b[1] && a[2] < b[2])));
 
   class RiverSections {
     // river: a RiverLine. ground(x, y) -> { h, cls } without this step.
@@ -215,11 +216,13 @@
     endMatch(e) {
       if (e.match !== undefined) return e.match;
       e.match = null;
+      // A one-point chain has one node for both ends: it takes no part.
+      if (e.chain.nodes.length < 2) return null;
       const R = 2 * this.p.gap;
       let bd = R;
       for (const o of this.nodesNear(e.n.x, e.n.y, R)) {
         const ch = this.chain(o);
-        if (ch === e.chain || ch.ring) continue;
+        if (ch === e.chain || ch.ring || ch.nodes.length < 2) continue;
         const oe = ch.ends.find((x) => x.n === o);
         if (!oe) continue;
         const vx = o.x - e.n.x, vy = o.y - e.n.y, dist = Math.hypot(vx, vy);
@@ -251,6 +254,13 @@
         rv.wf = 0.3 + 0.7 * S(0.35, 0.8, rv.straight);
         rv.reach = this.p.gap * (0.5 + 1.5 * S(0.4, 0.9, rv.straight));
         rv.ends = ends.map((e) => ({ n: e.n, ox: e.ox, oy: e.oy, W: e.W * rv.wf, chain: rv }));
+        // The mouth: the lower end (ties by index). Its level ranks the
+        // river: water only flows on to a river of lower rank, so steps can
+        // never go round in a circle.
+        const [ea, eb] = rv.ends;
+        rv.mouth = ea.n.vSurf < eb.n.vSurf || (ea.n.vSurf === eb.n.vSurf && ea.n.ck <= eb.n.ck) ? ea : eb;
+        rv.rank = [rv.mouth.n.vSurf, rv.mouth.n.ck, rv.mouth.n.sec];
+        rv.endNodes = new Set([ea.n, eb.n]);
         rv.joinSegs = [];
         for (const [x, y] of joins) this.linkSegs(x.n, y.n, x.W * rv.wf, rv.joinSegs, 'bridge', y.W * rv.wf);
         for (const c of chains) c.river = rv;
@@ -279,6 +289,15 @@
         return { list, end: e, len };
       };
       const fwd = grow(ch.ends[1]), bwd = grow(ch.ends[0]);
+      // Chains paired all the way round: a ring, removed. Which pair would
+      // close it depends on where one starts, so none is drawn.
+      if (fwd.end !== bwd.end && this.pair(fwd.end) === bwd.end) {
+        const all = [...seen];
+        const rv = make(all, all.flatMap((c) => c.nodes), [], [bwd.end, fwd.end], ch.len + fwd.len + bwd.len);
+        rv.ring = true;
+        rv.joinSegs = [];
+        return rv;
+      }
       let nodes = [];
       for (let k = bwd.list.length - 1; k >= 0; k--) nodes = nodes.concat(bwd.list[k].slice().reverse());
       nodes = nodes.concat(ch.nodes);
@@ -303,34 +322,28 @@
 
     // 3. From a loose end: the nearest facing end of another chain ahead, or
     // else the middle of another river ahead. { node, end?, kind } or null.
+    // From a river's mouth: into the middle of another river ahead, of lower
+    // rank. Ends are joined only by mutual pairs, so every end has at most
+    // one link and which one is fixed. { node, kind } or null.
     connect(e) {
       if (e.link !== undefined) return e.link;
       e.link = null;
       const reach = e.chain.reach;
-      let best = null, bd = reach, mid = null, md = reach;
+      let mid = null, md = reach;
       for (const o of this.nodesNear(e.n.x, e.n.y, reach)) {
         const ch = this.chain(o);
-        if (ch.ring || this.riverOf(ch) === e.chain) continue;
+        if (ch.ring) continue;
+        const rv = this.riverOf(ch);
+        if (rv === e.chain || rv.ring || rv.endNodes.has(o) || !lower(rv.rank, e.chain.rank)) continue;
         const vx = o.x - e.n.x, vy = o.y - e.n.y, dist = Math.hypot(vx, vy);
-        if (!dist || (vx * e.ox + vy * e.oy) / dist < 0.6) continue; // ahead of e
-        const oe = this.riverOf(ch).ends.find((x) => x.n === o);
-        if (oe && -(vx * oe.ox + vy * oe.oy) / dist >= 0.3 && dist < bd) {
-          best = oe;
-          bd = dist;
-        } else if (dist < md) {
-          mid = o;
-          md = dist;
-        }
+        if (!dist || dist >= md || (vx * e.ox + vy * e.oy) / dist < 0.6) continue; // ahead of e
+        mid = o;
+        md = dist;
       }
-      if (best) e.link = { node: best.n, end: best, kind: 'bridge' };
-      else if (mid) e.link = { node: mid, end: null, kind: 'tributary' };
+      if (mid) e.link = { node: mid, end: null, kind: 'tributary' };
       return e.link;
     }
 
-    // A chain's own step on from its mouth (always its lower end, so it
-    // does not depend on how the chain was reached): to the sea, a link or
-    // tributary into another chain, or a walk downhill. ch.next is 'sea', a
-    // chain, or null; ch.out holds the step's segments.
     step(ch) {
       if (ch.next !== undefined) return ch.next;
       ch.out = [];
@@ -341,7 +354,7 @@
         ch.sea = true; // a sound
         return (ch.next = 'sea');
       }
-      const mouth = a.n.vSurf < b.n.vSurf || (a.n.vSurf === b.n.vSurf && a.n.ck <= b.n.ck) ? a : b;
+      const mouth = ch.mouth;
       if (this.seaEnd(mouth)) return (ch.next = 'sea');
       const link = this.connect(mouth);
       if (link) {
@@ -349,7 +362,7 @@
         if (nx !== ch) {
           // From the width at this end to the width at the other (a
           // tributary keeps its own), so it neither pinches nor swells.
-          this.linkSegs(mouth.n, link.node, mouth.W, ch.out, link.kind, link.end ? link.end.W : mouth.W);
+          this.linkSegs(mouth.n, link.node, mouth.W, ch.out, link.kind, mouth.W);
           return (ch.next = nx);
         }
       }
@@ -450,7 +463,10 @@
         const node = { x: best.px, y: best.py, W: end.W, vSurf: end.n.vSurf };
         segs.push({ a: prev, b: node, kind: 'walk' });
         if (best.g.cls === 0) return 'sea';
-        for (const o of this.nodesNear(best.px, best.py, 1.5 * cell)) if (this.riverOf(this.chain(o)) !== end.chain) return o;
+        for (const o of this.nodesNear(best.px, best.py, 1.5 * cell)) {
+          const rv = this.riverOf(this.chain(o));
+          if (rv !== end.chain && !rv.ring && !rv.endNodes.has(o) && lower(rv.rank, end.chain.rank)) return o;
+        }
         prev = node;
         x = best.px;
         y = best.py;

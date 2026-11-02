@@ -183,6 +183,11 @@ seksjon tegnes, lagres elvene der, og funksjoner går gjennom dem.
    elva bedømmes som én: rettethet, bredde, rekkevidde og om den blir innsjø gjelder hele
    elva. Et kort stykke mellom to lange blir derfor en del av en lang, rett elv. Et kort
    stykke (under to ganger «Koble ender») har samme vannstand hele veien: den laveste.
+   Hver ende har høyst én kobling, og hvilken er fast. Ender kobles bare til hverandre
+   gjennom slike gjensidige par. Munningen til en elv kan bare gå inn midt på en annen elv,
+   aldri på en ende, og bare til en elv med lavere rang (lavere vannstand ved munningen, likhet
+   avgjøres av indeks). Stegene kan derfor ikke gå i sirkel. Kjeder som er parvis koblet hele
+   veien rundt, er en ring og fjernes. Kjeder med bare ett punkt kobles ikke.
    **Retning:** hver elv får en rettethet: avstanden mellom endene delt på lengden langs
    kjeden (1 er rett, nær 0 er en sløyfe). Rette kjeder beholder bredden og leter etter
    koblinger opptil to ganger «Koble ender». Bøyde kjeder blir smalere, leter kortere og blir
