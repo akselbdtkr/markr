@@ -15,7 +15,9 @@
     firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1.05, typeFirm: 0.4, typeHeight: 0.3, regStretch: 3,
     tT1: -0.34, tT2: 1.01, tT3: 1.84, typeSoft: 0.6,
     depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depLow: 0.8, depPlain: 0.5,
-    riverAlign: 0.6, riverWidth: 100000, riverDeep: 4, riverHigh: 80, riverZone: 4, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
+    riverAlign: 0.6, riverWidth: 50000, riverDeep: 4, riverZone: 4,
+    rvH: [1, 0.8, 0.55, 0.35, 0.2, 0.1], rvF: [1, 0.6, 0.35, 0.18, 0.08, 0.03], riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
+    secZoom: 5000, riverGap: 30000, riverWalk: 50000, riverShort: 40000, riverMeander: 1, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 50, scaleV: 10,
@@ -25,13 +27,13 @@
   const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
   const prof = document.getElementById('profile');
   const view = { cx: 0, cy: 0, mpp: 2500 };
-  let layer = null, region = null, dep = null, river = null, job = 0, hover = null;
+  let layer = null, region = null, dep = null, river = null, sections = null, useSections = false, job = 0, hover = null;
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
   // Layers can be turned off without changing their values: their weight
   // goes to 0, while the normalisation stays as if they were on.
-  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true, dep: true, depStretch: true, river: true };
+  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true, dep: true, depStretch: true, river: true, sections: true };
   function newLayer() {
     const p = { ...state, norm: Math.hypot(state.contW, state.basinW, state.baseW) || 1, normCB: Math.hypot(state.contW, state.basinW) || 1 };
     for (const id of ['cont', 'basin', 'base', 's1', 'mid']) if (!on[id]) p[id + 'W'] = 0;
@@ -46,9 +48,17 @@
     if (!on.depStretch) pd.depStretch = 1;
     dep = on.dep ? new M.DepressionLayer(layer, state.seed, pd) : null;
     river = dep && on.river ? new M.RiverLine(layer, region, dep, state.seed, { ...state }) : null;
+    // The per-section step: its own store of rivers, built when zoomed in.
+    sections = river && on.sections
+      ? new M.RiverSections(river, (x, y) => {
+          const f = fullCore(x, y, false);
+          return { h: f.h, cls: f.cls };
+        }, { cell: 16 * state.scaleH, gap: state.riverGap, walk: state.riverWalk, short: state.riverShort, meander: state.riverMeander })
+      : null;
   }
   // The whole chain at a point: base, middle layer, regions, depression.
-  function full(x, y) {
+  const full = (x, y) => fullCore(x, y, useSections);
+  function fullCore(x, y, withSections) {
     const [vb, v0, inland, large] = layer.valueParts(x, y);
     const r = regionAt(x, y, v0);
     let v = v0, band = 0;
@@ -60,7 +70,7 @@
     // Rivers: class 4 (elv), on land only.
     let water = false;
     if (river && v >= state.tSea) {
-      const rv = river.at(x, y, v);
+      const rv = river.at(x, y, v, withSections && sections ? sections.waterAt(x, y) : undefined);
       v = rv.v;
       water = rv.water;
     }
@@ -100,6 +110,17 @@
     const passes = [8, 3, 1.5];
     let k = 0;
     M.grunn.done = false;
+    // Zoomed in far enough (the view's width on screen under secZoom): build
+    // the per-section rivers for every visible section, once.
+    const viewM = (W * view.mpp) / state.scaleH;
+    useSections = !!sections && viewM <= state.secZoom;
+    if (useSections) {
+      const t0 = performance.now(), size = sections.size;
+      const i0 = Math.floor((view.cx - (W / 2) * view.mpp) / size), i1 = Math.floor((view.cx + (W / 2) * view.mpp) / size);
+      const j0 = Math.floor((view.cy - (H / 2) * view.mpp) / size), j1 = Math.floor((view.cy + (H / 2) * view.mpp) / size);
+      for (let sj = j0; sj <= j1; sj++) for (let si = i0; si <= i1; si++) sections.build(si, sj);
+      M.grunn.sectionMs = performance.now() - t0;
+    }
     const step = () => {
       if (id !== job) return;
       const t0 = performance.now();
@@ -210,6 +231,7 @@
       }
     }
     ctx.putImageData(img, 0, 0);
+    if (state.showNodes && useSections) drawNodes(W, H, dpr);
     // Scale bar, no box.
     ctx.save();
     ctx.scale(dpr, dpr);
@@ -219,6 +241,31 @@
     ctx.fillRect(16, H - 20, len, 3);
     ctx.font = '12px system-ui, sans-serif';
     ctx.fillText(m >= 1000 ? `${(m / 1000).toLocaleString('nb-NO')} km` : `${m.toLocaleString('nb-NO')} m`, 16, H - 26);
+    ctx.restore();
+  }
+  // The stored bottom points and links of the visible sections: line links
+  // dark blue, bridges red, downhill walks orange, rings violet.
+  function drawNodes(W, H, dpr) {
+    const X = (x) => ((x - view.cx) / view.mpp + W / 2) * dpr, Y = (y) => ((y - view.cy) / view.mpp + H / 2) * dpr;
+    const colour = { line: '#1d3f7a', bridge: '#d4302a', walk: '#e08a1e' };
+    ctx.save();
+    ctx.lineWidth = 1.5 * dpr;
+    for (const [, gr] of sections.graphs) {
+      for (const sg of gr.segs) {
+        ctx.strokeStyle = colour[sg.kind];
+        ctx.beginPath();
+        ctx.moveTo(X(sg.a.x), Y(sg.a.y));
+        ctx.lineTo(X(sg.b.x), Y(sg.b.y));
+        ctx.stroke();
+      }
+      ctx.strokeStyle = '#8a3fb8';
+      for (const r of gr.rings) {
+        ctx.beginPath();
+        r.poly.forEach((n, i) => (i ? ctx.lineTo(X(n.x), Y(n.y)) : ctx.moveTo(X(n.x), Y(n.y))));
+        ctx.closePath();
+        ctx.stroke();
+      }
+    }
     ctx.restore();
   }
   const niceKm = (v) => {
@@ -383,11 +430,115 @@
   function drawProfile() {
     baseProfile.draw();
     typeProfile.draw();
+    curveH.draw();
+    curveF.draw();
   }
+  // --- size curves for rivers: points dragged up and down ---------------------
+
+  // Fractional index of x among the points xs (0 .. xs.length - 1).
+  const pos = (xs, x) => {
+    if (x <= xs[0]) return 0;
+    for (let k = 1; k < xs.length; k++) if (x <= xs[k]) return k - 1 + (x - xs[k - 1]) / (xs[k] - xs[k - 1]);
+    return xs.length - 1;
+  };
+  // o: { canvas, xs, key (array in state), label(x) }. Bars behind: where
+  // river bottoms lie along x (P.bins over xs' range).
+  function makeCurve(o) {
+    const cv = o.canvas, c2 = cv.getContext('2d'), P = { bins: null };
+    // The points stand evenly spaced, whatever their values.
+    const geom = () => {
+      const W = cv.clientWidth, H = cv.clientHeight, n = o.xs.length - 1;
+      return { W, H, plotH: H - 18, X: (x) => PAD + (pos(o.xs, x) / n) * (W - 2 * PAD), Y: (v) => H - 18 - v * (H - 26) };
+    };
+    P.draw = () => {
+      const dpr = window.devicePixelRatio || 1, g = geom();
+      if (!g.W) return;
+      cv.width = Math.round(g.W * dpr);
+      cv.height = Math.round(g.H * dpr);
+      c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c2.clearRect(0, 0, g.W, g.H);
+      if (P.bins) {
+        const max = Math.max(...P.bins) || 1, bw = (g.W - 2 * PAD) / P.bins.length;
+        c2.fillStyle = 'rgb(160, 190, 222)';
+        for (let b = 0; b < P.bins.length; b++) {
+          const hgt = (P.bins[b] / max) * (g.plotH - 6);
+          c2.fillRect(PAD + b * bw, g.plotH - hgt, bw + 0.5, hgt);
+        }
+      }
+      const ys = state[o.key];
+      c2.strokeStyle = css('--text');
+      c2.lineWidth = 2;
+      c2.beginPath();
+      o.xs.forEach((x, k) => (k ? c2.lineTo(g.X(x), g.Y(ys[k])) : c2.moveTo(g.X(x), g.Y(ys[k]))));
+      c2.stroke();
+      c2.fillStyle = css('--handle');
+      for (let k = 0; k < o.xs.length; k++) c2.fillRect(g.X(o.xs[k]) - 6, g.Y(ys[k]) - 6, 12, 12);
+      c2.fillStyle = css('--muted');
+      c2.font = '10px system-ui, sans-serif';
+      c2.textAlign = 'center';
+      for (const k of [0, o.xs.length - 1]) c2.fillText(o.label(o.xs[k]), Math.min(g.W - 14, Math.max(14, g.X(o.xs[k]))), g.H - 4);
+    };
+    let drag = -1, keyK = 0;
+    const set = (k, v) => {
+      state[o.key][k] = Math.round(Math.max(0, Math.min(1, v)) * 100) / 100;
+      P.draw();
+      later(rebuild, 250);
+    };
+    cv.addEventListener('pointerdown', (e) => {
+      const g = geom();
+      let best = -1, bd = 16;
+      o.xs.forEach((x, k) => {
+        const d = Math.abs(g.X(x) - e.offsetX);
+        if (d < bd) {
+          bd = d;
+          best = k;
+        }
+      });
+      if (best < 0) return;
+      drag = best;
+      cv.setPointerCapture(e.pointerId);
+      set(drag, (g.H - 18 - e.offsetY) / (g.H - 26));
+    });
+    cv.addEventListener('pointermove', (e) => {
+      const g = geom();
+      cv.style.cursor = drag >= 0 || o.xs.some((x) => Math.abs(g.X(x) - e.offsetX) < 16) ? 'ns-resize' : 'default';
+      if (drag >= 0) set(drag, (g.H - 18 - e.offsetY) / (g.H - 26));
+    });
+    const end = () => (drag = -1);
+    cv.addEventListener('pointerup', end);
+    cv.addEventListener('pointercancel', end);
+    cv.addEventListener('keydown', (e) => {
+      if (e.key === ' ' || e.key === 'Enter') keyK = (keyK + 1) % o.xs.length;
+      else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') set(keyK, state[o.key][keyK] + (e.key === 'ArrowUp' ? 0.05 : -0.05));
+      else return;
+      e.preventDefault();
+    });
+    return P;
+  }
+  const curveH = makeCurve({ canvas: document.getElementById('rvH'), xs: M.RiverLine.CURVE_H, key: 'rvH', label: (x) => `${x} m` });
+  const curveF = makeCurve({ canvas: document.getElementById('rvF'), xs: M.RiverLine.CURVE_F, key: 'rvF', label: (x) => (x ? 'fast' : 'løs') });
+  // Where river bottoms lie, by height on screen and by firmness.
+  function riverBins() {
+    const bh = new Float32Array(30), bf = new Float32Array(30);
+    if (!river) return [bh, bf];
+    const xh = M.RiverLine.CURVE_H, top = xh[xh.length - 1];
+    for (let k = 0; k < 2500; k++) {
+      const x = (((Math.sin(k * 12.9898) * 43758.5) % 1) - 0.5) * 4e6, y = (((Math.sin(k * 78.233) * 43758.5) % 1) - 0.5) * 4e6;
+      const bt = river.bottom(x, y);
+      if (!bt) continue;
+      const vq = layer.valueParts(bt.qx, bt.qy)[1], hq = layer.height(vq) / state.scaleV;
+      const n = xh.length - 1;
+      bh[Math.min(29, Math.floor((pos(xh, hq) / n) * 30))]++;
+      bf[Math.min(29, Math.floor((pos(M.RiverLine.CURVE_F, bt.firm) / n) * 30))]++;
+    }
+    return [bh, bf];
+  }
+
   function histograms() {
     M.Lattice.direct = true;
     try {
       histogramsDirect();
+      [curveH.bins, curveF.bins] = riverBins();
     } finally {
       M.Lattice.direct = false;
     }
@@ -519,9 +670,13 @@
   row(rivTable, 'Elver', 'langs nedsenkene', [null, null, null], 'river');
   row(rivTable, 'Bredde', 'm, ved havet i løs grunn', [null, numInput('riverWidth', 500, 50, 250000, null, 'h'), null]);
   row(rivTable, 'Dybde, fast mot løs', 'dypere er smalere', [null, numInput('riverDeep', 0.5, 1, 20), null]);
-  row(rivTable, 'Smalere over', 'm o.h.', [null, numInput('riverHigh', 50, 100, 5000, null, 'v'), null]);
   row(rivTable, 'Dypt nok nedsenk', 'terskel 0–1', [null, numInput('riverAlign', 0.05, 0, 1), null]);
   row(rivTable, 'Område rundt', 'km, formes av elva', [null, numInput('riverZone', 0.5, 0, 50, null, 'h'), null]);
+  row(rivTable, 'Per seksjon', 'når utsnittet er under, m', [null, numInput('secZoom', 500, 200, 100000, () => render()), null], 'sections');
+  row(rivTable, 'Koble ender', 'm, opptil', [null, numInput('riverGap', 1000, 0, 500000, null, 'h'), null]);
+  row(rivTable, 'Følg nedover', 'm, opptil', [null, numInput('riverWalk', 1000, 0, 500000, null, 'h'), null]);
+  row(rivTable, 'Kort kjede', 'blir innsjø under, m', [null, numInput('riverShort', 1000, 0, 500000, null, 'h'), null]);
+  row(rivTable, 'Slyng i sletter', '0–2', [null, numInput('riverMeander', 0.1, 0, 2), null]);
   row(rivTable, 'Flere løp', 'nær havet', [null, numInput('riverBraid', 0.05, 0, 1), null]);
   row(rivTable, 'Høyde beholdt', 'lavere elver: mindre', [null, numInput('riverRise', 0.05, 0, 1), null]);
   for (const b of document.querySelectorAll('#viewmode button')) {
@@ -551,7 +706,7 @@
       rebuild();
     });
   }
-  for (const [id, key] of [['contours', 'contours'], ['lineDivide', 'lineDivide'], ['lineDep', 'lineDep']]) {
+  for (const [id, key] of [['contours', 'contours'], ['lineDivide', 'lineDivide'], ['lineDep', 'lineDep'], ['showNodes', 'showNodes']]) {
     const el = document.getElementById(id);
     el.checked = state[key];
     el.addEventListener('change', () => {
@@ -718,6 +873,6 @@
     return { mean: sum / (n * n), lo, hi, share: share.map((s) => s / (n * n)), seas: sizes.length, small: sizes.filter((z) => z < 10).length, largestSea: share[0] ? sizes[0] / share[0] : 0 };
   }
 
-  M.grunn = { state, view, rebuild, render, stats, full, get layer() { return layer; }, get river() { return river; } };
+  M.grunn = { state, view, rebuild, render, stats, full, get sections() { return sections; }, get layer() { return layer; }, get river() { return river; } };
   rebuild();
 })(window.Markr = window.Markr || {});

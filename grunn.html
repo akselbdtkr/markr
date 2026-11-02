@@ -49,6 +49,9 @@
     .seg button + button { border-left: none; }
     .seg button[aria-pressed="true"] { color: #fff; background: var(--handle); border-color: var(--handle); }
     .seg button:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+    .curvehead { font-size: 12px; color: var(--muted); margin: 10px 0 2px; }
+    .curve { width: 100%; height: 90px; display: block; touch-action: none; outline: none; }
+    .curve:focus-visible { outline: 2px solid var(--handle); outline-offset: 2px; }
     .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
     .legend span { display: flex; align-items: center; gap: 5px; }
     .legend i { width: 10px; height: 10px; display: inline-block; }
@@ -114,6 +117,10 @@
     </details>
     <details class="sec">
       <summary>Elvene</summary>
+      <div class="curvehead">Størrelse etter høyde</div>
+      <canvas id="rvH" class="curve" tabindex="0" aria-label="Elvenes størrelse etter høyde. Dra punktene opp og ned."></canvas>
+      <div class="curvehead">Størrelse etter fasthet</div>
+      <canvas id="rvF" class="curve" tabindex="0" aria-label="Elvenes størrelse etter fasthet. Dra punktene opp og ned."></canvas>
       <div id="rivers" class="grid"></div>
     </details>
     <div class="seed"><input id="seed" type="number" aria-label="Frø"><button id="reseed">Nytt frø</button></div>
@@ -125,6 +132,7 @@
       <label class="check"><input id="contours" type="checkbox">Høydekurver hver 10 m</label>
       <label class="check"><input id="lineDivide" type="checkbox">Omriss av vanndelingsfelt</label>
       <label class="check"><input id="lineDep" type="checkbox">Omriss av nedsenksfelt</label>
+      <label class="check"><input id="showNodes" type="checkbox">Elvenes bunnpunkter og koblinger</label>
     </div>
     <button id="copy" class="wide">Kopier innstillinger</button>
   </aside>
@@ -135,6 +143,7 @@
   <script src="src/regionlayer.js"></script>
   <script src="src/depressionlayer.js"></script>
   <script src="src/riverline.js"></script>
+  <script src="src/riversections.js"></script>
   <script src="src/grunn.js"></script>
 </body>
 </html>

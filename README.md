@@ -119,10 +119,11 @@ vannflate.
   to nivåer, kan nullinjen gå på skrå fra ett nedsenk til det neste, og der er nedsenket
   grunt. Elva avtar med en S-kurve når båndet svekkes. Den avtar raskt i fast fjellsk og i løse sletter og
   platåer, og mykere i åser og i løst lavland og høyland.
-- **Bredde:** volum delt på dybde. Volumet er en direkte funksjon av høyde og fasthet: mer
-  vann lavt nede og i løs grunn. Dybden følger fastheten: fast grunn gir dypt løp, løs grunn
-  grunt. En grunnere elv blir derfor bredere, opptil 2 km ved vannet i løs grunn. Høyere opp
-  blir den raskt smalere («Smalere over»).
+- **Bredde:** volum delt på dybde. Volumet er produktet av to kurver du drar i, uten
+  terskel: størrelse etter høyde og størrelse etter fasthet. Punktene ligger tettest der
+  elvebunnene er vanlige (lavt og løst), og søylene bak viser hvor de ligger. Dybden følger
+  fastheten: fast grunn gir dypt løp, løs grunn grunt. En grunnere elv blir derfor bredere,
+  opptil «Bredde» (1 km) ved vannet i løs grunn.
 - **Vannflate:** fra den store delen av grunnlaget i bunnpunktet. Den stiger jevnt oppover
   helningen, så vannflaten faller jevnt nedover elva.
 - **Flere løp nær havet:** korridoren blir bredere, og et lite strukket noise-lag deler den i
@@ -136,6 +137,31 @@ nedsenket. Havet følger da nedsenkene langt inn: fjorder, øyer og små sund. I
 båndet fyllere, og retningen teller mindre, så det brytes ikke opp. Innlandsgrensen gir etter
 i samme grad. Elvene ligger lavt: vannflaten beholder bare en andel («Høyde beholdt») av
 høyden over havet, og lavlandet trenger mindre retning for å holde elva sammen.
+
+### Elvene per seksjon (`src/riversections.js`)
+
+Et eget steg som kjører per seksjon (32 × 32 ruter, 512 m), og bare når utsnittet er mindre
+enn «Per seksjon» (5 km). Første gang en seksjon tegnes, lagres elvene i den, og funksjoner
+går gjennom dem:
+
+1. **Lagre:** fra hver andre rute finnes bunnen av snittet. Bunnpunktet må ligge på linja
+   (et ekstra Newton-steg) og være nær elva. Det lagres med ruteindeks, bredde, vannflate og
+   retning.
+2. **Kjeder:** hvert bunnpunkt kobles til nærmeste foran og bak langs linja. Kjedene kan gås
+   opp og ned, og en kjede som kommer tilbake til seg selv, er en ring.
+3. **Koble:** fra hver løse ende kobles nærmeste løse ende i en annen kjede innen
+   «Koble ender», om den ligger foran og vender tilbake.
+4. **Nedover:** den laveste enden i en kjede som ikke når vann, følger landet nedover
+   («Følg nedover») til hav eller en annen elv. En grop stopper den.
+5. **Ringer og korte kjeder:** ringer fylles til innsjøer uten øy. Korte løse kjeder
+   («Kort kjede») blir innsjøer.
+6. **Slyng:** i sletter svinger løpet fra side til side. Slyngen er en sinus av posisjonen
+   langs linja, så nabo-seksjoner er enige.
+7. **Tegne:** rutene i seksjonen som ligger i et løp eller en innsjø, er vann.
+
+En seksjon leser sine egne og de åtte nabo-seksjonenes bunnpunkter, så elvene kobles over
+seksjonsgrensene. «Elvenes bunnpunkter og koblinger» viser kjedene: mørkeblå langs linja,
+røde koblinger, oransje veier nedover og fiolette ringer.
 
 **Målestokk:** simuleringen har sine egne enheter. På skjermen er én enhet 1/50 m
 bortover og 1/10 m i høyden (justerbart: «Målestokk 1:» og «Høyde 1:»). Laget er laget i stor
