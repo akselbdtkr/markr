@@ -218,11 +218,20 @@ de små oktavene teller, altså hvor brå endringene er). Fjellsk ligger over is
 og har mest lokal deformasjon igjen: høyt, skarpt, røft og lite strukket. Åser er rullende og
 strukket mest, platå mykt og lavt, og sletter nesten flate.
 
-Fjellrygger er et eget ridged-lag med fem oktaver, som i Markr kart. Det blir sterkere jo mer
-fjellsk det er, og jo høyere over vanndelingsterskelen («Fjell over vanndeling»), og løfter
-mest, så fjellene vokser over vanndelingen med spisse egger og nuter. Det lokale laget har én
-støy for alle nivålinjer når det strekkes. Med egen forskyvning per nivå ble nivåene synlige
-som ringer rundt toppene i grunnlaget.
+«Detaljer» og «Fjellegger» kan skrus av og på, og har hver sin skala og vekt.
+
+Fjellegger er et eget lag: skarpe rygger (to oktaver, toppen opphøyd i tredje), strukket langs
+landet under, så eggene følger retningen der. Langs hver egg ligger skar med jevne mellomrom
+(«skar hver», «skar dybde»), bare på selve eggen. Laget blir sterkere med fjellsk og over
+vanndelingen, og løfter mest, så fjellene vokser over vanndelingen. De høyeste toppene blir
+hvite («Snø», fra og til i meter over havet).
+
+Støyen i laget leses bare ved faste størrelser (toerpotenser) og faste strekkinger, og
+blandes mellom dem. Med en størrelse som varierer fra sted til sted, glir fasen i x / L langt
+fra origo, og det tegnes ringer langs konturene av landskapstypen.
+
+Skyggen regnes etter flatens retning mot lyset (Lambert), med virkelig helning på skjermen.
+Bratte fjell viser derfor detaljene sine i stedet for å bli helt mørke.
 
 Laget samspiller med dalprofilene. I bunnen av et nedsenk dempes det («Flat dalbunn»), mest
 for `[` og `{`. På sidene forsterkes det («Brattere sider»). Nær elva jevnes det ut mot vannet

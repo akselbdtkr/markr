@@ -20,7 +20,7 @@
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
     secZoom: 5000, lodRiver: 60, lodDep: 150, lodRegion: 300, lodLocal: 25,
     lcH: [0.05, 0.35, 0.2, 0.9], lcS: [0.2, 0.45, 0.6, 0.25], lcR: [0, 0, 0.3, 1], lcT: [0.2, 0.8, 0.4, 0.3], lcU: [0.2, 0.15, 0.1, 0.8],
-    locFlat: 0.8, locSide: 0.6, bank: 3000, locBank: 10000, mtH: 600, mtS: 1400, mtDiv: 1, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
+    locFlat: 0.8, locSide: 0.6, bank: 3000, locBank: 10000, mtH: 600, mtS: 2500, mtDiv: 1, mtT: 5, mtBreak: 1500, mtNotch: 0.6, locK: 3, locW: 2, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 100, scaleV: 1,
@@ -36,7 +36,7 @@
 
   // Layers can be turned off without changing their values: their weight
   // goes to 0, while the normalisation stays as if they were on.
-  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true, dep: true, depStretch: true, river: true, sections: true, local: true };
+  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true, dep: true, depStretch: true, river: true, sections: true, local: true, mount: true };
   function newLayer() {
     const p = { ...state, norm: Math.hypot(state.contW, state.basinW, state.baseW) || 1, normCB: Math.hypot(state.contW, state.basinW) || 1 };
     for (const id of ['cont', 'basin', 'base', 's1', 'mid']) if (!on[id]) p[id + 'W'] = 0;
@@ -51,7 +51,10 @@
     if (!on.depStretch) pd.depStretch = 1;
     dep = on.dep ? new M.DepressionLayer(layer, state.seed, pd) : null;
     river = dep && on.river ? new M.RiverLine(layer, region, dep, state.seed, { ...state }) : null;
-    local = on.local ? new M.LocalLayer(layer, state.seed, { ...state }) : null;
+    const pl = { ...state };
+    if (!on.local) pl.locW = 0;
+    if (!on.mount) pl.mtH = 0;
+    local = on.local || on.mount ? new M.LocalLayer(layer, state.seed, pl) : null;
     // The per-section step: its own store of rivers, built when zoomed in.
     sections = river && on.sections
       ? new M.RiverSections(river, (x, y) => {
@@ -247,10 +250,19 @@
           // A soft light from the north-west.
           const hx = hs[j * nx + Math.min(nx - 1, i + 1)] - hs[j * nx + Math.max(0, i - 1)];
           const hy = hs[Math.min(ny - 1, j + 1) * nx + i] - hs[Math.max(0, j - 1) * nx + i];
-          // Light from the top left: ground rising toward the bottom right
-          // (hx, hy > 0) faces the light and is brighter.
-          const sh = state.mono ? Math.max(-0.35, Math.min(0.35, ((hx + hy) / (4 * d)) * 14)) : Math.max(-0.2, Math.min(0.2, ((hx + hy) / (4 * d)) * 8));
+          // Light from the top left (Lambert): the surface normal from the
+          // real slope (heights and lengths on screen), so steep mountains
+          // still show their detail instead of saturating.
+          const sx = ((hx / (2 * d)) * state.scaleH) / state.scaleV, sy = ((hy / (2 * d)) * state.scaleH) / state.scaleV;
+          const ex = state.mono ? 1.6 : 1, lit = (0.5 * ex * (sx + sy) + 0.707) / Math.hypot(ex * sx, ex * sy, 1);
+          const sh = Math.max(-0.6, Math.min(0.35, (lit - 0.707) * (state.mono ? 1.1 : 0.7)));
           c = [c[0] * (1 + sh), c[1] * (1 + sh), c[2] * (1 + sh)];
+          // The highest peaks are white.
+          const snow = state.snowTo > state.snowFrom ? Math.max(0, Math.min(1, (h / state.scaleV - state.snowFrom) / (state.snowTo - state.snowFrom))) : 0;
+          if (snow > 0) {
+            const t = snow * snow * (3 - 2 * snow), wv = 246 * (1 + 0.5 * sh);
+            c = [c[0] + (wv - c[0]) * t, c[1] + (wv - c[1]) * t, c[2] + (wv + 4 - c[2]) * t];
+          }
           // A river narrower than the cell: a share of water blue.
           if (tints[k] > 0) {
             const t = Math.min(1, tints[k]);
@@ -724,16 +736,19 @@
   row(regTable, 'Fuktighet', 'type og fasthet', [null, null, eye('moist', 'Fuktighet')]);
   row(regTable, 'Vises', 'når utsnittet er under, km', [null, numInput('lodRegion', 10, 1, 100000, () => render()), null]);
   const locTable = document.getElementById('loclayers');
-  for (const t of ['', '', '', 'verdi', '']) {
+  for (const t of ['', '', 'skala', 'vekt', '']) {
     const d = document.createElement('div');
     d.className = 'col-head';
     d.textContent = t;
     locTable.appendChild(d);
   }
-  row(locTable, 'Lokalt lag', 'av/på', [null, null, null], 'local');
-  row(locTable, 'Fjellrygger', 'ridged, m høyde', [null, numInput('mtH', 50, 0, 5000, null, 'v'), null]);
-  row(locTable, 'Fjellrygger, størrelse', 'm', [null, numInput('mtS', 100, 10, 100000), null]);
+  row(locTable, 'Detaljer', 'etter kurvene', [numInput('locK', 0.1, 0.1, 20), numInput('locW', 0.1, 0, 20), null], 'local');
+  row(locTable, 'Fjellegger', 'm, ridged', [numInput('mtS', 100, 10, 100000), numInput('mtH', 50, 0, 5000, null, 'v'), null], 'mount');
+  row(locTable, 'Egger, strekking', 'langs landet under', [null, numInput('mtT', 0.5, 0, 20), null]);
+  row(locTable, 'Egger, skar hver', 'm langs eggen', [null, numInput('mtBreak', 100, 0, 100000), null]);
+  row(locTable, 'Egger, skar dybde', '0–1', [null, numInput('mtNotch', 0.05, 0, 1), null]);
   row(locTable, 'Fjell over vanndeling', 'vekt 0–1', [null, numInput('mtDiv', 0.05, 0, 1), null]);
+  row(locTable, 'Snø', 'fra og til, m o.h.', [numInput('snowFrom', 100, 0, 10000, () => render()), numInput('snowTo', 100, 0, 10000, () => render()), null]);
   row(locTable, 'Flat dalbunn', 'demper i bunnen, 0–1', [null, numInput('locFlat', 0.05, 0, 1), null]);
   row(locTable, 'Brattere sider', 'forsterker på sidene, 0–1', [null, numInput('locSide', 0.05, 0, 3), null]);
   row(locTable, 'Bredd', 'm, kanten inn og ut', [null, numInput('bank', 100, 0, 100000, null, 'h'), null]);
