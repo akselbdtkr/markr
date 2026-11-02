@@ -177,7 +177,13 @@ seksjon tegnes, lagres elvene der, og funksjoner går gjennom dem.
    Stegene videre (koblinger og sideelver) tegnes for alle kjeder, også dem som ikke når
    havet ennå, så elvene inne i landet ikke brytes opp. En vei nedover som ender i en grop,
    tegnes ikke.
-5. **Retning:** hver kjede får en rettethet: avstanden mellom endene delt på lengden langs
+5. **Elver av flere kjeder:** før noe bedømmes, kobles kjeder ende mot ende der to ender er
+   hverandres beste partner (nærmeste ende innen to ganger «Koble ender», foran og vendt
+   tilbake). Koblingen må gå begge veier, så rekkefølgen spiller ingen rolle. Den sammenkoblede
+   elva bedømmes som én: rettethet, bredde, rekkevidde og om den blir innsjø gjelder hele
+   elva. Et kort stykke mellom to lange blir derfor en del av en lang, rett elv. Et kort
+   stykke (under to ganger «Koble ender») har samme vannstand hele veien: den laveste.
+   **Retning:** hver elv får en rettethet: avstanden mellom endene delt på lengden langs
    kjeden (1 er rett, nær 0 er en sløyfe). Rette kjeder beholder bredden og leter etter
    koblinger opptil to ganger «Koble ender». Bøyde kjeder blir smalere, leter kortere og blir
    innsjøer hvis de ikke når havet og har rettethet under «Bøyd kjede». Koblinger går jevnt
