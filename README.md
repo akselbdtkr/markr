@@ -111,9 +111,8 @@ kan den ikke det, så det blir ikke innlandssjøer.
   - `{` to myke terskler, en flat hylle og en bratt kløft i midten, en kanyon, på platå.
   - `<` rette sider som møtes i en spiss, en V-dal, i fjellsk.
 
-  Diagrammet «Dalprofiler samlet» viser tverrsnittet og tegnet for hovedprofilen. Bortover går
-  landskapstypen, fra slette til fjellsk med tersklene dine, og oppover fra lavland til
-  høyland.
+  Når nedsenkslaget vises alene (øyet), farges nedsenkene etter dalprofilen, med samme farger
+  som kurvene i diagrammene, og sterkere der båndet er dypere.
 - **Linjebredde og myke kanter:** bredden på båndet og hvor langt S-kurven går ut fra
   linja kan justeres hver for seg.
 - **Retning:** deler av båndet som går på tvers av helningen, blir grunne. Dype,

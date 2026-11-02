@@ -178,7 +178,16 @@
           }
           cl[k] = 1;
           if (state.show === 'type') setCol(k, M.RegionLayer.colour(r.w), 2);
-          else if (state.show === 'dep') hs[k] = dep ? 2400 * dep.band(x, y, r.firm, 0, r.pos) : 0;
+          else if (state.show === 'dep') {
+            // The depression coloured by its valley profile, stronger where
+            // the band is deeper, on a light ground.
+            const large = layer.valueParts(x, y)[3];
+            const low = 1 - Math.max(0, Math.min(1, (large - state.tSea) / (state.tHigh - state.tSea)));
+            const band = dep ? Math.min(1, dep.band(x, y, r.firm, low, r.pos)) : 0;
+            const sw = M.DepressionLayer.shapes(r.pos, 1 - low, state), pc = [0, 0, 0];
+            for (let q = 0; q < 4; q++) for (let c = 0; c < 3; c++) pc[c] += sw[q] * VALLEY_RGB[q][c];
+            setCol(k, [236 + (pc[0] - 236) * band, 234 + (pc[1] - 234) * band, 228 + (pc[2] - 228) * band], 2);
+          }
           else hs[k] = 2400 * r[state.show];
           continue;
         }
@@ -403,60 +412,6 @@
     return P;
   }
 
-  // --- valley profiles: which cross-section arises where -----------------------
-  // Across: the type value (slette to fjellsk, with your thresholds); up:
-  // lowland to highland. Each cell shows the blended cross-section and the
-  // sign of its main profile, on the colour of the landscape there.
-  function drawValleys() {
-    const cv = document.getElementById('depprofile');
-    const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
-    if (!W || !region) return;
-    cv.width = Math.round(W * dpr);
-    cv.height = Math.round(H * dpr);
-    const c2 = cv.getContext('2d');
-    c2.setTransform(dpr, 0, 0, dpr, 0, 0);
-    c2.clearRect(0, 0, W, H);
-    const cols = 7, rows = 4, L = 16, B = 14, cw = (W - L) / cols, ch = (H - B) / rows, P = M.DepressionLayer.PROFILES;
-    const ink = css('--text');
-    for (let r = 0; r < rows; r++) {
-      const low = (r + 0.5) / rows; // top row: highland (little lowland)
-      const hrel = 1 - low;
-      const fm = Math.max(0, Math.min(1, 0.5 + 0.5 * Math.tanh(state.firmInherit * (2 * hrel - 1) * 0.75)));
-      for (let q = 0; q < cols; q++) {
-        const z = -3 + (6 * (q + 0.5)) / cols, w = region.weights(z), sw = M.DepressionLayer.shapes(region.posOf(z), 1 - low, state);
-        const x0 = L + q * cw, y0 = r * ch, col = M.RegionLayer.colour(w);
-        c2.fillStyle = `rgba(${col.map((v) => v | 0).join(',')},0.55)`;
-        c2.fillRect(x0 + 1, y0 + 1, cw - 2, ch - 2);
-        // The cross-section, as a valley cut down from the top of the cell.
-        c2.strokeStyle = ink;
-        c2.lineWidth = 1.5;
-        c2.beginPath();
-        for (let k = 0; k <= 24; k++) {
-          const t = -1.25 + (2.5 * k) / 24, px = x0 + 3 + ((cw - 6) * k) / 24, py = y0 + 13 + (ch - 18) * M.DepressionLayer.profile(Math.abs(t), sw);
-          k ? c2.lineTo(px, py) : c2.moveTo(px, py);
-        }
-        c2.stroke();
-        const top = sw.indexOf(Math.max(...sw));
-        c2.fillStyle = ink;
-        c2.font = '600 11px ui-monospace, monospace';
-        c2.textAlign = 'center';
-        c2.fillText(P[top].sym, x0 + cw / 2, y0 + 10);
-      }
-    }
-    c2.fillStyle = css('--muted');
-    c2.font = '10px system-ui, sans-serif';
-    c2.textAlign = 'left';
-    c2.fillText('slette', L, H - 3);
-    c2.textAlign = 'right';
-    c2.fillText('fjellsk', W, H - 3);
-    c2.save();
-    c2.translate(10, H - B);
-    c2.rotate(-Math.PI / 2);
-    c2.textAlign = 'left';
-    c2.fillText('lavland → høyland', 0, 0);
-    c2.restore();
-  }
-
   // Sample the map on a coarse grid over 8000 km for the bars.
   function sampleBins(n, min, max, val) {
     const span = 8e6, d = span / n, bins = new Float32Array(BINS);
@@ -505,6 +460,7 @@
   });
   // Valley profile thresholds: along the types and along the height.
   const VALLEY_COLOURS = ['#a8823f', '#4f8a48', '#a8552f', '#6c5c94'];
+  const VALLEY_RGB = VALLEY_COLOURS.map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
   const valleyA = makeProfile({
     canvas: document.getElementById('valleyA'), keys: ['vA1', 'vA2', 'vA3'], min: 0, max: 3,
     binColour: () => [220, 220, 220],
@@ -522,7 +478,6 @@
     typeProfile.draw();
     curveH.draw();
     curveF.draw();
-    drawValleys();
   }
   // --- size curves for rivers: points dragged up and down ---------------------
 
