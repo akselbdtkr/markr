@@ -2,8 +2,9 @@
 // noise layer passes a middle value sinks the land toward the base
 // displacement (the base value without the middle layer, minus a depth), so
 // inside the band the middle layer is nearly flattened away. Near the coast
-// the floor can fall below the sea threshold: a fjord. Inland it cannot (the
-// same rule that keeps inland seas away).
+// the floor is pulled further down and can fall below the sea threshold:
+// fjords, islands and small sounds, even where the inland threshold would
+// keep the sea out.
 //
 // Two ways to find the band, to compare:
 // - median: the band is where a stretched fbm passes its median (0). Its
@@ -90,10 +91,17 @@
       if (vb < bp.tSea - 0.6) return { band: 0, v };
       const band = this.band(x, y, firm);
       if (band <= 0) return { band, v };
-      const floor = vb - p.depDepth;
+      // Near the coast the floor is pulled down further (depCoast, reaching
+      // depReach above the sea threshold), so the sea follows the depressions
+      // in: fjords, and islands and small sounds where bands lie close. Within
+      // that reach it overrides the inland threshold: a depression may bring
+      // the sea in where the other layers would not.
+      const coast = 1 - S(bp.tSea, bp.tSea + p.depReach, vb);
+      const floor = vb - p.depDepth - p.depCoast * coast;
       let d = band * (Math.min(v, floor) - v);
-      // Inland the floor stays above the sea threshold: no lakes of sea.
-      if (inland > 0 && v >= bp.tSea) d = (1 - inland) * d + inland * M.BaseLayer.keepAbove(d, v - bp.tSea - 0.05);
+      // Further inland the inland threshold still holds: no sea there.
+      const keep = inland * (1 - coast);
+      if (keep > 0 && v >= bp.tSea) d = (1 - keep) * d + keep * M.BaseLayer.keepAbove(d, v - bp.tSea - 0.05);
       return { band, v: v + d };
     }
   }

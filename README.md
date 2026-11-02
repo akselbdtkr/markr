@@ -106,6 +106,29 @@ kan den ikke det, så det blir ikke innlandssjøer.
 - **Retning:** deler av båndet som går på tvers av helningen, blir grunne. Dype,
   sammenhengende nedsenkninger går derfor med helningen.
 
+### Elvene (`src/riverline.js`)
+
+Elvene regnes punkt for punkt, men alt leses i bunnen av snittet. Bunnen er linja der
+nedsenk-støyen er 0. Fra et punkt gir ett Newton-steg på tvers bunnpunktet, og avstanden dit.
+Alle punkter i samme snitt finner samme bunnpunkt, så begge breddene får samme bredde og
+vannflate.
+
+- **Hvor:** bare der båndet går med helningen, på land og under vanndelingsfeltet. Elva avtar
+  med en S-kurve når båndet dreier bort. Den avtar raskt i fast fjellsk og i løse sletter og
+  platåer, og mykere i åser og i løst lavland og høyland.
+- **Bredde:** fra fasthet (løs grunn gir bredere elv) og høyde over havet (høyere opp er den
+  smalere, lenger ned bredere).
+- **Vannflate:** fra den store delen av grunnlaget i bunnpunktet. Den stiger jevnt oppover
+  helningen, så vannflaten faller jevnt nedover elva.
+- **Flere løp nær havet:** korridoren blir bredere, og et lite strukket noise-lag deler den i
+  flere løp med øyer imellom. Hovedløpet blir smalere.
+- **Området rundt:** landet skråner ned mot vannet i en sone som er bredere i løs grunn, og
+  som varierer med et sakte noise-lag.
+
+Nedsenkslaget kan også trekke kysten inn i nedsenkene nær kysten: fjorder, øyer og små
+sund. Innenfor den rekkevidden overstyrer det innlandsgrensen. Lenger inne gjelder grensen
+fortsatt.
+
 **Oppløsning:** kartet trenger aldri finere detalj enn punktene det tegner (høyst rutene på
 16 m). Mellomlaget, områdelagene og nedsenkslaget varierer over titalls km. De regnes derfor
 på et grovt rutenett av noder med seksjonsbredde (128 m) ganget med en toerpotens, lagres

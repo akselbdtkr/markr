@@ -14,20 +14,21 @@
     midSize: 185, midW: 0.9, midStretch: 10, tInland: 0,
     firmSize: 75, firmW: 0.8, firmInherit: 1, typeSize: 110, typeW: 1.05, typeFirm: 0.4, typeHeight: 0.3, regStretch: 3,
     tT1: -0.34, tT2: 1.01, tT3: 1.84, typeSoft: 0.6,
-    depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7,
+    depMode: 'median', depSize: 100, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depCoast: 0.3, depReach: 0.25,
+    riverAlign: 0.75, riverWidth: 900, riverHigh: 1200, riverZone: 4, riverBraid: 0.7, riverDrop: 0.03,
     show: 'map', contours: false, lineDivide: false, lineDep: false, mono: false,
   };
 
   const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
   const prof = document.getElementById('profile');
   const view = { cx: 0, cy: 0, mpp: 2500 };
-  let layer = null, region = null, dep = null, job = 0, hover = null;
+  let layer = null, region = null, dep = null, river = null, job = 0, hover = null;
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
   // Layers can be turned off without changing their values: their weight
   // goes to 0, while the normalisation stays as if they were on.
-  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true, dep: true, depStretch: true };
+  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true, dep: true, depStretch: true, river: true };
   function newLayer() {
     const p = { ...state, norm: Math.hypot(state.contW, state.basinW, state.baseW) || 1, normCB: Math.hypot(state.contW, state.basinW) || 1 };
     for (const id of ['cont', 'basin', 'base', 's1', 'mid']) if (!on[id]) p[id + 'W'] = 0;
@@ -41,6 +42,7 @@
     const pd = { ...state };
     if (!on.depStretch) pd.depStretch = 1;
     dep = on.dep ? new M.DepressionLayer(layer, state.seed, pd) : null;
+    river = dep && on.river ? new M.RiverLine(layer, region, dep, state.seed, { ...state }) : null;
   }
   // The whole chain at a point: base, middle layer, regions, depression.
   function full(x, y) {
@@ -52,7 +54,14 @@
       v = d.v;
       band = d.band;
     }
-    return { v, h: layer.height(v), cls: layer.cls(v), region: r, band };
+    // Rivers: class 4 (elv), on land only.
+    let water = false;
+    if (river && v >= state.tSea) {
+      const rv = river.at(x, y, v);
+      v = rv.v;
+      water = rv.water;
+    }
+    return { v, h: layer.height(v), cls: water ? 4 : layer.cls(v), region: r, band };
   }
   // Region at a point (land only), or null.
   const regionAt = (x, y, v) => (v >= state.tSea ? region.at(x, y, v) : null);
@@ -68,7 +77,9 @@
 
   const SEA = [61, 111, 168];
   // Flat colours per class, for the bars behind the profile.
-  const CLASS_COLOUR = [SEA, [214, 212, 206], [168, 166, 161], [112, 110, 106]];
+  const RIVER = [70, 128, 190];
+  const CLASS_COLOUR = [SEA, [214, 212, 206], [168, 166, 161], [112, 110, 106], RIVER];
+  const CLASS_NAMES = [...M.BaseLayer.CLASSES, 'elv'];
   const landColour = (h) => {
     const t = Math.sqrt(Math.max(0, Math.min(1, h / 3500)));
     const c = 232 - 160 * t;
@@ -151,6 +162,7 @@
         const k = j * nx + i, h = hs[k];
         let c;
         if (cl[k] === 0) c = SEA;
+        else if (cl[k] === 4) c = RIVER;
         else if (how[k] === 2) c = [col[3 * k], col[3 * k + 1], col[3 * k + 2]];
         else {
           if (how[k] === 1 && !state.mono) {
@@ -478,6 +490,21 @@
   row(depTable, 'Myke kanter', 'S-kurve', [null, numInput('depSoft', 0.05, 0, 3), null]);
   row(depTable, 'Retning', 'grunt på tvers av helningen', [null, numInput('depAlign', 0.05, 0, 1), null]);
   row(depTable, 'Strekking', 'langs helningen', [null, numInput('depStretch', 0.5, 1, 20), null], 'depStretch');
+  row(depTable, 'Kysten inn', 'fjorder, øyer, sund', [null, numInput('depCoast', 0.05, 0, 3), null]);
+  row(depTable, 'Rekkevidde', 'fra kysten og inn', [null, numInput('depReach', 0.05, 0.05, 3), null]);
+  const rivTable = document.getElementById('rivers');
+  for (const t of ['', '', '', 'verdi', '']) {
+    const d = document.createElement('div');
+    d.className = 'col-head';
+    d.textContent = t;
+    rivTable.appendChild(d);
+  }
+  row(rivTable, 'Elver', 'langs nedsenkene', [null, null, null], 'river');
+  row(rivTable, 'Bredde', 'm, ved havet i løs grunn', [null, numInput('riverWidth', 50, 10, 5000), null]);
+  row(rivTable, 'Smalere over', 'm o.h.', [null, numInput('riverHigh', 50, 100, 5000), null]);
+  row(rivTable, 'Følger helningen', 'terskel 0–1', [null, numInput('riverAlign', 0.05, 0, 1), null]);
+  row(rivTable, 'Område rundt', 'km, formes av elva', [null, numInput('riverZone', 0.5, 0, 50), null]);
+  row(rivTable, 'Flere løp', 'nær havet', [null, numInput('riverBraid', 0.05, 0, 1), null]);
   for (const b of document.querySelectorAll('#viewmode button')) {
     b.setAttribute('aria-pressed', String(b.dataset.mono === String(state.mono)));
     b.addEventListener('click', () => {
@@ -535,8 +562,8 @@
       return;
     }
     const c = hover.cls, r = hover.region;
-    let col = c === 0 ? SEA : landColour(hover.h), name = M.BaseLayer.CLASSES[c];
-    if (r && on.type && !state.mono) {
+    let col = c === 0 ? SEA : c === 4 ? RIVER : landColour(hover.h), name = CLASS_NAMES[c];
+    if (r && on.type && !state.mono && c !== 4) {
       const top = r.w.indexOf(Math.max(...r.w));
       col = M.RegionLayer.TYPES[top].colour;
       name = `${M.RegionLayer.TYPES[top].name} · ${name}`;
@@ -625,7 +652,7 @@
 
   // For tests: shares, mean and connected seas over 8000 km (not shown).
   function stats(n = 200, span = 8e6) {
-    const d = span / n, cls = new Uint8Array(n * n), share = [0, 0, 0, 0];
+    const d = span / n, cls = new Uint8Array(n * n), share = [0, 0, 0, 0, 0];
     let sum = 0, lo = Infinity, hi = -Infinity;
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < n; i++) {
