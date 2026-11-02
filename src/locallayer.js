@@ -42,6 +42,7 @@
       this.base = base;
       this.p = p;
       this.n = M.noise.createPerlin(seed * 71 + 1);
+      this.nm = M.noise.createPerlin(seed * 71 + 2);
     }
 
     // A curve's value at the type place pos (0..3), piecewise linear.
@@ -70,7 +71,10 @@
     // lines (as in BaseLayer.stretched) and blend.
     stretchedAt(x, y, L, stretch, sharp, gain) {
       const b = this.base, fr = b.slopeFrame(x, y);
-      const read = (qx, qy, k) => this.noiseAt(qx / L + frac(Math.sin(k * 127.1) * 43758.5) * 1000, qy / L + frac(Math.sin(k * 269.5) * 43758.5) * 1000, sharp, gain);
+      // One noise for every level line (no offset per level): the reads at
+      // two levels still blend seamlessly, and the levels do not show as
+      // rings around the tops of the base.
+      const read = (qx, qy) => this.noiseAt(qx / L, qy / L, sharp, gain);
       if (stretch <= 1.05 || fr.g < 1e-12) return read(x, y, 0);
       const len = Math.min(stretch * L, 0.25 * b.p.basinSize * 1000), dB = len * b.typicalSlope();
       const u = fr.B / dB, k = Math.floor(u), f = u - k;
@@ -85,13 +89,23 @@
     // The local change in height (sim units) at a land point. pos: type
     // place; band: depression band 0..1; sw: valley profile shares; edge:
     // distance from a river's water (sim units), or Infinity.
-    at(x, y, pos, band, sw, edge) {
+    // mount: how much of a mountain the point is (fjellsk share, and more
+    // the higher above the divide threshold).
+    at(x, y, pos, band, sw, edge, mount = 0) {
       const p = this.p;
       const H = this.at4('lcH', pos) * 150 * p.scaleV;
-      if (H <= 0) return 0;
       const L = Math.max(16, this.at4('lcS', pos) * 3000) * p.scaleH;
       const sharp = this.at4('lcR', pos), stretch = 1 + this.at4('lcT', pos) * 9, gain = 0.3 + 0.4 * this.at4('lcU', pos);
-      let dz = H * this.stretchedAt(x, y, L, stretch, sharp, gain);
+      let dz = H > 0 ? H * this.stretchedAt(x, y, L, stretch, sharp, gain) : 0;
+      // Mountains: ridged noise of five octaves (as in Markr kart), sharp
+      // crests and peaks, mostly lifting, so the mountains grow above the
+      // divide. Its own size, and stretched only a little.
+      if (mount > 0 && p.mtH > 0) {
+        const Lm = p.mtS * p.scaleH;
+        const r = M.noise.ridged(this.nm, x / Lm, y / Lm, 5);
+        dz += mount * p.mtH * p.scaleV * (0.25 + 1.6 * (r - 0.42));
+      }
+      if (dz === 0) return 0;
       if (band > 0 && sw) {
         // Floor damped, sides strengthened, by the valley profile.
         const floor = p.locFlat * band * band * (sw[0] + sw[2] + 0.5 * sw[1]);

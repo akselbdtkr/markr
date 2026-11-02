@@ -20,7 +20,7 @@
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 1200, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
     secZoom: 5000, lodRiver: 60, lodDep: 150, lodRegion: 300, lodLocal: 25,
     lcH: [0.05, 0.35, 0.2, 0.9], lcS: [0.2, 0.45, 0.6, 0.25], lcR: [0, 0, 0.3, 1], lcT: [0.2, 0.8, 0.4, 0.3], lcU: [0.2, 0.15, 0.1, 0.8],
-    locFlat: 0.8, locSide: 0.6, bank: 3000, locBank: 10000, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
+    locFlat: 0.8, locSide: 0.6, bank: 3000, locBank: 10000, mtH: 600, mtS: 1400, mtDiv: 1, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 1, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 100, scaleV: 1,
@@ -96,7 +96,9 @@
     if (local && lod.local && r && cls >= 1 && cls <= 3) {
       const low = 1 - Math.max(0, Math.min(1, (large - state.tSea) / (state.tHigh - state.tSea)));
       const sw = band > 0 ? M.DepressionLayer.shapes(r.pos, 1 - low, state) : null;
-      h = Math.max(0.5 * state.scaleV, h + local.at(x, y, r.pos, band, sw, edge));
+      // A mountain: fjellsk, and more the higher above the divide threshold.
+      const mount = Math.min(1, r.w[3] + state.mtDiv * Math.max(0, Math.min(1, (v - state.tDivide + 0.3) / 0.8)));
+      h = Math.max(0.5 * state.scaleV, h + local.at(x, y, r.pos, band, sw, edge, mount));
     }
     return { v, h, cls, region: r, band, tint };
   }
@@ -729,6 +731,9 @@
     locTable.appendChild(d);
   }
   row(locTable, 'Lokalt lag', 'av/på', [null, null, null], 'local');
+  row(locTable, 'Fjellrygger', 'ridged, m høyde', [null, numInput('mtH', 50, 0, 5000, null, 'v'), null]);
+  row(locTable, 'Fjellrygger, størrelse', 'm', [null, numInput('mtS', 100, 10, 100000), null]);
+  row(locTable, 'Fjell over vanndeling', 'vekt 0–1', [null, numInput('mtDiv', 0.05, 0, 1), null]);
   row(locTable, 'Flat dalbunn', 'demper i bunnen, 0–1', [null, numInput('locFlat', 0.05, 0, 1), null]);
   row(locTable, 'Brattere sider', 'forsterker på sidene, 0–1', [null, numInput('locSide', 0.05, 0, 3), null]);
   row(locTable, 'Bredd', 'm, kanten inn og ut', [null, numInput('bank', 100, 0, 100000, null, 'h'), null]);
