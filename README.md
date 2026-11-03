@@ -308,6 +308,22 @@ omriss av vanndelingsfelt og stiplede blå omriss av nedsenksfelt er av som stan
 skrus på. Høydekurver hver 100 m (mørkere hver 500 m) kan skrus av og på. «Kopier
 innstillinger» kopierer alle verdiene, og hvilke lag som er på, som tekst til chatten.
 
+## Nedbørsfelt
+
+Øyet «Nedbørsfelt» under grunnlagene viser hvor vannet i de store lagene (kontinent, havbasseng,
+grunnlag og sund) renner (`src/basins.js`). Analysen bruker et grovt rutenett, 1–32 km mellom
+punktene, over utsnittet og like mye rundt.
+
+- **Flom fra havet** (priority flood): havet som når kanten av rutenettet, flommer innover. Hvert
+  punkt får det nivået vannet må stige til før det kan renne ut. Ligger punktet under dette nivået,
+  ligger det i en grop og ville blitt en innsjø.
+- **Bratteste vei ned** fra hvert punkt ender i havet, i en grop eller utenfor rutenettet. Gropen gir
+  feltet.
+- **Lukkede felt** får hver sin farge, og gropen (der innsjøen ville ligget) en sterkere farge.
+  Overløpspunktet er en hvit sirkel, og den laveste veien videre til havet er stiplet.
+- **Innhav** (hav uten forbindelse til verdenshavet) er fiolette. Den laveste veien til havet er en
+  hel linje.
+
 ## Byen
 
 `by.html` er starten på bylogikken. Det tar grunnkartet med alle lagene (kjeden ligger i

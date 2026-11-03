@@ -190,6 +190,8 @@
     M.Lattice.pixel = d;
     chainCtx.pix = d;
     M.Lattice.section = 16 * state.scaleH; // a 16 m cell, in simulation units
+    const bas = state.show === 'basins' ? basinsFor(W, H) : null;
+    const lab = bas ? new Int32Array(nx * ny).fill(-9) : null;
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
         const x = x0 + (i + 0.5) * d, y = y0 + (j + 0.5) * d;
@@ -222,6 +224,10 @@
           else hs[k] = 2400 * r[state.show];
           continue;
         }
+        if (bas) {
+          basinPixel(bas, x, y, k, setCol, cl, lab);
+          continue;
+        }
         if (state.show !== 'map') {
           // One layer alone, as a height-like grey field.
           const val = layer.single(state.show, x, y);
@@ -245,7 +251,11 @@
         let c;
         if (cl[k] === 0) c = SEA;
         else if (cl[k] === 4) c = RIVER;
-        else if (how[k] === 2) c = [col[3 * k], col[3 * k + 1], col[3 * k + 2]];
+        else if (how[k] === 2) {
+          c = [col[3 * k], col[3 * k + 1], col[3 * k + 2]];
+          // Fields: a dark outline where the field changes.
+          if (lab && ((i + 1 < nx && lab[k + 1] !== lab[k]) || (j + 1 < ny && lab[k + nx] !== lab[k]))) c = [30, 30, 34];
+        }
         else {
           if (how[k] === 1 && !state.mono) {
             // Type colour, darker with height.
@@ -314,6 +324,103 @@
     }
     bctx.putImageData(img, 0, 0);
     if (state.showNodes && useSections) drawNodes(W, H, dpr);
+    if (bas) drawBasinPaths(bas, x0, y0, dpr);
+  }
+  // --- nedbørsfelt: closed fields in the large layers (basins.js) ----------
+  // The grid covers the view and as much again around it, so fields that
+  // reach past the view are still seen whole; its spacing is a power of two
+  // km, and its corner snapped to it, so small moves reuse it.
+  let basinCache = null;
+  function basinsFor(W, H) {
+    // At most 32 km between nodes (coarser, narrow straits fall between
+    // them and the sea breaks into false inland seas) and 800 nodes across:
+    // far out only the middle of the view is read.
+    const G = 1000 * Math.min(32, Math.pow(2, Math.max(0, Math.ceil(Math.log2((Math.max(W, H) * view.mpp * 2) / 640 / 1000)))));
+    const span = Math.min(Math.max(W, H) * view.mpp * 2, 800 * G);
+    const gx0 = Math.floor((view.cx - span / 2) / G) * G, gy0 = Math.floor((view.cy - span / 2) / G) * G, n = Math.ceil(span / G) + 1;
+    const key = [state.seed, G, gx0, gy0, n, layer.p.tSea].join(',');
+    if (basinCache && basinCache.key === key && basinCache.layer === layer) return basinCache.a;
+    const a = M.Basins.analyse((x, y) => layer.baseValue(x, y), gx0, gy0, n, n, G, state.tSea);
+    basinCache = { key, layer, a };
+    M.grunn.basins = a;
+    basinInfo(a);
+    return a;
+  }
+  const BASIN_OCEAN = [236, 234, 228], BASIN_EDGE = [200, 200, 204], INLAND_SEA = [92, 78, 160];
+  const hue = (id, s, l) => {
+    // HSL to RGB, the hue spread by the golden angle.
+    const h = ((id * 137.508) % 360) / 360, q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    const f = (t) => {
+      t = (t + 1) % 1;
+      return 255 * (t < 1 / 6 ? p + (q - p) * 6 * t : t < 0.5 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p);
+    };
+    return [f(h + 1 / 3), f(h), f(h - 1 / 3)];
+  };
+  function basinPixel(a, x, y, k, setCol, cl, lab) {
+    const i = Math.floor((x - a.x0) / a.G), j = Math.floor((y - a.y0) / a.G);
+    if (i < 0 || j < 0 || i >= a.nx || j >= a.ny) {
+      setCol(k, BASIN_EDGE, 2);
+      cl[k] = 1;
+      lab[k] = -2;
+      return;
+    }
+    const q = j * a.nx + i;
+    if (a.ocean[q]) {
+      cl[k] = 0;
+      lab[k] = -1;
+      return;
+    }
+    cl[k] = 1;
+    const f = a.field[q];
+    lab[k] = f;
+    // Light with height, so the land's shape still shows.
+    const t = 1 - 0.35 * Math.sqrt(Math.max(0, Math.min(1, layer.height(a.v[q]) / 3500)));
+    let c;
+    if (a.sea[q]) c = INLAND_SEA;
+    else if (f >= 0) {
+      const inLake = a.hollow[q] >= 0;
+      c = a.fields[f].inlandSea ? hue(f, 0.35, inLake ? 0.55 : 0.8) : hue(f, 0.55, inLake ? 0.5 : 0.78);
+      if (!inLake) c = c.map((v) => v * t);
+    } else if (f === -2) c = BASIN_EDGE.map((v) => v * t);
+    else c = BASIN_OCEAN.map((v) => v * t);
+    setCol(k, c, 2);
+  }
+  // Each closed field's spill point, and the lowest path on to the ocean:
+  // where its water would run over, and where a strait to an inland sea
+  // would have to go.
+  function drawBasinPaths(a, x0, y0, dpr) {
+    const P = (q) => [(((q % a.nx) + 0.5) * a.G + a.x0 - x0) / view.mpp * dpr, ((((q / a.nx) | 0) + 0.5) * a.G + a.y0 - y0) / view.mpp * dpr];
+    bctx.save();
+    bctx.lineWidth = 1.5 * dpr;
+    for (const f of a.fields) {
+      if (f.nodes + f.lake < 8) continue; // the smallest only by colour
+      const path = M.Basins.pathOut(a, f.spill);
+      bctx.strokeStyle = f.inlandSea ? 'rgba(60,40,150,0.9)' : 'rgba(30,30,34,0.75)';
+      bctx.setLineDash(f.inlandSea ? [] : [4 * dpr, 3 * dpr]);
+      bctx.beginPath();
+      path.forEach((q, n) => (n ? bctx.lineTo(...P(q)) : bctx.moveTo(...P(q))));
+      bctx.stroke();
+      const [sx, sy] = P(f.spill);
+      bctx.setLineDash([]);
+      bctx.fillStyle = f.inlandSea ? '#5c4ea0' : '#ffffff';
+      bctx.strokeStyle = '#1e1e22';
+      bctx.beginPath();
+      bctx.arc(sx, sy, 3.5 * dpr, 0, 2 * Math.PI);
+      bctx.fill();
+      bctx.stroke();
+    }
+    bctx.restore();
+  }
+  function basinInfo(a) {
+    const el = document.getElementById('basinInfo');
+    if (!el) return;
+    const km2 = (n) => Math.round((n * a.G * a.G) / 1e6 / (state.scaleH * state.scaleH)).toLocaleString('nb-NO');
+    const closed = a.fields.filter((f) => !f.inlandSea && f.nodes + f.lake >= 3), seas = a.fields.filter((f) => f.inlandSea);
+    const mH = (v) => Math.round(layer.height(v) / state.scaleV);
+    const top = [...closed].sort((p, q) => q.nodes - p.nodes).slice(0, 3);
+    el.innerHTML = `${closed.length} lukkede felt, ${seas.length} innhav (rutenett ${Math.round(a.G / 1000)} km, ${Math.round(a.time)} ms).` +
+      (top.length ? `<br>Største: ${top.map((f) => `${km2(f.nodes)} km², renner over ved ${mH(f.level)} m`).join('; ')}.` : '') +
+      (seas.length ? `<br>Innhav: ${seas.slice(0, 3).map((f) => `${km2(f.lake)} km², laveste vei til havet over ${mH(f.level)} m`).join('; ')}.` : '');
   }
   // Scale bar, on the screen itself (not in the picture), for the current
   // view, so it does not move or scale with the old picture.
@@ -723,6 +830,7 @@
     b.setAttribute('aria-pressed', 'false');
     b.addEventListener('click', () => {
       state.show = state.show === id ? 'map' : id;
+      document.getElementById('basinInfo').hidden = state.show !== 'basins';
       for (const [k, e] of eyes) e.setAttribute('aria-pressed', String(state.show === k));
       render();
     });
@@ -771,6 +879,7 @@
   }
   row(baseTable, 'Sundbredde', 'ridged', [null, numInput('s1Width', 0.01, 0.01, 0.8), null]);
   row(baseTable, 'Innland', 'terskel', [null, null, eye('inland', 'Innland')], 'inland');
+  row(baseTable, 'Nedbørsfelt', 'lukkede felt og innhav', [null, null, eye('basins', 'Nedbørsfelt')]);
   row(baseTable, 'Vanndeling stiger', 'brattere: høyere', [null, numInput('divSteep', 0.1, 0.2, 10), null]);
   const midTable = document.getElementById('midlayers');
   head(midTable);

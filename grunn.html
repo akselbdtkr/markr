@@ -58,6 +58,8 @@
     .legend[hidden] { display: none; }
     .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
     .legend span { display: flex; align-items: center; gap: 5px; }
+    .basininfo { font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
+    .basininfo[hidden] { display: none; }
     .legend i { width: 10px; height: 10px; display: inline-block; }
     .onoff { margin: 0; accent-color: var(--handle); }
     .eye { border: none; background: none; padding: 2px; color: var(--muted); cursor: pointer; display: flex; border-radius: 3px; }
@@ -101,6 +103,7 @@
       <summary>Grunnlagene</summary>
       <canvas id="profile" tabindex="0" aria-label="Profil: høyde etter verdien i laget. Dra strekene for å flytte tersklene."></canvas>
       <div id="layers" class="grid"></div>
+      <p id="basinInfo" class="basininfo" hidden></p>
     </details>
     <details class="sec">
       <summary>Mellomlaget</summary>
@@ -170,6 +173,7 @@
   <script src="src/riversections.js"></script>
   <script src="src/locallayer.js"></script>
   <script src="src/grunnchain.js"></script>
+  <script src="src/basins.js"></script>
   <script src="src/grunn.js"></script>
 </body>
 </html>
