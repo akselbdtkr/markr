@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Markr by</title>
+  <style>
+    :root {
+      --bg: #f4f2ec; --panel: #ffffff; --text: #22262b; --muted: #8a8f95;
+      --border: #e2ded5; --handle: #2f6fd0; --empty: #d9d7d1;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #16181b; --panel: #1f2226; --text: #e6e6e3; --muted: #8d939a;
+        --border: #33373c; --handle: #5b9bf0; --empty: #2a2d31;
+        color-scheme: dark;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #16181b; --panel: #1f2226; --text: #e6e6e3; --muted: #8d939a;
+      --border: #33373c; --handle: #5b9bf0; --empty: #2a2d31;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--bg); color: var(--text);
+      font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      display: grid; grid-template-columns: 1fr 280px; height: 100%; overflow: hidden;
+    }
+    main { position: relative; min-width: 0; }
+    #map { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; background: var(--empty); }
+    aside { background: var(--panel); border-left: 1px solid var(--border); padding: 18px 16px; overflow-y: auto; }
+    h1 { font-size: 16px; font-weight: 600; margin: 0 0 6px; }
+    h2 { font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
+    p { margin: 0 0 8px; font-size: 13px; }
+    .muted { color: var(--muted); }
+    .seg { display: flex; margin: 6px 0 2px; }
+    .seg button { flex: 1; font: inherit; font-size: 12px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 4px 6px; cursor: pointer; }
+    .seg button + button { border-left: none; }
+    .seg button[aria-pressed="true"] { color: #fff; background: var(--handle); border-color: var(--handle); }
+    .seg button:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+    .legend[hidden] { display: none; }
+    .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); margin: 6px 0 8px; }
+    .legend span { display: flex; align-items: center; gap: 5px; }
+    .legend i { width: 10px; height: 10px; display: inline-block; }
+    .check { display: flex; gap: 6px; align-items: center; font-size: 13px; margin: 4px 0; }
+    .check input { margin: 0; accent-color: var(--handle); }
+    .seed { display: flex; gap: 6px; margin-top: 6px; align-items: center; font-size: 13px; }
+    .seed input { width: 0; flex: 1; font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; }
+    textarea { width: 100%; height: 70px; font: 12px ui-monospace, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px; resize: vertical; }
+    .wide { width: 100%; font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; cursor: pointer; margin-top: 4px; }
+    .wide:focus-visible { outline: 2px solid var(--handle); }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; font-size: 13px; }
+    dt { color: var(--muted); }
+    dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+    #status { position: absolute; top: 10px; left: 10px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: 12px; pointer-events: none; }
+    @media (max-width: 720px) {
+      body { grid-template-columns: 1fr; grid-template-rows: 62vh 1fr; height: auto; min-height: 100vh; overflow: auto; }
+      aside { border-left: none; border-top: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <canvas id="map" aria-label="Rutene over grunnkartet"></canvas>
+    <div id="status"></div>
+  </main>
+  <aside>
+    <h1>Markr by</h1>
+    <p class="muted">Rutene fra ruteformlene over grunnkartet, med alle lagene. Hver rute er fylt med fargen til landet den står på. Dra for å flytte, hjul eller knip for å zoome (10 km til 100 m).</p>
+
+    <h2>Utsnitt</h2>
+    <div class="seg">
+      <button id="z10" type="button">10 km</button>
+      <button id="z1" type="button">1 km</button>
+      <button id="z100" type="button">100 m</button>
+    </div>
+
+    <h2>Farge</h2>
+    <div class="seg" id="colour">
+      <button type="button" data-v="land" aria-pressed="true">Landskap</button>
+      <button type="button" data-v="kind" aria-pressed="false">Rutetype</button>
+    </div>
+    <div id="typeLegend" class="legend"></div>
+    <div id="kindLegend" class="legend" hidden></div>
+    <label class="check"><input type="checkbox" id="shade" checked> Skygge fra helningen</label>
+    <label class="check"><input type="checkbox" id="outline" checked> Rutekanter (når rutene er store nok)</label>
+
+    <h2>Ruten under pekeren</h2>
+    <div id="cell"><p class="muted">Pek på en rute.</p></div>
+
+    <h2>Grunnkartet</h2>
+    <label class="seed">Frø <input id="seed" type="number" step="1"></label>
+    <p class="muted" style="margin-top:8px">Lim inn innstillinger kopiert fra grunnvinduet:</p>
+    <textarea id="settings" aria-label="Innstillinger fra grunnvinduet"></textarea>
+    <button id="apply" class="wide" type="button">Bruk innstillingene</button>
+    <p id="applyMsg" class="muted" style="margin-top:6px"></p>
+  </aside>
+  <script>window.Markr = { VERSION: 1, CELL_SIZE: 16 };</script>
+  <script src="src/noise.js"></script>
+  <script src="src/baselayer.js"></script>
+  <script src="src/regionlayer.js"></script>
+  <script src="src/depressionlayer.js"></script>
+  <script src="src/riverline.js"></script>
+  <script src="src/riversections.js"></script>
+  <script src="src/locallayer.js"></script>
+  <script src="src/grunnchain.js"></script>
+  <script src="src/bychunk.js"></script>
+  <script src="src/formula.js"></script>
+  <script src="src/by.js"></script>
+</body>
+</html>

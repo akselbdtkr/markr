@@ -308,6 +308,21 @@ omriss av vanndelingsfelt og stiplede blå omriss av nedsenksfelt er av som stan
 skrus på. Høydekurver hver 100 m (mørkere hver 500 m) kan skrus av og på. «Kopier
 innstillinger» kopierer alle verdiene, og hvilke lag som er på, som tekst til chatten.
 
+## Byen
+
+`by.html` er starten på bylogikken. Det tar grunnkartet med alle lagene (kjeden ligger i
+`src/grunnchain.js` og deles med `grunn.html`) og legger ruteformlene (`src/formula.js`) over.
+Rutene tegnes fylt og ugjennomsiktige, i fargen til landskapstypen de står på (eller etter
+rutetype), med skygge fra helningen. Landskapet under vises ikke.
+
+- Utsnitt fra 10 km til 100 m. En rute er 16 m på skjermen.
+- Høydene leses alltid med alle lag og elvene per seksjon, så en rute er den samme uansett zoom.
+- Høydene regnes i biter på 32 × 32 ruter av flere workers side om side (`src/byworker.js`,
+  `src/bychunk.js`), og formlene i felt på 64 × 64 ruter med en kant på 3 ruter som regnes men
+  ikke tegnes, så feltene passer sammen.
+- Langt ute lagres hvert felt som et bilde per zoomtrinn.
+- Innstillinger kopiert fra grunnvinduet kan limes inn.
+
 ## Ruteformler
 
 `formel.html` regner rutenettet med lokale formler: én for hver rute (3 × 3 høyder gir
