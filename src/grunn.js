@@ -16,7 +16,7 @@
     tT1: -0.34, tT2: 1.01, tT3: 1.85, typeSoft: 0.6,
     depMode: 'median', depSize: 200, depDepth: 0.3, depWidth: 0.61, depSoft: 0.6, depStretch: 3, depAlign: 0.7, depLow: 0.8, depPlain: 0.5, depSlope: 30, depMtn: 0.6,
     vA1: 0.27, vA2: 1.17, vA3: 1.8, vB1: 0.15, vB2: 0.55, vB3: 0.74, vH: 0.4,
-    riverAlign: 0.15, riverWidth: 50000, riverDeep: 10, riverZone: 4, riverSlope: 15, riverReach: 30000,
+    riverAlign: 0.15, riverWidth: 50000, riverDeep: 10, riverZone: 4, riverSlope: 15, riverReach: 30000, springDepth: 6, springCarve: 30, springZone: 6000,
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 900, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
     secZoom: 1200, lodRiver: 16, lodDep: 150, lodRegion: 300, lodLocal: 25,
     lcH: [0.05, 0.54, 0.2, 0.72], lcS: [0.2, 0.54, 0.48, 0.25], lcR: [0, 0.15, 0.44, 1], lcT: [0.2, 0.62, 0.4, 0.3], lcU: [0.2, 0.15, 0.35, 0.8],
@@ -76,7 +76,7 @@
 
   // Layers can be turned off without changing their values: their weight
   // goes to 0, while the normalisation stays as if they were on.
-  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true, dep: true, depStretch: true, river: true, sections: true, local: true, mount: true, cut: true };
+  const on = { cont: true, basin: true, base: true, s1: true, inland: true, mid: true, stretch: true, firm: true, type: true, regStretch: true, dep: true, depStretch: true, river: true, sections: true, local: true, mount: true, cut: true, spring: true };
   function newLayer() {
     const p = { ...state, norm: Math.hypot(state.contW, state.basinW, state.baseW) || 1, normCB: Math.hypot(state.contW, state.basinW) || 1 };
     for (const id of ['cont', 'basin', 'base', 's1', 'mid']) if (!on[id]) p[id + 'W'] = 0;
@@ -101,7 +101,7 @@
       ? new M.RiverSections(river, (x, y) => {
           const f = fullCore(x, y, false);
           return { h: f.h, cls: f.cls };
-        }, { cell: 16 * state.scaleH, gap: state.riverGap, walk: state.riverWalk, bend: state.riverBend, meander: state.riverMeander, tSea: state.tSea, minW: state.riverMin, rise: 5 * state.scaleV })
+        }, { cell: 16 * state.scaleH, gap: state.riverGap, walk: state.riverWalk, bend: state.riverBend, meander: state.riverMeander, tSea: state.tSea, minW: state.riverMin, springDepth: state.springDepth, springCarve: state.springCarve, springZone: state.springZone, springOn: on.spring, rise: 5 * state.scaleV })
       : null;
   }
   // The whole chain at a point: base, middle layer, regions, depression.
@@ -120,7 +120,7 @@
       band = d.band;
     }
     // Rivers: class 4 (elv), on land only.
-    let water = false, sea = false, tint = 0, edge = Infinity, ew = 0;
+    let water = false, sea = false, tint = 0, edge = Infinity, ew = 0, carveH = 0;
     // Large views draw only large rivers: skip the river sum where even the
     // widest river here would be under two drawn points (no section step).
     const small = !withSections && r && river && river.maxWidth(layer.height(v0), r.firm) < 2 * pixNow;
@@ -128,6 +128,7 @@
       const mask = withSections && sections ? sections.waterAt(x, y) : undefined;
       const rv = river.at(x, y, v, mask);
       if (mask && !mask.water && !rv.water) tint = mask.cover;
+      carveH = mask && !mask.water ? mask.carve || 0 : 0;
       v = rv.v;
       water = rv.water;
       sea = !!rv.sea;
@@ -150,6 +151,8 @@
       const k = coast * coast * (3 - 2 * coast);
       h = Math.max(0.5 * state.scaleV, h + k * local.at(x, y, r.pos, band, sw, edge, mount, r.firm, h / Math.max(1, layer.height(state.tDivide)), ew));
     }
+    // Brooks from the springs carve their channel last.
+    if (carveH > 0 && cls >= 1 && cls <= 3) h = Math.max(0.5 * state.scaleV, h - carveH);
     return { v, h, cls, region: r, band, tint };
   }
   // Region at a point (land only), or null.
@@ -407,7 +410,7 @@
   // dark blue, bridges red, downhill walks orange, rings violet.
   function drawNodes(W, H, dpr) {
     const X = (x) => ((x - view.cx) / view.mpp + W / 2) * dpr, Y = (y) => ((y - view.cy) / view.mpp + H / 2) * dpr;
-    const colour = { line: '#1d3f7a', bridge: '#d4302a', tributary: '#2fa84a', walk: '#e08a1e', source: '#1fa6c9', lake: '#5b6b7a', loose: '#8c9aa8' };
+    const colour = { line: '#1d3f7a', bridge: '#d4302a', tributary: '#2fa84a', walk: '#e08a1e', source: '#1fa6c9', lake: '#5b6b7a', loose: '#8c9aa8', spring: '#19b3c9' };
     bctx.save();
     bctx.lineWidth = 1.5 * dpr;
     for (const [, gr] of sections.graphs) {
@@ -892,6 +895,9 @@
   row(rivTable, 'Koble ender', 'm, rette kjeder 2 ×', [null, numInput('riverGap', 1000, 0, 500000, null, 'h'), null]);
   row(rivTable, 'Følg nedover', 'm, opptil', [null, numInput('riverWalk', 1000, 0, 500000, null, 'h'), null]);
   row(rivTable, 'Bøyd kjede', 'blir innsjø, rettethet under', [null, numInput('riverBend', 0.05, 0, 1), null]);
+  row(rivTable, 'Bekk fra utspring', 'dal må være dypere enn, m', [null, numInput('springDepth', 1, 0, 1000, null, 'v'), null], 'spring');
+  row(rivTable, 'Bekken graver', 'm dybde', [null, numInput('springCarve', 5, 0, 2000, null, 'v'), null]);
+  row(rivTable, 'Bekken graver ut til', 'm fra bekken', [null, numInput('springZone', 500, 0, 200000, null, 'h'), null]);
   row(rivTable, 'Slyng i koblinger', '0–2', [null, numInput('riverMeander', 0.1, 0, 2), null]);
   row(rivTable, 'Flere løp', 'nær havet', [null, numInput('riverBraid', 0.05, 0, 1), null]);
   row(rivTable, 'Høyde beholdt', 'lavere elver: mindre', [null, numInput('riverRise', 0.05, 0, 1), null]);

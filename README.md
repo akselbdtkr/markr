@@ -202,7 +202,12 @@ seksjon tegnes, lagres elvene der, og funksjoner går gjennom dem.
    fra bredden i den ene enden til den andre, og slynger seg høyst en halv bredde.
 6. **Bekker under en rute:** en elv smalere enn ruta gjør ikke ruta til vann. Ruta får i
    stedet en blåtone etter hvor stor del av den elva dekker, så smale elver ikke brytes opp.
-7. **Sund:** en kjede der begge ender åpner mot havet, blir et sund med vannflate på 0 m.
+7. **Bekker fra utspring:** fra den øvre enden av hver elv følges dalbunnen oppover. Av punktene
+   foran velges det laveste som fortsatt stiger, så lenge landet på begge sider ligger høyere
+   («Bekk fra utspring»: hvor mye dypere dalen må være). Der sidene ikke lenger stiger, begynner
+   dalen, og det er utspringet. Derfra renner en bekk ned i elva og graver en myk renne i
+   landet («Bekken graver», dybde og bredde). Utspringet avhenger bare av elva selv.
+8. **Sund:** en kjede der begge ender åpner mot havet, blir et sund med vannflate på 0 m.
 
 Steget per seksjon legger til vann (koblinger, sideelver, innsjøer) til elva som regnes
 punkt for punkt, men tar ikke bort noe. En elv som allerede er sammenhengende, brytes derfor

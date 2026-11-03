@@ -446,6 +446,61 @@
       return this.nodesNear(fx, fy, 0.35 * r + 2 * this.p.cell).length > 0;
     }
 
+    // The natural spring above a river: from its upper end (the end that is
+    // not its mouth), follow the valley floor up, a step at a time, choosing
+    // among the points ahead the lowest that still rises, while the ground
+    // to both sides lies higher (a valley). Where the sides no longer rise
+    // over the floor, the valley begins: the spring. A brook runs from there
+    // down to the river, and carves the land (see build). Fixed by the river
+    // alone, so it is the same whatever was explored first.
+    spring(rv) {
+      if (rv.springSegs) return rv.springSegs;
+      const segs = (rv.springSegs = []);
+      if (rv.ring || !rv.mouth) return segs;
+      const up = rv.ends[0] === rv.mouth ? rv.ends[1] : rv.ends[0];
+      if (this.seaEnd(up)) {
+        this.why('spring: upper end at sea');
+        return segs;
+      }
+      const { cell } = this.p, step = 2 * cell, side = 6 * cell, maxLen = 3 * this.p.walk;
+      let x = up.n.x, y = up.n.y, dx = up.ox, dy = up.oy, h = this.ground(x, y).h;
+      const pts = [{ x, y }];
+      for (let k = 0; k * step < maxLen; k++) {
+        let best = null;
+        for (let a = -3; a <= 3; a++) {
+          const ang = (a * Math.PI) / 9, c = Math.cos(ang), sn = Math.sin(ang);
+          const ex = dx * c - dy * sn, ey = dx * sn + dy * c, px = x + ex * step, py = y + ey * step;
+          const g = this.ground(px, py);
+          if (g.cls === 0 || g.cls === 4 || g.h < h - this.p.springDepth * 0.25) continue; // may level out a little
+          if (!best || g.h < best.h) best = { px, py, ex, ey, h: g.h };
+        }
+        if (!best) {
+          this.why('spring: nothing rises ahead (step ' + Math.min(k, 3) + ')');
+          break;
+        }
+        // A valley still? The ground to both sides must lie above the floor.
+        const hl = this.ground(best.px - best.ey * side, best.py + best.ex * side).h, hr = this.ground(best.px + best.ey * side, best.py - best.ex * side).h;
+        if ((hl + hr) / 2 - best.h < this.p.springDepth) {
+          this.why('spring: valley ends (step ' + Math.min(k, 3) + ')');
+          break;
+        }
+        x = best.px;
+        y = best.py;
+        dx = best.ex;
+        dy = best.ey;
+        h = best.h;
+        pts.push({ x, y });
+      }
+      if (pts.length < 3) return segs;
+      // The brook, from the spring down to the river, widening a little.
+      const W0 = 0.3 * cell, W1 = Math.max(W0, Math.min(up.W, 0.8 * cell));
+      for (let k = pts.length - 1; k > 0; k--) {
+        const f0 = 1 - k / (pts.length - 1), f1 = 1 - (k - 1) / (pts.length - 1);
+        segs.push({ a: { x: pts[k].x, y: pts[k].y, W: W0 + (W1 - W0) * f0, vSurf: up.n.vSurf }, b: { x: pts[k - 1].x, y: pts[k - 1].y, W: W0 + (W1 - W0) * f1, vSurf: up.n.vSurf }, kind: 'spring' });
+      }
+      return segs;
+    }
+
     // Links from a to b, of width W: whole half waves, swinging at most half
     // the width, its side from the positions (so neighbours agree).
     // Width factor for a link from a to b: alone, the river's full width;
@@ -594,10 +649,34 @@
           this.step(rv);
           for (const s of rv.out) segs.add(s);
         }
-        if (t && rv.source) for (const s of rv.source) segs.add(s);
+        // A spring: from the river's upper end, up the valley to where it
+        // begins, and a brook down from there.
+        if (!rv.lake && this.p.springOn !== false) for (const s of this.spring(rv)) segs.add(s);
       }
       this.graphs.set(k, { segs: [...segs], rings });
-      const water = new Uint8Array(N * N), surf = new Float32Array(N * N), sea = new Uint8Array(N * N), cover = new Float32Array(N * N);
+      const water = new Uint8Array(N * N), surf = new Float32Array(N * N), sea = new Uint8Array(N * N), cover = new Float32Array(N * N), carve = new Float32Array(N * N);
+      // Brooks carve the land: a soft channel along them, deepest on the
+      // line (springCarve), out to springZone.
+      const zone = this.p.springZone || 0, depth = this.p.springCarve || 0;
+      if (zone > 0 && depth > 0) {
+        for (const sg of segs) {
+          if (sg.kind !== 'spring') continue;
+          const a = sg.a, b = sg.b, ex = b.x - a.x, ey = b.y - a.y, l2 = ex * ex + ey * ey;
+          const i0 = Math.max(0, Math.floor((Math.min(a.x, b.x) - zone - x0) / cell)), i1 = Math.min(N - 1, Math.floor((Math.max(a.x, b.x) + zone - x0) / cell));
+          const j0 = Math.max(0, Math.floor((Math.min(a.y, b.y) - zone - y0) / cell)), j1 = Math.min(N - 1, Math.floor((Math.max(a.y, b.y) + zone - y0) / cell));
+          for (let j = j0; j <= j1; j++) {
+            for (let i = i0; i <= i1; i++) {
+              const cx = x0 + (i + 0.5) * cell, cy = y0 + (j + 0.5) * cell;
+              const t = l2 > 0 ? Math.max(0, Math.min(1, ((cx - a.x) * ex + (cy - a.y) * ey) / l2)) : 0;
+              const d = Math.hypot(cx - a.x - ex * t, cy - a.y - ey * t);
+              if (d < zone) {
+                const q = 1 - d / zone;
+                carve[j * N + i] = Math.max(carve[j * N + i], depth * q * q);
+              }
+            }
+          }
+        }
+      }
       const minW = this.p.minW || 0;
       const list = [...segs].map((s) => {
         const wa = Math.max(s.a.W, minW), wb = Math.max(s.b.W, minW), r = Math.max(wa, wb) / 2;
@@ -651,7 +730,7 @@
           }
         }
       }
-      mask = { water, surf, sea, cover, remove };
+      mask = { water, surf, sea, cover, remove, carve };
       this.masks.set(k, mask);
       return mask;
     }
@@ -664,7 +743,7 @@
       if (!mask) return undefined;
       const i = Math.min(N - 1, Math.floor((x - si * this.size) / this.p.cell)), j = Math.min(N - 1, Math.floor((y - sj * this.size) / this.p.cell));
       const o = j * N + i;
-      return { water: mask.water[o] === 1, vSurf: mask.surf[o], sea: mask.sea[o] === 1, cover: mask.cover[o], remove: mask.remove[o] === 1 };
+      return { water: mask.water[o] === 1, vSurf: mask.surf[o], sea: mask.sea[o] === 1, cover: mask.cover[o], remove: mask.remove[o] === 1, carve: mask.carve[o] };
     }
   }
 
