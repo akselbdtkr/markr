@@ -82,7 +82,7 @@
           const ci = Math.floor(on[0] / g2), cj = Math.floor(on[1] / g2), ck = ci * 100003 + cj;
           if (own.has(ck)) continue;
           if (this.ground(on[0], on[1]).cls === 0) continue; // under the sea
-          const c = { ci, cj, ck, sec: sk, x: on[0], y: on[1], W: b.W, vSurf: b.vSurf, tx: on[2], ty: on[3], plain: b.plain, f: undefined, b: undefined, chain: null, alive: undefined };
+          const c = { ci, cj, ck, sec: sk, x: on[0], y: on[1], W: b.W, vSurf: b.vSurf, tx: on[2], ty: on[3], plain: b.plain, firm: b.firm, vq: b.vq, f: undefined, b: undefined, chain: null, alive: undefined };
           own.set(ck, c);
           let list = this.grid.get(ck);
           if (!list) this.grid.set(ck, (list = []));
@@ -270,6 +270,14 @@
         rv.mouth = ea.n.vSurf < eb.n.vSurf || (ea.n.vSurf === eb.n.vSurf && ea.n.ck <= eb.n.ck) ? ea : eb;
         rv.rank = [rv.mouth.n.vSurf, rv.mouth.n.ck, rv.mouth.n.sec];
         rv.endNodes = new Set([ea.n, eb.n]);
+        // An outlet: where the river opens to the sea along its course with
+        // the least resistance. Such a river ranks lowest (it drains to the
+        // sea), so others may flow into it.
+        rv.outlet = null;
+        if (nodes.length >= 2 && !this.seaEnd(ea) && !this.seaEnd(eb)) {
+          rv.outlet = this.outlet(rv, nodes);
+          if (rv.outlet) rv.rank = [-Infinity, rv.outlet.n.ck, rv.outlet.n.sec];
+        }
         rv.joinSegs = [];
         for (const [x, y] of joins) {
           const f = this.crowd(x.n, y.n, Math.max(x.W, y.W) * rv.wf, new Set(chains));
@@ -373,6 +381,10 @@
       }
       const mouth = ch.mouth;
       if (this.seaEnd(mouth)) return (ch.next = 'sea');
+      if (ch.outlet) {
+        ch.out = this.outletSegs(ch.outlet);
+        return (ch.next = 'sea');
+      }
       const link = this.connect(mouth);
       if (link) {
         const nx = this.riverOf(this.chain(link.node));
@@ -569,6 +581,131 @@
     // Width factor for a link from a to b: alone, the river's full width;
     // with other chains close by (a cluster of lakes and rivers), a narrow
     // brook, so it does not merge them all.
+    // 7. Outlets. A river that comes close to the sea along its course but
+    // does not end there (it turns away, and would run far before reaching
+    // the sea or another river) opens to the sea where the resistance is
+    // least. From points along the river near the sea, rays are sent out;
+    // a ray counts if it reaches the sea within outlet without climbing
+    // more than rise over a sill. Its resistance is its length, made larger
+    // by the sill (low land is easier), by the slope crossed, and by turning
+    // off the river's own direction (a river with direction keeps it). The
+    // best point and ray win, if the way out is much shorter than the
+    // river's way on (detour). The river then drains there, on both sides
+    // of the point: its direction does not matter for drawing.
+    outlet(rv, nodes) {
+      const p = this.p, R = p.outlet || 0, tSea = p.tSea;
+      if (!(R > 0)) return null;
+      // The highest sill the water may cut through on its way out.
+      const step = this.g2, K = 12, band = 0.35, SILL = p.sill ?? p.rise;
+      // Along-river distance from the start, for the detour test.
+      const along = [0];
+      for (let k = 1; k < nodes.length; k++) along.push(along[k - 1] + Math.hypot(nodes[k].x - nodes[k - 1].x, nodes[k].y - nodes[k - 1].y));
+      const total = along[along.length - 1];
+      let best = null;
+      for (let k = 0; k < nodes.length; k += 3) {
+        const n = nodes[k];
+        if (!(n.vq < tSea + band)) continue;
+        // The way on: along the river to the end it drains through now (its
+        // mouth), and from there it has still to find the sea.
+        const rest = rv.mouth.n === nodes[0] ? along[k] : total - along[k];
+        const h0 = this.ground(n.x, n.y).h;
+        for (let r = 0; r < K; r++) {
+          const ang = (r / K) * 2 * Math.PI, dx = Math.cos(ang), dy = Math.sin(ang);
+          let sill = 0, rough = 0, hp = h0, L = 0, hit = false;
+          for (let s = 1; s * step <= R; s++) {
+            const g = this.ground(n.x + dx * s * step, n.y + dy * s * step);
+            L = s * step;
+            if (this.openSea(g, n.x + dx * s * step, n.y + dy * s * step)) {
+              hit = true;
+              break;
+            }
+            sill = Math.max(sill, g.h - h0);
+            rough += Math.abs(g.h - hp);
+            hp = g.h;
+            if (sill > SILL) break;
+          }
+          if (!hit || sill > SILL) continue;
+          const slope = ((rough / Math.max(L, 1)) * (p.slopeK || 1));
+          const turn = 1 - Math.abs(dx * n.tx + dy * n.ty);
+          const res = L * (1 + 2 * (sill / Math.max(1, SILL)) + 2 * Math.min(1, slope / 0.15) + 0.6 * turn);
+          // Only a clear short cut: the way out is a small share of the way on.
+          if (L > rest / (p.detour || 3)) continue;
+          if (!best || res < best.res) best = { n, k, dx, dy, L, res, sill };
+        }
+      }
+      if (!best) return null;
+      // The kind of mouth, from the ground at the point: loose and flat
+      // makes a delta, firm makes a fjord, the rest a plain mouth.
+      const firm = best.n.firm ?? 0.5, flat = 1 - Math.min(1, best.sill / Math.max(1, SILL));
+      best.kind = firm < 0.45 && (best.n.plain > 0.3 || flat > 0.4) ? 'delta' : firm > 0.62 ? 'fjord' : 'mouth';
+      best.W = Math.max(best.n.W * rv.wf, p.minW || 0);
+      best.rv = rv;
+      return best;
+    }
+    // Open sea at a point (g: its ground): sea in the land itself and as
+    // drawn, a metre deep, and not a speck: at least 3 of 8 points on a ring round it
+    // (8 cells out) are sea too.
+    openSea(g, x, y) {
+      // At least a metre deep on screen: flats right at the sea threshold
+      // flicker between sea and land and are no sea to run out into.
+      const deep = (q) => q.cls === 0 && q.sea && q.h < -this.p.rise / 5;
+      if (!deep(g)) return false;
+      const R = 8 * this.p.cell;
+      let n = 0;
+      for (let k = 0; k < 8 && n < 3; k++) if (deep(this.ground(x + R * Math.cos((k * Math.PI) / 4), y + R * Math.sin((k * Math.PI) / 4)))) n++;
+      return n >= 3;
+    }
+    // The outlet's water: one channel (a mouth), a fjord (the sea reaching
+    // in, widening toward the coast), or a delta (arms fanning out, each
+    // narrower, every one reaching the sea).
+    outletSegs(o) {
+      if (o.segs) return o.segs;
+      const p = this.p, n = o.n, segs = [], step = this.g2, tSea = p.tSea, h0 = this.ground(n.x, n.y).h;
+      // A ray's end, a little into the sea so the channel meets it.
+      const reachSea = (dx, dy, max) => {
+        for (let s = 1; s * step <= max; s++) {
+          const x = n.x + dx * s * step, y = n.y + dy * s * step, g = this.ground(x, y);
+          if (this.openSea(g, x, y)) return { x: x + dx * 2 * p.cell, y: y + dy * 2 * p.cell, L: s * step };
+          if (g.h - h0 > (p.sill ?? p.rise)) return null;
+        }
+        return null;
+      };
+      const main = reachSea(o.dx, o.dy, o.L + step);
+      if (!main) return (o.segs = segs);
+      const end = { x: main.x, y: main.y, vSurf: tSea - 0.01 };
+      // Leaves along the river (the way of its line that points to the
+      // sea), bending out, and meets the sea head on.
+      const sg = o.dx * n.tx + o.dy * n.ty >= 0 ? 1 : -1, ux = sg * n.tx + o.dx, uy = sg * n.ty + o.dy, ul = Math.hypot(ux, uy) || 1;
+      const da = [ux / ul, uy / ul], db = [-o.dx, -o.dy];
+      if (o.kind === 'fjord') {
+        // The inner part a river, the outer the sea reaching in, widening.
+        const mid = { x: n.x + (end.x - n.x) * 0.4, y: n.y + (end.y - n.y) * 0.4, vSurf: n.vSurf };
+        this.linkSegs(n, mid, o.W, segs, 'outlet', o.W * 1.3, da, db);
+        const seaSegs = [];
+        this.linkSegs({ ...mid, vSurf: tSea - 0.01 }, end, o.W * 1.3, seaSegs, 'fjord', o.W * 3, da, db);
+        for (const sg of seaSegs) {
+          sg.a.sea = sg.b.sea = true;
+          segs.push(sg);
+        }
+      } else if (o.kind === 'delta') {
+        // Arms: the main way and others fanning out to either side that
+        // also reach the sea, not much farther off.
+        const arms = [main];
+        for (const a of [0.35, -0.35, 0.7, -0.7]) {
+          if (arms.length >= 4) break;
+          const c = Math.cos(a), sn = Math.sin(a), dx = o.dx * c - o.dy * sn, dy = o.dx * sn + o.dy * c;
+          const r = reachSea(dx, dy, 1.6 * o.L + step);
+          if (r) arms.push({ ...r, dx, dy });
+        }
+        const w = o.W / Math.sqrt(arms.length);
+        for (const r of arms) {
+          const dx = r.dx ?? o.dx, dy = r.dy ?? o.dy;
+          this.linkSegs(n, { x: r.x, y: r.y, vSurf: tSea - 0.01 }, w, segs, 'delta', w * 1.4, da, [-dx, -dy]);
+        }
+      } else this.linkSegs(n, end, o.W, segs, 'outlet', o.W * 1.5, da, db);
+      return (o.segs = segs);
+    }
+
     crowd(a, b, W, own) {
       const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, r = 1.5 * W + 0.5 * Math.hypot(b.x - a.x, b.y - a.y);
       const others = new Set();

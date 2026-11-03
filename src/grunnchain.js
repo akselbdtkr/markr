@@ -20,7 +20,7 @@
     rvH: [1, 0.6, 0.41, 0.4, 0.35, 0.35], rvF: [1, 0.6, 0.4, 0.37, 0.41, 0.44], riverMin: 900, riverBraid: 0.7, riverDrop: 0.03, riverRise: 0.5,
     secZoom: 1200, lodRiver: 16, lodDep: 150, lodRegion: 300, lodLocal: 25,
     lcH: [0.05, 0.54, 0.2, 0.72], lcS: [0.2, 0.54, 0.48, 0.25], lcR: [0, 0.15, 0.44, 1], lcT: [0.2, 0.62, 0.4, 0.3], lcU: [0.2, 0.15, 0.35, 0.8],
-    locFlat: 0.8, locSide: 0.25, bank: 1800, locBank: 10000, mtH: 1500, mtS: 810, mtDiv: 1, mtFirm: 0.8, locFirm: 0.8, cutH: 1200, cutS: 510, mtT: 4, locK: 1, locW: 3, locSlope: 25, mtSlope: 75, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverBend: 0.6, riverMeander: 2, showNodes: false,
+    locFlat: 0.8, locSide: 0.25, bank: 1800, locBank: 10000, mtH: 1500, mtS: 810, mtDiv: 1, mtFirm: 0.8, locFirm: 0.8, cutH: 1200, cutS: 510, mtT: 4, locK: 1, locW: 3, locSlope: 25, mtSlope: 75, snowFrom: 3200, snowTo: 4300, riverGap: 30000, riverWalk: 50000, riverOutlet: 100000, riverSill: 15, riverDetour: 3, riverBend: 0.6, riverMeander: 2, showNodes: false,
     // Scale: the simulation keeps its own units; on screen one unit is
     // 1/scaleH m across and 1/scaleV m in height (1:50 and 1:10).
     scaleH: 50, scaleV: 2,
@@ -50,14 +50,19 @@
     // The per-section step: its own store of rivers, built when zoomed in.
     sections = river && on.sections
       ? new M.RiverSections(river, (x, y) => {
-          const f = fullCore(x, y, false);
-          return { h: f.h, cls: f.cls };
-        }, { cell: 16 * state.scaleH, gap: state.riverGap, walk: state.riverWalk, bend: state.riverBend, meander: state.riverMeander, tSea: state.tSea, minW: state.riverMin, springDepth: state.springDepth, springCarve: state.springCarve, springZone: state.springZone, springOn: on.spring, rise: 5 * state.scaleV })
+          // At a fixed point size (two cells, as the lattices), so the
+          // rivers per section do not depend on what is being drawn.
+          const f = fullCore(x, y, false, 32 * state.scaleH);
+          // sea: the open sea itself (base, middle layer and depression
+          // under the threshold), not water of a river marked as sea.
+          return { h: f.h, cls: f.cls, sea: f.vLand < state.tSea };
+        }, { cell: 16 * state.scaleH, gap: state.riverGap, walk: state.riverWalk, bend: state.riverBend, meander: state.riverMeander, tSea: state.tSea, minW: state.riverMin, springDepth: state.springDepth, springCarve: state.springCarve, springZone: state.springZone, springOn: on.spring, rise: 5 * state.scaleV, outlet: state.riverOutlet, sill: state.riverSill * state.scaleV, detour: state.riverDetour, slopeK: state.scaleH / state.scaleV })
       : null;
     const lod = ctx.lod;
     // Region at a point (land only), or null.
     const regionAt = (x, y, v) => (v >= state.tSea ? region.at(x, y, v) : null);
-    function fullCore(x, y, withSections) {
+    // pix: the size of a drawn point (sim units), by default the view's.
+    function fullCore(x, y, withSections, pix = ctx.pix) {
       const [vb, v0, inland, large] = layer.valueParts(x, y);
       const r = lod.region ? regionAt(x, y, v0) : null;
       let v = v0, band = 0;
@@ -67,10 +72,11 @@
         band = d.band;
       }
       // Rivers: class 4 (elv), on land only.
+      const vLand = v;
       let water = false, sea = false, tint = 0, edge = Infinity, ew = 0, carveH = 0;
       // Large views draw only large rivers: skip the river sum where even the
       // widest river here would be under two drawn points (no section step).
-      const small = !withSections && r && river && river.maxWidth(layer.height(v0), r.firm) < 2 * ctx.pix;
+      const small = !withSections && r && river && river.maxWidth(layer.height(v0), r.firm) < 2 * pix;
       if (river && lod.river && r && v >= state.tSea && !small) {
         const mask = withSections && sections ? sections.waterAt(x, y) : undefined;
         const rv = river.at(x, y, v, mask);
@@ -100,7 +106,7 @@
       }
       // Brooks from the springs carve their channel last.
       if (carveH > 0 && cls >= 1 && cls <= 3) h = Math.max(0.5 * state.scaleV, h - carveH);
-      return { v, h, cls, region: r, band, tint };
+      return { v, h, cls, region: r, band, tint, vLand };
     }
     return { layer, region, dep, river, local, sections, fullCore, regionAt };
   };

@@ -440,7 +440,7 @@
   // dark blue, bridges red, downhill walks orange, rings violet.
   function drawNodes(W, H, dpr) {
     const X = (x) => ((x - view.cx) / view.mpp + W / 2) * dpr, Y = (y) => ((y - view.cy) / view.mpp + H / 2) * dpr;
-    const colour = { line: '#1d3f7a', bridge: '#d4302a', tributary: '#2fa84a', walk: '#e08a1e', source: '#1fa6c9', lake: '#5b6b7a', loose: '#8c9aa8', spring: '#19b3c9' };
+    const colour = { line: '#1d3f7a', bridge: '#d4302a', tributary: '#2fa84a', walk: '#e08a1e', source: '#1fa6c9', lake: '#5b6b7a', loose: '#8c9aa8', spring: '#19b3c9', outlet: '#c2185b', delta: '#e85d9c', fjord: '#3949ab' };
     bctx.save();
     bctx.lineWidth = 1.5 * dpr;
     for (const [, gr] of sections.graphs) {
@@ -950,6 +950,9 @@
   row(rivTable, 'Per seksjon', 'når utsnittet er under, m', [null, numInput('secZoom', 500, 200, 100000, () => render()), null], 'sections');
   row(rivTable, 'Koble ender', 'm, rette kjeder 2 ×', [null, numInput('riverGap', 1000, 0, 500000, null, 'h'), null]);
   row(rivTable, 'Følg nedover', 'm, opptil', [null, numInput('riverWalk', 1000, 0, 500000, null, 'h'), null]);
+  row(rivTable, 'Utløp til havet', 'm, opptil, minst motstand', [null, numInput('riverOutlet', 1000, 0, 500000, null, 'h'), null]);
+  row(rivTable, 'Terskel ved utløp', 'm, vannet skjærer gjennom', [null, numInput('riverSill', 1, 0, 1000), null]);
+  row(rivTable, 'Omvei før utløp', 'veien videre / veien ut', [null, numInput('riverDetour', 0.5, 1, 20), null]);
   row(rivTable, 'Bøyd kjede', 'blir innsjø, rettethet under', [null, numInput('riverBend', 0.05, 0, 1), null]);
   row(rivTable, 'Bekk fra utspring', 'dal må være dypere enn, m', [null, numInput('springDepth', 1, 0, 1000, null, 'v'), null], 'spring');
   row(rivTable, 'Bekken graver', 'm dybde', [null, numInput('springCarve', 5, 0, 2000, null, 'v'), null]);
