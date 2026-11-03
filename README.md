@@ -202,11 +202,14 @@ seksjon tegnes, lagres elvene der, og funksjoner går gjennom dem.
    fra bredden i den ene enden til den andre, og slynger seg høyst en halv bredde.
 6. **Bekker under en rute:** en elv smalere enn ruta gjør ikke ruta til vann. Ruta får i
    stedet en blåtone etter hvor stor del av den elva dekker, så smale elver ikke brytes opp.
-7. **Bekker fra utspring:** fra den øvre enden av hver elv følges dalbunnen oppover. Av punktene
-   foran velges det laveste som fortsatt stiger, så lenge landet på begge sider ligger høyere
-   («Bekk fra utspring»: hvor mye dypere dalen må være). Der sidene ikke lenger stiger, begynner
-   dalen, og det er utspringet. Derfra renner en bekk ned i elva og graver en myk renne i
-   landet («Bekken graver», dybde og bredde). Utspringet avhenger bare av elva selv.
+7. **Bekker fra utspring:** bare fra en elveende som ikke finner noen annen kobling, verken en
+   partner eller en annen elveende i nærheten. Utspringet finnes som i ruteformlene, som toppen
+   av en dal. Rundt elveenden testes punkter: et dalpunkt ligger lavere enn landet rundt
+   («Bekk fra utspring»), og det er toppen av dalen når landet like ovenfor ikke lenger er dal.
+   Nærmeste slike punkt som ligger høyere enn enden og foran den, er utspringet. Veien ned
+   finnes ved å forskyve midtpunktet: midtpunktet på linja flyttes på tvers til det laveste
+   landet innen en gitt avstand, så gjøres det samme med de to halvdelene, og så videre.
+   Vann regnes som stengt, og linja glattes. Bekken graver en myk renne i landet.
 8. **Sund:** en kjede der begge ender åpner mot havet, blir et sund med vannflate på 0 m.
 
 Steget per seksjon legger til vann (koblinger, sideelver, innsjøer) til elva som regnes
@@ -264,6 +267,11 @@ detaljer» (25°) og «Brattest, fjell og skar» (75°). I fjellsk dempes nedsen
 («Svakere i fjellsk»), så fjellene leder og nedsenkene ikke tegner tydelige linjer gjennom dem. Mot elva blir sonen bredere med fallet ned
 til vannet, så breddene ikke blir brattere enn «Brattest mot elva» (15°). Nedsenkene har også en
 grense («Brattest side»): dybden begrenses av halve bredden.
+
+**Kant rundt utsnittet:** bildet tegnes 15 % større enn utsnittet på hver side, og kanten
+tones ut. Når du flytter kartet eller zoomer ut, fyller det ferdige bildet inn, og det glir over
+i den grove versjonen av grunnlagene utenfor. Målestokken tegnes fast på skjermen, så den
+følger ikke med bildet.
 
 **Zoom og flytting:** grunnlagene og mellomlaget tegnes først, i grove ruter, så land og hav
 er på plass med en gang, også utenfor det gamle bildet når du zoomer ut. Det nye bildet tegnes utenfor skjermen. Imens står det forrige bildet,

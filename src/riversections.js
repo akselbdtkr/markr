@@ -446,13 +446,17 @@
       return this.nodesNear(fx, fy, 0.35 * r + 2 * this.p.cell).length > 0;
     }
 
-    // The natural spring above a river: from its upper end (the end that is
-    // not its mouth), follow the valley floor up, a step at a time, choosing
-    // among the points ahead the lowest that still rises, while the ground
-    // to both sides lies higher (a valley). Where the sides no longer rise
-    // over the floor, the valley begins: the spring. A brook runs from there
-    // down to the river, and carves the land (see build). Fixed by the river
-    // alone, so it is the same whatever was explored first.
+    // The natural spring above a river, as in the cell formulas: the head
+    // of a valley. Around the river's upper end (the end that is not its
+    // mouth), points on a grid of two cells are tested: a valley point lies
+    // lower than the ground around it (by springDepth), and it is the head
+    // when the ground just uphill of it is no longer a valley. The nearest
+    // head that lies higher than the end and ahead of it is the spring.
+    // Then the way down: the straight line from the spring to the end, its
+    // midpoint moved across to the lowest ground within a set distance, and
+    // the same again for the two halves, and so on: the path of least
+    // resistance, with as little climbing as can be. A brook runs along it
+    // and carves the land (see build). Fixed by the river alone.
     spring(rv) {
       if (rv.springSegs) return rv.springSegs;
       const segs = (rv.springSegs = []);
@@ -462,41 +466,100 @@
         this.why('spring: upper end at sea');
         return segs;
       }
-      const { cell } = this.p, step = 2 * cell, side = 6 * cell, maxLen = 3 * this.p.walk;
-      let x = up.n.x, y = up.n.y, dx = up.ox, dy = up.oy, h = this.ground(x, y).h;
-      const pts = [{ x, y }];
-      for (let k = 0; k * step < maxLen; k++) {
-        let best = null;
-        for (let a = -3; a <= 3; a++) {
-          const ang = (a * Math.PI) / 9, c = Math.cos(ang), sn = Math.sin(ang);
-          const ex = dx * c - dy * sn, ey = dx * sn + dy * c, px = x + ex * step, py = y + ey * step;
-          const g = this.ground(px, py);
-          if (g.cls === 0 || g.cls === 4 || g.h < h - this.p.springDepth * 0.25) continue; // may level out a little
-          if (!best || g.h < best.h) best = { px, py, ex, ey, h: g.h };
-        }
-        if (!best) {
-          this.why('spring: nothing rises ahead (step ' + Math.min(k, 3) + ')');
-          break;
-        }
-        // A valley still? The ground to both sides must lie above the floor.
-        const hl = this.ground(best.px - best.ey * side, best.py + best.ex * side).h, hr = this.ground(best.px + best.ey * side, best.py - best.ex * side).h;
-        if ((hl + hr) / 2 - best.h < this.p.springDepth) {
-          this.why('spring: valley ends (step ' + Math.min(k, 3) + ')');
-          break;
-        }
-        x = best.px;
-        y = best.py;
-        dx = best.ex;
-        dy = best.ey;
-        h = best.h;
-        pts.push({ x, y });
+      // Only from an end that finds no other link: none of its own (a
+      // partner end, even one that did not pair back), and no other river's
+      // end close by that could be its continuation.
+      const ce = rv.chains.flatMap((c) => c.ends).find((e) => e.n === up.n);
+      if (ce && this.endMatch(ce)) {
+        this.why('spring: end has a link');
+        return segs;
       }
-      if (pts.length < 3) return segs;
+      for (const o of this.nodesNear(up.n.x, up.n.y, this.p.gap)) {
+        const orv = this.riverOf(this.chain(o));
+        if (orv !== rv && !orv.ring && orv.endNodes && orv.endNodes.has(o)) {
+          this.why('spring: another end close by');
+          return segs;
+        }
+      }
+      const { cell } = this.p, side = 5 * cell, g2 = 2 * cell, R = 1.5 * this.p.walk, H = (px, py) => this.ground(px, py).h;
+      const h0 = H(up.n.x, up.n.y);
+      // Lower than the ground around by at least springDepth: a valley.
+      const valley = (px, py) => {
+        const hc = H(px, py);
+        let sum = 0;
+        for (let a = 0; a < 6; a++) sum += H(px + side * Math.cos((a * Math.PI) / 3), py + side * Math.sin((a * Math.PI) / 3));
+        return { hc, depth: sum / 6 - hc };
+      };
+      let best = null, bd = Infinity;
+      const n = Math.ceil(R / g2), cx = Math.round(up.n.x / g2), cy = Math.round(up.n.y / g2);
+      for (let j = -n; j <= n; j++) {
+        for (let i = -n; i <= n; i++) {
+          const px = (cx + i) * g2, py = (cy + j) * g2, vx = px - up.n.x, vy = py - up.n.y, d = Math.hypot(vx, vy);
+          if (d > R || d < 3 * cell || d >= bd || (vx * up.ox + vy * up.oy) / d < 0.2) continue;
+          const g = this.ground(px, py);
+          if (g.cls < 1 || g.cls > 3 || g.h <= h0) continue; // on land, above the end
+          const v = valley(px, py);
+          if (v.depth < this.p.springDepth) continue;
+          // The head: just uphill (the highest of the points around) the
+          // ground is no longer a valley.
+          let ux = px, uy = py, uh = -Infinity;
+          for (let a = 0; a < 8; a++) {
+            const qx = px + side * Math.cos((a * Math.PI) / 4), qy = py + side * Math.sin((a * Math.PI) / 4), qh = H(qx, qy);
+            if (qh > uh) {
+              uh = qh;
+              ux = qx;
+              uy = qy;
+            }
+          }
+          if (valley(ux, uy).depth >= this.p.springDepth) continue;
+          best = { x: px, y: py };
+          bd = d;
+        }
+      }
+      if (!best) {
+        this.why('spring: no valley head nearby');
+        return segs;
+      }
+      // The way down by midpoint displacement.
+      const path = [best, { x: up.n.x, y: up.n.y }];
+      // Cost of a point: its height, and water is no way for a brook (it
+      // would rather run through a lake than round it).
+      const cost = (px, py) => {
+        const g = this.ground(px, py);
+        return g.cls === 0 || g.cls === 4 ? g.h + 1e9 : g.h;
+      };
+      const refine = (a, b, depth) => {
+        const L = Math.hypot(b.x - a.x, b.y - a.y);
+        if (L < 6 * cell || depth > 7) return [a];
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, px = -(b.y - a.y) / L, py = (b.x - a.x) / L, D = 0.25 * L;
+        let m = { x: mx, y: my }, mh = cost(mx, my);
+        for (let k = -3; k <= 3; k++) {
+          if (!k) continue;
+          const qx = mx + (px * D * k) / 3, qy = my + (py * D * k) / 3, qh = cost(qx, qy);
+          // Only a clearly lower way is worth the bend.
+          if (qh < mh - this.p.springDepth * 0.5) {
+            mh = qh;
+            m = { x: qx, y: qy };
+          }
+        }
+        return refine(a, m, depth + 1).concat(refine(m, b, depth + 1));
+      };
+      let pts = refine(path[0], path[1], 0).concat([path[1]]);
+      // Smoothed twice (corner cutting), keeping the ends.
+      for (let it = 0; it < 2; it++) {
+        const q = [pts[0]];
+        for (let k = 0; k < pts.length - 1; k++) {
+          const a = pts[k], b = pts[k + 1];
+          q.push({ x: 0.75 * a.x + 0.25 * b.x, y: 0.75 * a.y + 0.25 * b.y }, { x: 0.25 * a.x + 0.75 * b.x, y: 0.25 * a.y + 0.75 * b.y });
+        }
+        q.push(pts[pts.length - 1]);
+        pts = q;
+      }
       // The brook, from the spring down to the river, widening a little.
       const W0 = 0.3 * cell, W1 = Math.max(W0, Math.min(up.W, 0.8 * cell));
-      for (let k = pts.length - 1; k > 0; k--) {
-        const f0 = 1 - k / (pts.length - 1), f1 = 1 - (k - 1) / (pts.length - 1);
-        segs.push({ a: { x: pts[k].x, y: pts[k].y, W: W0 + (W1 - W0) * f0, vSurf: up.n.vSurf }, b: { x: pts[k - 1].x, y: pts[k - 1].y, W: W0 + (W1 - W0) * f1, vSurf: up.n.vSurf }, kind: 'spring' });
+      for (let k = 1; k < pts.length; k++) {
+        const f0 = (k - 1) / (pts.length - 1), f1 = k / (pts.length - 1);
+        segs.push({ a: { x: pts[k - 1].x, y: pts[k - 1].y, W: W0 + (W1 - W0) * f0, vSurf: up.n.vSurf }, b: { x: pts[k].x, y: pts[k].y, W: W0 + (W1 - W0) * f1, vSurf: up.n.vSurf }, kind: 'spring' });
       }
       return segs;
     }

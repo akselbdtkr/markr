@@ -54,12 +54,13 @@
     const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
     sizeCanvas(canvas, W, H, dpr);
     quickBase(W, H, dpr);
-    if (!shownView) return;
+    if (!shownView) return drawScale();
     const k = shownView.mpp / view.mpp;
     const x = ((shownView.cx - (shownView.W / 2) * shownView.mpp - view.cx) / view.mpp + W / 2) * dpr;
     const y = ((shownView.cy - (shownView.H / 2) * shownView.mpp - view.cy) / view.mpp + H / 2) * dpr;
     ctx.imageSmoothingEnabled = k < 1;
     ctx.drawImage(shown, x, y, shown.width * k, shown.height * k);
+    drawScale();
   }
   function sizeCanvas(c, W, H, dpr) {
     const w = Math.round(W * dpr), h = Math.round(H * dpr);
@@ -183,7 +184,10 @@
   function render() {
     const id = ++job;
     const dpr = window.devicePixelRatio || 1;
-    const W = canvas.clientWidth, H = canvas.clientHeight;
+    // The picture covers a margin around the view too (MARGIN of the size
+    // on each side), so it can fill in when the view moves or zooms out.
+    const Wv = canvas.clientWidth, Hv = canvas.clientHeight;
+    const mx = Math.round(Wv * MARGIN), my = Math.round(Hv * MARGIN), W = Wv + 2 * mx, H = Hv + 2 * my;
     sizeCanvas(back, W, H, dpr);
     preview();
     // Never finer than one cell (16 m on screen): the map has no more detail
@@ -197,7 +201,7 @@
     M.grunn.done = false;
     // Zoomed in far enough (the view's width on screen under secZoom): build
     // the per-section rivers for every visible section, once.
-    const viewM = (W * view.mpp) / state.scaleH;
+    const viewM = (Wv * view.mpp) / state.scaleH;
     useSections = !!sections && viewM <= state.secZoom;
     lod.river = viewM <= state.lodRiver * 1000;
     lod.dep = viewM <= state.lodDep * 1000;
@@ -222,8 +226,9 @@
       const last = ++k >= passes.length;
       if (!shownView) {
         // First picture: straight on screen, pass by pass.
-        sizeCanvas(canvas, W, H, dpr);
-        ctx.drawImage(back, 0, 0);
+        sizeCanvas(canvas, Wv, Hv, dpr);
+        ctx.drawImage(back, -mx * dpr, -my * dpr);
+        drawScale();
         if (last) keep(target);
         else requestAnimationFrame(step);
         return;
@@ -241,8 +246,9 @@
         ctx.globalAlpha = 1;
         ctx.drawImage(from, 0, 0);
         ctx.globalAlpha = a * a * (3 - 2 * a);
-        ctx.drawImage(back, 0, 0);
+        ctx.drawImage(back, -mx * dpr, -my * dpr);
         ctx.globalAlpha = 1;
+        drawScale();
         if (a < 1) requestAnimationFrame(fade);
         else keep(target);
       };
@@ -395,16 +401,20 @@
     }
     bctx.putImageData(img, 0, 0);
     if (state.showNodes && useSections) drawNodes(W, H, dpr);
-    // Scale bar, no box.
-    bctx.save();
-    bctx.scale(dpr, dpr);
+  }
+  // Scale bar, on the screen itself (not in the picture), for the current
+  // view, so it does not move or scale with the old picture.
+  function drawScale() {
+    const dpr = window.devicePixelRatio || 1, H = canvas.clientHeight;
+    ctx.save();
+    ctx.scale(dpr, dpr);
     // On screen units: metres per pixel after the scale.
     const mpp = view.mpp / state.scaleH, m = niceKm(120 * mpp), len = m / mpp;
-    bctx.fillStyle = 'rgba(20,20,24,0.8)';
-    bctx.fillRect(16, H - 20, len, 3);
-    bctx.font = '12px system-ui, sans-serif';
-    bctx.fillText(m >= 1000 ? `${(m / 1000).toLocaleString('nb-NO')} km` : `${m.toLocaleString('nb-NO')} m`, 16, H - 26);
-    bctx.restore();
+    ctx.fillStyle = 'rgba(20,20,24,0.8)';
+    ctx.fillRect(16, H - 20, len, 3);
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillText(m >= 1000 ? `${(m / 1000).toLocaleString('nb-NO')} km` : `${m.toLocaleString('nb-NO')} m`, 16, H - 26);
+    ctx.restore();
   }
   // The stored bottom points and links of the visible sections: line links
   // dark blue, bridges red, downhill walks orange, rings violet.
@@ -432,9 +442,33 @@
     bctx.restore();
   }
   // The finished picture becomes the one kept on screen.
+  // The kept picture fades out over its margin, so where it ends it glides
+  // into the quick base picture under it.
+  const MARGIN = 0.15;
+  let fadeMask = null;
   function keep(target) {
-    sizeCanvas(shown, target.W, target.H, window.devicePixelRatio || 1);
+    const dpr = window.devicePixelRatio || 1;
+    sizeCanvas(shown, target.W, target.H, dpr);
+    sctx.globalCompositeOperation = 'copy';
     sctx.drawImage(back, 0, 0);
+    if (!fadeMask || fadeMask.width !== shown.width || fadeMask.height !== shown.height) {
+      fadeMask = document.createElement('canvas');
+      fadeMask.width = shown.width;
+      fadeMask.height = shown.height;
+      const m = fadeMask.getContext('2d'), w = shown.width, h = shown.height, fx = (MARGIN / (1 + 2 * MARGIN)) * w, fy = (MARGIN / (1 + 2 * MARGIN)) * h;
+      const img = m.createImageData(w, h), d = img.data;
+      for (let y = 0; y < h; y++) {
+        const ay = Math.min(1, Math.min(y, h - 1 - y) / fy);
+        for (let x = 0; x < w; x++) {
+          const ax = Math.min(1, Math.min(x, w - 1 - x) / fx), a = Math.min(ax, ay);
+          d[(y * w + x) * 4 + 3] = 255 * a * a * (3 - 2 * a);
+        }
+      }
+      m.putImageData(img, 0, 0);
+    }
+    sctx.globalCompositeOperation = 'destination-in';
+    sctx.drawImage(fadeMask, 0, 0);
+    sctx.globalCompositeOperation = 'source-over';
     shownView = target;
     M.grunn.done = true;
   }
