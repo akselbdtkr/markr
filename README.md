@@ -321,6 +321,10 @@ rutetype), med skygge fra helningen. Landskapet under vises ikke.
   `src/bychunk.js`), og formlene i felt på 64 × 64 ruter med en kant på 3 ruter som regnes men
   ikke tegnes, så feltene passer sammen.
 - Langt ute lagres hvert felt som et bilde per zoomtrinn.
+- Kystruter (land ved havet) er sandfarget. Bredderuter (land ved elva) har en overgangsfarge mot
+  blått. En rute er elv allerede når elva dekker 10 % av den, så smale elver blir en sammenhengende
+  linje. Elvene per seksjon bygges før høydene leses.
+- Egger og daler får et hardt lyst eller mørkt trinn etter hvor sterk eggen eller dalen er.
 - Innstillinger kopiert fra grunnvinduet kan limes inn.
 
 ## Ruteformler

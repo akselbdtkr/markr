@@ -112,8 +112,8 @@
     // Rivers: the river's cells lie just under their own water level, so the
     // formula reads them as river and their banks as a shore.
     p.waterLevel = (x, y) => {
-      const [ch, q] = cellData(cellOf(x), cellOf(y));
-      return ch.cls[q] === 4 ? ch.h[q] + 0.5 : null;
+      const i = cellOf(x), j = cellOf(y);
+      return wetOf(i, j) === 2 ? H(i, j) + 0.5 : null;
     };
     p.firmness = (x, y) => {
       const [ch, q] = cellData(cellOf(x), cellOf(y));
@@ -124,28 +124,76 @@
 
   // --- colours ---------------------------------------------------------------
   const SEA = [61, 111, 168], RIVER = [72, 128, 186];
+  const SAND = [226, 210, 160], RIDGE = [252, 246, 230], VALLEY = [46, 78, 58];
   const KIND_RGB = { water: SEA, river: RIVER, coast: [226, 208, 150], ridge: [176, 108, 84], valley: [104, 156, 104], peak: [150, 70, 60], pit: [70, 120, 130], flat: [214, 210, 196] };
   const KIND_NAMES = { water: 'hav', river: 'elv', coast: 'kyst', ridge: 'egg', valley: 'dal', peak: 'topp', pit: 'bunn', flat: 'flat' };
   const LIGHT = (() => {
     const l = [-1, -1, 1.4], n = Math.hypot(...l);
     return l.map((v) => v / n);
   })();
+  // Water under a cell: 0 none, 1 sea, 2 river. A river counts already
+  // when it covers a small share of the cell (RIVER_COVER), so narrow
+  // rivers stay an unbroken line of cells.
+  const RIVER_COVER = 0.1;
+  function wetOf(i, j) {
+    const [ch, q] = cellData(i, j);
+    if (ch.cls[q] === 4 || ch.cov[q] >= RIVER_COVER) return 2;
+    if (ch.cls[q] === 0 || ch.h[q] < 0) return 1;
+    return 0;
+  }
+  const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  // What a cell is drawn as: hav, elv, kyst (land next to the sea: sand),
+  // bredde (land next to a river: halfway to blue) or land.
+  function cellRole(c, i, j) {
+    const wet = wetOf(i, j);
+    if (c.kind === 'water' || wet === 1) return 'sea';
+    if (c.kind === 'river' || wet === 2) return 'river';
+    // A shore cell under its water level is water: the sea reaches the coast.
+    if (c.kind === 'coast' && c.h < 0) return c.level > 0 ? 'river' : 'sea';
+    let sea = 0, river = 0;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      if (!di && !dj) continue;
+      const w = wetOf(i + di, j + dj);
+      if (w === 1) sea++;
+      else if (w === 2) river++;
+    }
+    if (sea || (c.kind === 'coast' && !(c.level > 0))) return 'coast';
+    if (river || c.kind === 'coast') return 'bank';
+    return 'land';
+  }
+  const S = (a, b, v) => {
+    const t = Math.max(0, Math.min(1, (v - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
   function cellColour(c, i, j) {
+    const role = cellRole(c, i, j);
+    c.role = role;
+    if (role === 'sea') return `rgb(${SEA.join(',')})`;
+    if (role === 'river') return `rgb(${RIVER.join(',')})`;
+    // Ridges and valleys: a hard step, from the strength of the edge.
+    const e = S(0.35, 0.6, c.edge || 0);
     let rgb;
-    if (c.kind === 'water') rgb = SEA;
-    else if (c.kind === 'river') rgb = RIVER;
-    else if (state.colour === 'kind') rgb = KIND_RGB[c.kind] || KIND_RGB.flat;
-    else {
+    if (state.colour === 'kind') {
+      rgb = e > 0.5 && KIND_RGB[c.kind] ? KIND_RGB[c.kind] : KIND_RGB.flat;
+    } else {
       const [ch, q] = cellData(i, j);
       rgb = [ch.rgb[3 * q], ch.rgb[3 * q + 1], ch.rgb[3 * q + 2]];
+      // Tops and pits count like ridges and valleys, by their edge, so small
+      // bumps on flat land do not show as dots.
+      if (c.kind === 'ridge' || c.kind === 'peak') rgb = mix(rgb, RIDGE, 0.55 * e);
+      else if (c.kind === 'valley' || c.kind === 'pit') rgb = mix(rgb, VALLEY, 0.45 * e);
     }
+    if (role === 'coast') rgb = SAND;
+    else if (role === 'bank') rgb = mix(rgb, RIVER, 0.5);
     let k = 1;
-    if (state.shade && c.kind !== 'water' && c.kind !== 'river') {
-      // Lambert light from the top left, from the cell's real slope.
+    if (state.shade) {
+      // Lambert light from the top left, from the cell's real slope; less on
+      // sand and banks, so they stay a clear band.
       const gx = (H(i + 1, j) - H(i - 1, j)) / (2 * C), gy = (H(i, j + 1) - H(i, j - 1)) / (2 * C);
       const n = Math.hypot(gx, gy, 1);
       const d = (-gx * LIGHT[0] - gy * LIGHT[1] + LIGHT[2]) / n;
-      k = 0.55 + 0.45 * Math.max(0, d) / LIGHT[2];
+      k = 0.55 + (0.45 * Math.max(0, d)) / LIGHT[2];
+      if (role !== 'land') k = 0.85 + 0.15 * k;
     }
     // Quantised, so the cells share a few paths.
     const qz = (v) => Math.max(0, Math.min(255, Math.round((v * k) / 6) * 6));
@@ -235,9 +283,10 @@
 
   // A tile's cells, filled, on a context already set to metres; k: device
   // pixels per metre.
-  function paintTile(g, t, k) {
-    // A thin stroke in the fill's own colour closes the seams between cells.
-    g.lineWidth = 0.6 / k;
+  function paintTile(g, t, k, seam = 0.6) {
+    // A thin stroke in the fill's own colour closes the seams between cells
+    // (wider in tile images, so they overlap their neighbours a little).
+    g.lineWidth = seam / k;
     g.lineJoin = 'round';
     for (const [col, path] of t.fills) {
       g.fillStyle = col;
@@ -266,7 +315,7 @@
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, px, px);
     g.setTransform(step, 0, 0, step, -(a * ts - PAD) * step, -(b * ts - PAD) * step);
-    paintTile(g, t, step);
+    paintTile(g, t, step, 1.4);
     t.img = c;
     t.imgKey = key;
     return c;
@@ -442,7 +491,8 @@
     const c = hit.c, [ch, q] = cellData(cellOf(x), cellOf(y));
     const type = ch.cls[q] === 0 || ch.cls[q] === 4 ? '–' : M.RegionLayer.TYPES[ch.type[q]].name;
     const rows = [
-      ['Rute', KIND_NAMES[c.kind] || c.kind],
+      ['Rute', ({ sea: 'hav', river: 'elv', coast: 'kyst', bank: 'bredde' })[c.role] || KIND_NAMES[c.kind] || c.kind],
+      ['Egg/dal-styrke', (c.edge || 0).toFixed(2).replace('.', ',')],
       ['Høyde', `${Math.round(c.h + (c.level || 0))} m`],
       ['Helning', `${c.slope.toFixed(1).replace('.', ',')}°`],
       ['Landskap', type],
@@ -464,8 +514,10 @@
       schedule();
     });
   }
-  $('kindLegend').innerHTML = Object.keys(KIND_RGB).map((k) => `<span><i style="background:rgb(${KIND_RGB[k].join(',')})"></i>${KIND_NAMES[k]}</span>`).join('');
-  $('typeLegend').innerHTML = M.RegionLayer.TYPES.map((t) => `<span><i style="background:rgb(${t.colour.join(',')})"></i>${t.name}</span>`).join('') + `<span><i style="background:rgb(${SEA.join(',')})"></i>vann</span>`;
+  const sw = (rgb, name) => `<span><i style="background:rgb(${rgb.map(Math.round).join(',')})"></i>${name}</span>`;
+  const WATER_LEGEND = sw(SAND, 'kyst') + sw(mix([168, 176, 120], RIVER, 0.5), 'bredde') + sw(SEA, 'vann');
+  $('kindLegend').innerHTML = ['ridge', 'valley', 'peak', 'pit', 'flat'].map((k) => sw(KIND_RGB[k], KIND_NAMES[k])).join('') + WATER_LEGEND;
+  $('typeLegend').innerHTML = M.RegionLayer.TYPES.map((t) => sw(t.colour, t.name)).join('') + sw(RIDGE, 'egg') + sw(VALLEY, 'dal') + WATER_LEGEND;
   $('outline').addEventListener('change', (e) => {
     state.outline = e.target.checked;
     schedule();

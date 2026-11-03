@@ -14,6 +14,6 @@ self.onmessage = (e) => {
   }
   if (m.type === 'chunk' && m.gen === gen) {
     const ch = self.Markr.byChunk(chain, state, m.ci, m.cj);
-    self.postMessage({ type: 'chunk', gen, ci: m.ci, cj: m.cj, ch }, [ch.h.buffer, ch.cls.buffer, ch.firm.buffer, ch.rgb.buffer, ch.type.buffer]);
+    self.postMessage({ type: 'chunk', gen, ci: m.ci, cj: m.cj, ch }, [ch.h.buffer, ch.cls.buffer, ch.firm.buffer, ch.rgb.buffer, ch.type.buffer, ch.cov.buffer]);
   }
 };

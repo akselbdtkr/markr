@@ -7,7 +7,16 @@
   M.BY_CHUNK = 32; // cells per side
   M.byChunk = function (chain, state, ci, cj) {
     const N = M.BY_CHUNK, n = N * N, C = 16, s = state.scaleH;
-    const ch = { h: new Float32Array(n), cls: new Uint8Array(n), firm: new Float32Array(n), rgb: new Uint8Array(3 * n), type: new Uint8Array(n) };
+    const ch = { h: new Float32Array(n), cls: new Uint8Array(n), firm: new Float32Array(n), rgb: new Uint8Array(3 * n), type: new Uint8Array(n), cov: new Float32Array(n) };
+    // The rivers per section must be built before they are read: without
+    // them only the rivers worked out point by point show.
+    const sec = chain.sections;
+    if (sec) {
+      const x0 = ci * N * C * s, x1 = (ci + 1) * N * C * s, y0 = cj * N * C * s, y1 = (cj + 1) * N * C * s;
+      for (let sj = Math.floor(y0 / sec.size); sj <= Math.floor((y1 - 1) / sec.size); sj++) {
+        for (let si = Math.floor(x0 / sec.size); si <= Math.floor((x1 - 1) / sec.size); si++) sec.build(si, sj);
+      }
+    }
     for (let b = 0; b < N; b++) {
       for (let a = 0; a < N; a++) {
         const i = ci * N + a, j = cj * N + b, q = b * N + a;
@@ -15,6 +24,7 @@
         ch.h[q] = f.h / state.scaleV;
         ch.cls[q] = f.cls;
         ch.firm[q] = f.region ? f.region.firm : 0.5;
+        ch.cov[q] = f.tint || 0; // a river narrower than the cell: the share it covers
         const col = f.region ? M.RegionLayer.colour(f.region.w) : [214, 212, 206];
         ch.rgb[3 * q] = col[0];
         ch.rgb[3 * q + 1] = col[1];
