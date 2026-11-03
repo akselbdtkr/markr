@@ -28,6 +28,31 @@
   };
 
   const canvas = document.getElementById('map'), ctx = canvas.getContext('2d');
+  // Drawing happens off screen (back); the last finished picture (shown,
+  // with the view it was drawn for) stays on screen, moved and scaled to
+  // the current view, until the new one is ready and fades in over it.
+  const back = document.createElement('canvas'), bctx = back.getContext('2d');
+  const shown = document.createElement('canvas'), sctx = shown.getContext('2d');
+  let shownView = null, fadeJob = 0;
+  function preview() {
+    if (!shownView) return;
+    const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+    sizeCanvas(canvas, W, H, dpr);
+    const k = shownView.mpp / view.mpp;
+    const x = ((shownView.cx - (shownView.W / 2) * shownView.mpp - view.cx) / view.mpp + W / 2) * dpr;
+    const y = ((shownView.cy - (shownView.H / 2) * shownView.mpp - view.cy) / view.mpp + H / 2) * dpr;
+    ctx.fillStyle = '#3d6fa8';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = k < 1;
+    ctx.drawImage(shown, x, y, shown.width * k, shown.height * k);
+  }
+  function sizeCanvas(c, W, H, dpr) {
+    const w = Math.round(W * dpr), h = Math.round(H * dpr);
+    if (c.width !== w || c.height !== h) {
+      c.width = w;
+      c.height = h;
+    }
+  }
   const prof = document.getElementById('profile');
   const view = { cx: 0, cy: 0, mpp: 2500 };
   let local = null, layer = null, region = null, dep = null, river = null, sections = null, useSections = false, job = 0, hover = null, pixNow = 0;
@@ -80,7 +105,7 @@
       band = d.band;
     }
     // Rivers: class 4 (elv), on land only.
-    let water = false, sea = false, tint = 0, edge = Infinity;
+    let water = false, sea = false, tint = 0, edge = Infinity, ew = 0;
     // Large views draw only large rivers: skip the river sum where even the
     // widest river here would be under two drawn points (no section step).
     const small = !withSections && r && river && river.maxWidth(layer.height(v0), r.firm) < 2 * pixNow;
@@ -92,6 +117,7 @@
       water = rv.water;
       sea = !!rv.sea;
       edge = rv.edge;
+      ew = rv.ew ?? 0;
     }
     const cls = sea ? 0 : water ? 4 : layer.cls(v);
     let h = layer.height(v);
@@ -104,7 +130,10 @@
       // Firm ground gives mountain forms too, whatever the type.
       const firmM = state.mtFirm * Math.max(0, Math.min(1, (r.firm - 0.45) / 0.4));
       const mount = Math.min(1, Math.max(r.w[3], firmM) + state.mtDiv * Math.max(0, Math.min(1, (v - state.tDivide + 0.3) / 0.8)));
-      h = Math.max(0.5 * state.scaleV, h + local.at(x, y, r.pos, band, sw, edge, mount, r.firm, h / Math.max(1, layer.height(state.tDivide))));
+      // Toward the sea the local layer fades out, so the coast has no cliff.
+      const coast = Math.max(0, Math.min(1, (v - state.tSea) / 0.3));
+      const k = coast * coast * (3 - 2 * coast);
+      h = Math.max(0.5 * state.scaleV, h + k * local.at(x, y, r.pos, band, sw, edge, mount, r.firm, h / Math.max(1, layer.height(state.tDivide)), ew));
     }
     return { v, h, cls, region: r, band, tint };
   }
@@ -137,12 +166,15 @@
     const id = ++job;
     const dpr = window.devicePixelRatio || 1;
     const W = canvas.clientWidth, H = canvas.clientHeight;
-    canvas.width = Math.round(W * dpr);
-    canvas.height = Math.round(H * dpr);
+    sizeCanvas(back, W, H, dpr);
+    preview();
     // Never finer than one cell (16 m on screen): the map has no more detail
     // than the game's cells, so close up the passes stop at the cell size.
     const cellPx = (16 * state.scaleH) / view.mpp;
-    const passes = [Math.max(8, 4 * cellPx), Math.max(3, 2 * cellPx), Math.max(1.5, cellPx)];
+    // With a picture already on screen only the sharp pass is drawn (off
+    // screen), then faded in; the first time, coarse passes show at once.
+    const passes = shownView ? [Math.max(1.5, cellPx)] : [Math.max(8, 4 * cellPx), Math.max(3, 2 * cellPx), Math.max(1.5, cellPx)];
+    const target = { cx: view.cx, cy: view.cy, mpp: view.mpp, W, H };
     let k = 0;
     M.grunn.done = false;
     // Zoomed in far enough (the view's width on screen under secZoom): build
@@ -169,10 +201,37 @@
       const t0 = performance.now();
       draw(passes[k], W, H, dpr);
       M.grunn.lastPass = { block: passes[k], ms: performance.now() - t0 };
-      if (++k < passes.length) requestAnimationFrame(step);
-      else M.grunn.done = true;
+      const last = ++k >= passes.length;
+      if (!shownView) {
+        // First picture: straight on screen, pass by pass.
+        sizeCanvas(canvas, W, H, dpr);
+        ctx.drawImage(back, 0, 0);
+        if (last) keep(target);
+        else requestAnimationFrame(step);
+        return;
+      }
+      if (!last) return requestAnimationFrame(step);
+      // Cross-fade from what is on screen to the new picture.
+      const from = document.createElement('canvas');
+      from.width = canvas.width;
+      from.height = canvas.height;
+      from.getContext('2d').drawImage(canvas, 0, 0);
+      const f = ++fadeJob, t1 = performance.now(), dur = 260;
+      const fade = () => {
+        if (f !== fadeJob || id !== job) return;
+        const a = Math.min(1, (performance.now() - t1) / dur);
+        ctx.globalAlpha = 1;
+        ctx.drawImage(from, 0, 0);
+        ctx.globalAlpha = a * a * (3 - 2 * a);
+        ctx.drawImage(back, 0, 0);
+        ctx.globalAlpha = 1;
+        if (a < 1) requestAnimationFrame(fade);
+        else keep(target);
+      };
+      fade();
     };
-    step();
+    // Let the moved old picture show before the new one is worked out.
+    requestAnimationFrame(step);
   }
 
   function draw(block, W, H, dpr) {
@@ -241,7 +300,7 @@
         if (on.type && cl[k] > 0 && f.region) setCol(k, M.RegionLayer.colour(f.region.w), 1);
       }
     }
-    const img = ctx.createImageData(canvas.width, canvas.height), px = img.data;
+    const img = bctx.createImageData(back.width, back.height), px = img.data;
     const bs = block * dpr, dash = Math.max(3, 7 / block); // dash length in blocks
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
@@ -304,9 +363,9 @@
           if (edge && Math.floor((i + j) / dash) % 2 === 0) c = [40, 40, 44];
         }
         const sx0 = Math.floor(i * bs), sy0 = Math.floor(j * bs);
-        const sx1 = Math.min(canvas.width, Math.floor((i + 1) * bs)), sy1 = Math.min(canvas.height, Math.floor((j + 1) * bs));
+        const sx1 = Math.min(back.width, Math.floor((i + 1) * bs)), sy1 = Math.min(back.height, Math.floor((j + 1) * bs));
         for (let y = sy0; y < sy1; y++) {
-          let o = (y * canvas.width + sx0) * 4;
+          let o = (y * back.width + sx0) * 4;
           for (let x = sx0; x < sx1; x++, o += 4) {
             px[o] = c[0];
             px[o + 1] = c[1];
@@ -316,43 +375,50 @@
         }
       }
     }
-    ctx.putImageData(img, 0, 0);
+    bctx.putImageData(img, 0, 0);
     if (state.showNodes && useSections) drawNodes(W, H, dpr);
     // Scale bar, no box.
-    ctx.save();
-    ctx.scale(dpr, dpr);
+    bctx.save();
+    bctx.scale(dpr, dpr);
     // On screen units: metres per pixel after the scale.
     const mpp = view.mpp / state.scaleH, m = niceKm(120 * mpp), len = m / mpp;
-    ctx.fillStyle = 'rgba(20,20,24,0.8)';
-    ctx.fillRect(16, H - 20, len, 3);
-    ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText(m >= 1000 ? `${(m / 1000).toLocaleString('nb-NO')} km` : `${m.toLocaleString('nb-NO')} m`, 16, H - 26);
-    ctx.restore();
+    bctx.fillStyle = 'rgba(20,20,24,0.8)';
+    bctx.fillRect(16, H - 20, len, 3);
+    bctx.font = '12px system-ui, sans-serif';
+    bctx.fillText(m >= 1000 ? `${(m / 1000).toLocaleString('nb-NO')} km` : `${m.toLocaleString('nb-NO')} m`, 16, H - 26);
+    bctx.restore();
   }
   // The stored bottom points and links of the visible sections: line links
   // dark blue, bridges red, downhill walks orange, rings violet.
   function drawNodes(W, H, dpr) {
     const X = (x) => ((x - view.cx) / view.mpp + W / 2) * dpr, Y = (y) => ((y - view.cy) / view.mpp + H / 2) * dpr;
     const colour = { line: '#1d3f7a', bridge: '#d4302a', tributary: '#2fa84a', walk: '#e08a1e', source: '#1fa6c9', lake: '#5b6b7a', loose: '#8c9aa8' };
-    ctx.save();
-    ctx.lineWidth = 1.5 * dpr;
+    bctx.save();
+    bctx.lineWidth = 1.5 * dpr;
     for (const [, gr] of sections.graphs) {
       for (const sg of gr.segs) {
-        ctx.strokeStyle = colour[sg.kind];
-        ctx.beginPath();
-        ctx.moveTo(X(sg.a.x), Y(sg.a.y));
-        ctx.lineTo(X(sg.b.x), Y(sg.b.y));
-        ctx.stroke();
+        bctx.strokeStyle = colour[sg.kind];
+        bctx.beginPath();
+        bctx.moveTo(X(sg.a.x), Y(sg.a.y));
+        bctx.lineTo(X(sg.b.x), Y(sg.b.y));
+        bctx.stroke();
       }
-      ctx.strokeStyle = '#8a3fb8';
+      bctx.strokeStyle = '#8a3fb8';
       for (const r of gr.rings) {
-        ctx.beginPath();
-        r.poly.forEach((n, i) => (i ? ctx.lineTo(X(n.x), Y(n.y)) : ctx.moveTo(X(n.x), Y(n.y))));
-        ctx.closePath();
-        ctx.stroke();
+        bctx.beginPath();
+        r.poly.forEach((n, i) => (i ? bctx.lineTo(X(n.x), Y(n.y)) : bctx.moveTo(X(n.x), Y(n.y))));
+        bctx.closePath();
+        bctx.stroke();
       }
     }
-    ctx.restore();
+    bctx.restore();
+  }
+  // The finished picture becomes the one kept on screen.
+  function keep(target) {
+    sizeCanvas(shown, target.W, target.H, window.devicePixelRatio || 1);
+    sctx.drawImage(back, 0, 0);
+    shownView = target;
+    M.grunn.done = true;
   }
   const niceKm = (v) => {
     const e = Math.pow(10, Math.floor(Math.log10(v))), f = v / e;
@@ -930,6 +996,7 @@
       if (pinch) zoom(pinch / dist, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, false);
       pinch = dist;
     }
+    preview();
     later(render);
   });
   const up = (e) => {
@@ -949,6 +1016,7 @@
     view.mpp = Math.max(1, Math.min(20000, view.mpp * f));
     view.cx = wx - (sx - W / 2) * view.mpp;
     view.cy = wy - (sy - H / 2) * view.mpp;
+    preview();
     if (now) later(render);
   }
   canvas.addEventListener('wheel', (e) => {
@@ -1010,6 +1078,6 @@
     return { mean: sum / (n * n), lo, hi, share: share.map((s) => s / (n * n)), seas: sizes.length, small: sizes.filter((z) => z < 10).length, largestSea: share[0] ? sizes[0] / share[0] : 0 };
   }
 
-  M.grunn = { state, view, rebuild, render, stats, full, get sections() { return sections; }, get layer() { return layer; }, get river() { return river; } };
+  M.grunn = { state, view, rebuild, render, stats, full, get local() { return local; }, get sections() { return sections; }, get layer() { return layer; }, get river() { return river; } };
   rebuild();
 })(window.Markr = window.Markr || {});

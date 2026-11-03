@@ -107,7 +107,7 @@
       // level.
       const vSurf = bp.tSea + 0.005 + Math.max(0, Math.min(largeQ, vq) - p.riverDrop - bp.tSea) * p.riverRise;
       const nearSea = p.riverBraid * (1 - S(bp.tSea, bp.tSea + 0.35, vq));
-      return { d, qx, qy, tx: -ny / g, ty: nx / g, W, vSurf, fade, firm, plain: w[0], nearSea };
+      return { d, qx, qy, tx: -ny / g, ty: nx / g, W, vSurf, fade, firm, plain: w[0], nearSea, vq };
     }
 
     // A bottom point stepped exactly onto the line: one more Newton step from
@@ -139,11 +139,15 @@
     // the river, water true inside a channel. mask, when given ({ water,
     // vSurf } from the per-section step), decides the water instead.
     at(x, y, v, mask) {
-      const p = this.p, b = this.base;
+      const p = this.p, b = this.base, bp = b.p;
       const bt = this.bottom(x, y);
       if (mask && mask.water) return { v: Math.min(v, mask.vSurf), water: true, sea: mask.sea, edge: 0 };
       if (!bt) return { v, water: false, edge: Infinity };
       const { d, qx, qy, W, vSurf, fade, firm, nearSea } = bt;
+      // How much this river counts for what lies around it: it fades in as
+      // the river does (and near the sea), so nothing switches on abruptly
+      // where the river ends.
+      const ew = S(0.02, 0.3, fade) * S(bp.tSea, bp.tSea + 0.05, bt.vq);
       // Near the water: a wider corridor split into channels.
       let water = false;
       // Banks: the edge moves in and out by up to p.bank, by a noise along
@@ -161,7 +165,7 @@
       // The section step adds water (links, lakes) and removes rings; it does
       // not take away a river that is already whole here.
       if (mask && mask.remove) water = false;
-      if (water) return { v: Math.min(v, vSurf), water: true, edge: 0 };
+      if (water) return { v: Math.min(v, vSurf), water: true, edge: 0, ew: 1 };
       // The zone around: the land slopes down toward the water. Its size
       // follows firmness (loose is wider) and a slow noise.
       const zn = this.nz(qx / 40000, qy / 40000);
@@ -170,14 +174,16 @@
       // widens with the drop from the land down to the water.
       if (p.riverSlope > 0) {
         const drop = Math.max(0, b.height(v) - b.height(vSurf)) / (p.scaleV || 1);
-        Z = Math.max(Z, ((drop / Math.tan((p.riverSlope * Math.PI) / 180)) * (p.scaleH || 1)) * Math.min(1, 2 * fade));
+        // Never wider than the reach the river is worked out in, or the
+        // zone would stop short with a cliff where the reach ends.
+        Z = Math.min(Z + (p.riverReach || 0), Math.max(Z, ((drop / Math.tan((p.riverSlope * Math.PI) / 180)) * (p.scaleH || 1)) * Math.min(1, 2 * fade)));
       }
       const edge = half * (1 + 1.2 * nearSea);
-      if (d >= edge + Z) return { v, water: false, edge: d - edge };
+      if (d >= edge + Z) return { v, water: false, edge: d - edge, ew };
       const t = (d - edge) / Math.max(1, Z);
       const bank = vSurf + (v - vSurf) * t; // a straight bank up to the land
-      const k = 1 - S(0, 1, t);
-      return { v: v + k * (Math.min(v, bank) - v), water: false, edge: d - edge };
+      const k = (1 - S(0, 1, t)) * ew; // fades in with the river
+      return { v: v + k * (Math.min(v, bank) - v), water: false, edge: d - edge, ew };
     }
   }
 

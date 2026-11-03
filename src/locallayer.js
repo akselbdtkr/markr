@@ -93,7 +93,7 @@
     // distance from a river's water (sim units), or Infinity.
     // mount: how much of a mountain the point is (fjellsk share, and more
     // the higher above the divide threshold).
-    at(x, y, pos, band, sw, edge, mount = 0, firm = 0.5, hRel = 0) {
+    at(x, y, pos, band, sw, edge, mount = 0, firm = 0.5, hRel = 0, ew = 1) {
       const p = this.p;
       // Firmness: loose ground is lower and softer, firm ground higher and
       // sharper (locFirm sets how much).
@@ -165,7 +165,7 @@
       }
       // Near the water the detail fades out, so banks run down to it.
       if (edge < Infinity) {
-        const k = S(0, Math.max(1, p.locBank), edge);
+        const k = 1 - ew * (1 - S(0, Math.max(1, p.locBank), edge));
         dz *= k;
         for (let q = 0; q < 3; q++) parts[q] *= k;
       }
