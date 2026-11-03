@@ -260,14 +260,17 @@ detaljer» (25°) og «Brattest, fjell og skar» (75°). I fjellsk dempes nedsen
 til vannet, så breddene ikke blir brattere enn «Brattest mot elva» (15°). Nedsenkene har også en
 grense («Brattest side»): dybden begrenses av halve bredden.
 
-**Zoom og flytting:** det nye bildet tegnes utenfor skjermen. Imens står det forrige bildet,
+**Zoom og flytting:** grunnlagene og mellomlaget tegnes først, i grove ruter, så land og hav
+er på plass med en gang, også utenfor det gamle bildet når du zoomer ut. Det nye bildet tegnes utenfor skjermen. Imens står det forrige bildet,
 flyttet og skalert til det nye utsnittet. Når det nye er ferdig, kryssfades det inn over det
 gamle.
 
 **Ingen brå sprang:** sonen rundt elva er aldri bredere enn rekkevidden elva regnes ut i, og
 den, og dempingen av det lokale laget nær elva, tones inn med elva. Før kunne landet falle
 mange hundre meter på én rute der sonen stoppet. Mot havet tones det lokale laget ut, så
-kysten ikke får stup.
+kysten ikke får stup. Langs nedsenkene gir fjellegger og skar etter («Lokale lag», 80 % i
+bunnen av et nedsenk), så dalen går jevnt inn i fjellet. Nær elva tones det lokale laget ut
+over så lang avstand som trengs for at fallet holder seg under «Brattest mot elva».
 
 **Forenkling langt ute:** lagene skrus av ett og ett etter hvor stort utsnittet er på
 skjermen: elver over 60 km, nedsenkslaget over 150 km og områdelagene over 300 km. Da står

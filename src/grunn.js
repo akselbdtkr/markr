@@ -34,15 +34,30 @@
   const back = document.createElement('canvas'), bctx = back.getContext('2d');
   const shown = document.createElement('canvas'), sctx = shown.getContext('2d');
   let shownView = null, fadeJob = 0;
+  // A quick picture from the base layers and the middle layer alone, in
+  // coarse blocks: where land and sea are is known at once, before the other
+  // layers come in.
+  function quickBase(W, H, dpr) {
+    if (!layer) return;
+    const B = 10, nx = Math.ceil(W / B), ny = Math.ceil(H / B);
+    const x0 = view.cx - (W / 2) * view.mpp, y0 = view.cy - (H / 2) * view.mpp, d = B * view.mpp;
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const v = layer.value(x0 + (i + 0.5) * d, y0 + (j + 0.5) * d);
+        const c = layer.cls(v) === 0 ? SEA : state.mono || state.slopeView ? landColour(layer.height(v)) : [196, 200, 150];
+        ctx.fillStyle = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+        ctx.fillRect(Math.floor(i * B * dpr), Math.floor(j * B * dpr), Math.ceil(B * dpr) + 1, Math.ceil(B * dpr) + 1);
+      }
+    }
+  }
   function preview() {
-    if (!shownView) return;
     const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
     sizeCanvas(canvas, W, H, dpr);
+    quickBase(W, H, dpr);
+    if (!shownView) return;
     const k = shownView.mpp / view.mpp;
     const x = ((shownView.cx - (shownView.W / 2) * shownView.mpp - view.cx) / view.mpp + W / 2) * dpr;
     const y = ((shownView.cy - (shownView.H / 2) * shownView.mpp - view.cy) / view.mpp + H / 2) * dpr;
-    ctx.fillStyle = '#3d6fa8';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.imageSmoothingEnabled = k < 1;
     ctx.drawImage(shown, x, y, shown.width * k, shown.height * k);
   }

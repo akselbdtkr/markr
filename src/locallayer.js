@@ -154,6 +154,14 @@
         parts[2] = -cw * cap(p.cutH * p.scaleV, Lc, p.mtSlope, 3, 0.5) * cut * high * (mount > 0 ? 0.4 + 0.6 * this.crest : 0.6);
         dz += parts[2];
       }
+      // Along a depression the mountains and cols give way, so the valley
+      // runs smoothly into the mountain instead of meeting it with a wall.
+      if (band > 0 && (parts[1] || parts[2])) {
+        const g = 1 - (p.locDep ?? 0.8) * Math.min(1, band);
+        dz -= (parts[1] + parts[2]) * (1 - g);
+        parts[1] *= g;
+        parts[2] *= g;
+      }
       if (dz === 0) return 0;
       if (band > 0 && sw) {
         // Floor damped, sides strengthened, by the valley profile.
@@ -165,7 +173,11 @@
       }
       // Near the water the detail fades out, so banks run down to it.
       if (edge < Infinity) {
-        const k = 1 - ew * (1 - S(0, Math.max(1, p.locBank), edge));
+        // The fade toward the water is as wide as the change needs to stay
+        // under the bank slope (riverSlope), up to the river's reach.
+        const need = p.riverSlope > 0 ? ((Math.abs(dz) / p.scaleV) / Math.tan((p.riverSlope * Math.PI) / 180)) * p.scaleH : 0;
+        const dist = Math.min(Math.max(p.locBank, need), Math.max(p.locBank, 0.8 * (p.riverReach || 0)));
+        const k = 1 - ew * (1 - S(0, Math.max(1, dist), edge));
         dz *= k;
         for (let q = 0; q < 3; q++) parts[q] *= k;
       }
